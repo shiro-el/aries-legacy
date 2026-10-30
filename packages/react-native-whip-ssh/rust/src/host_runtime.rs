@@ -22,6 +22,7 @@ mod host_latency;
 pub use herdr_setup::{HerdrInstallOutcome, HerdrInstallationStatus, HerdrSetup};
 mod interaction;
 pub use interaction::{AgentInteractionChoice, AgentInteractionKind, AgentInteractionPrompt};
+mod call_log;
 mod monitoring;
 mod notifications;
 mod remote_files;
@@ -449,6 +450,7 @@ struct RuntimeState {
     host_state: HostState,
     agent_order: Option<Vec<String>>,
     notification_install: Option<notifications::PluginInstallation>,
+    call_log: Option<call_log::CallLogStream>,
 }
 
 impl RuntimeState {
@@ -472,6 +474,7 @@ impl RuntimeState {
             host_state: HostState::default(),
             agent_order: None,
             notification_install: None,
+            call_log: None,
         }
     }
 

@@ -504,6 +504,7 @@ function createMockWhipSshModule() {
       },
       submitPastes(paneId, parts) { return runtime.controlClient.submitPastes(paneId, parts); },
       startHerdrServer() { return runtime.controlClient.startHerdrServer(); },
+      notificationCommand(operation, payload) { return runtime.controlClient.notificationCommand(operation, payload); },
       execute(command) { return runtime.controlClient.execute(command); },
       remoteHome() { return runtime.controlClient.getRemoteHome(); },
       measureHostLatency() { return runtime.controlClient.measureHostLatency(); },

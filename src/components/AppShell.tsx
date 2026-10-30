@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { BlurTargetView } from 'expo-blur';
 import { Platform, StyleSheet, View, type ViewInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,6 +50,7 @@ import { GlassProvider } from './GlassSurface';
 import { HerdScreen } from './HerdScreen';
 import { HostsScreen } from './HostsScreen';
 import { LiveSessionView } from './LiveSessionView';
+import { CallLogSurface } from './CallLogSurface';
 import { MoreScreen } from './MoreScreen';
 import { ScreenUpdates } from './ScreenUpdates';
 
@@ -80,6 +81,7 @@ export function AppShell({
   history,
 }: AppShellProps) {
   const { t } = useTranslation();
+  const [callLogVisible, setCallLogVisible] = useState(false);
   const { isDark } = useTheme();
   const navigationBlurTargetRef = useRef<ViewInstance | null>(null);
   const storedPreferences = preferences.value;
@@ -446,6 +448,7 @@ export function AppShell({
                     <ScreenUpdates active={navigation.state.tab === 'more'}>
                       {() => (
                         <MoreScreen
+                          onOpenCallLog={() => setCallLogVisible(true)}
                           alertsEnabled={alertsEnabled}
                           agentAlertLevel={agentAlertLevel}
                           backgroundMonitoringAvailable={
@@ -700,6 +703,36 @@ export function AppShell({
               sessions.presentationSessions,
               id => sessions.getClient(id)?.native,
             )} />
+            <CallLogSurface
+              showLauncher={false}
+              visible={callLogVisible}
+              onVisibleChange={setCallLogVisible}
+              onConnectHost={async hostId => {
+                const host = hosts.getHosts().find(item => item.id === hostId);
+                if (!host) throw new Error('This call belongs to a removed host');
+                await sessions.connectSavedHost(host);
+              }}
+              hosts={hosts.hosts.map(host => ({
+                id: host.id,
+                label: hostDisplayName(host),
+              }))}
+              onOpenPane={async (hostId, paneId) => {
+                const host = hosts.getHosts().find(item => item.id === hostId);
+                if (!host)
+                  throw new Error('This call belongs to a removed host');
+                if (!sessions.getClient(hostId))
+                  await sessions.connectSavedHost(host);
+                const client = sessions.getClient(hostId);
+                if (!client)
+                  throw new Error('Connect to this host to open the call pane');
+                await sessions.refresh(hostId);
+                const pane = client.native
+                  .hostState()
+                  .snapshot?.panes.find(item => item.pane_id === paneId);
+                if (!pane) throw new Error('This call pane no longer exists');
+                sessions.openPaneTerminal(hostId, pane, true);
+              }}
+            />
             <AppOverlays
               effectivePreferences={effectivePreferences}
               hosts={hosts}

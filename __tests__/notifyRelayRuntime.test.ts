@@ -62,10 +62,11 @@ test('real Workers runtime enrolls, routes ciphertext, revokes, and rejects prov
     };
     expect((await call('/v1/push', 'POST', ROUTE, envelope)).status).toBe(202);
     expect(messages[1].data).toEqual({ whip_notify: envelope });
-    const readable = { ...envelope, header: { ...envelope.header, event_id: 'runtime-readable-0000001' } };
+    const readable = { ...envelope, header: { ...envelope.header, version: 2, event_id: 'runtime-readable-0000001' }, ciphertext: 'b'.repeat(2752) };
     const preview = { title: 'Checkout · codex finished', body: 'Updated checkout tests' };
     expect((await call('/v1/push', 'POST', ROUTE, { ...readable, preview })).status).toBe(202);
-    expect(messages[2]).toMatchObject(preview);
+    expect(messages[1]).toMatchObject({ title: 'Whip', sound: 'default' });
+    expect(messages[2]).toEqual({ to: 'ExpoPushToken[runtime]', priority: 'high', ttl: expect.any(Number), data: { whip_notify: readable } });
     expect(messages[2].data).toEqual({ whip_notify: readable });
     const burst = await Promise.all(Array.from({ length: 8 }, (_, i) => call('/v1/push', 'POST', ROUTE, {
       ...envelope, header: { ...envelope.header, event_id: `runtime-burst-${String(i).padStart(10, '0')}` },

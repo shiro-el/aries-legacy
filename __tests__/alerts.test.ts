@@ -503,3 +503,12 @@ test('keeps expected notification dismissal races quiet', async () => {
   expect(consoleWarn).not.toHaveBeenCalledWith(expect.stringContaining('notification-dismiss-failed'));
   consoleWarn.mockRestore();
 });
+
+test('a foreground data push stays silent while the authenticated local alert is rendered separately', async () => {
+  const notification = { date: Date.now(), request: { identifier: 'headless', trigger: { type: 'push' }, content: {
+    title: null, body: null, data: { whip_notify: { header: { version: 2 }, ciphertext: 'encrypted' } },
+  } } } as unknown as Notifications.Notification;
+  expect(await notificationHandler.handleNotification(notification)).toMatchObject({
+    shouldPlaySound: false, shouldShowBanner: false, shouldShowList: false,
+  });
+});

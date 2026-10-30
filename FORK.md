@@ -181,7 +181,59 @@ fork keeps the herding theme with the ram that leads the flock.
   concurrent installs and immutable installer packaging. Real-phone delivery
   remains an acceptance check for the provisioned stack.
 
-### 8. Agent command catalog and composer autocomplete
+### 8. Device-local v2 push alerts by urgency
+
+- **What:** V2 envelopes travel as high-priority data pushes and become local
+  Android notifications after authentication and durable replay receipt.
+- **Why:** Calls and approval requests need different levels of attention while
+  keeping their content and urgency inside the encrypted envelope.
+- **How:** An Expo notification task loaded from the app entry point handles
+  foreground, background and cold JS receipt. It shares the pinned-key,
+  registration and replay queue with legacy tap handling. Local alerts carry
+  only their authenticated navigation target, so tapping does not decrypt an
+  already-received envelope again.
+  - Emergency uses the existing persistent/DND channel and native alarm path
+    (shake cancellation and 30-second timeout). Urgent uses the high-importance
+    brief sound/vibration channel; check uses regular; record stays silent.
+    The native arm promise now settles on stop, keeping a cold Expo task/runtime
+    alive through the alarm instead of destroying it two seconds after arming.
+    Existing foreground alerts still arm without blocking their caller.
+  - V2 preview-enabled registrations use the same local rendering path. The
+    relay discards v2 readable previews and never receives plaintext urgency.
+    V1 and registration verification pushes keep their visible behavior.
+  - The existing visible delivery code remains available for v2 with relay
+    `VISIBLE_PUSH_FALLBACK=true`. The app skips background rendering of visible
+    pushes. No existing feature code was removed.
+  - `expo-task-manager` requires a new Android native build. Relay deployment,
+    Samsung terminated/Doze receipt, silent/DND emergency behavior and watch
+    mirroring remain unverified: this run prohibited deployment and real-device
+    use. See `docs/remote-notifications.md` for rollout and fallback details.
+- **Validation:** Relay SQLite and Workers runtime tests cover opaque v2 data,
+  v1 compatibility and visible rollback. App tests cover urgency channels,
+  native alarm arming, replay/concurrent/cold receipt, failure suppression,
+  foreground silence and local tap navigation.
+
+### 9. Host call history and foreground calls
+
+- **What:** More → Call log shows each host's retained calls and approvals,
+  newest first, with effective urgency, time, pane, title/body, ineligibility and
+  reply text. Urgency filters and rows open the recorded pane through fresh host
+  state. Connected hosts surface new calls in an in-app banner while foreground.
+- **Why:** Lease-suppressed calls and calls received while the phone was offline
+  must remain visible without depending on push delivery.
+- **How:** The existing authenticated notification runtime discovers the plugin
+  state directory. Rust reads a bounded `calls.jsonl` snapshot and owns a
+  generation-guarded `tail -n +1 -F` SSH stream, frames JSONL bytes and validates
+  records before exposing them through notification commands. Snapshot replay
+  closes the subscription gap; call IDs deduplicate rotation/reconnect replay.
+  The foreground consumer drains the native buffer each second, pauses in the
+  background, cleans up on detach, and retries after failures. Initial history
+  stays silent; `record` entries never show banners. No remote log is deleted.
+- **Validation:** Jest screens over mockWhipSsh cover history, approval/reply
+  display, urgency filtering, host/pane navigation, ineligible records,
+  foreground deduplication, background cleanup and reconnect catch-up.
+
+### 10. Agent command catalog and composer autocomplete
 
 - **What:** Agent composers offer command-only `/` completion with descriptions,
   argument hints and a terminal-only label. Choosing a command inserts `/name `;

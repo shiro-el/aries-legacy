@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform, Vibration } from 'react-native';
 
 import type { AgentInfo } from '../types';
+import type { RemoteNotificationEvent } from './remoteNotifications';
 import type { AgentNotificationTarget } from '../lib/notificationNavigation';
 import { agentNotificationTitle } from '../lib/agentStatusEvents';
 import type { AgentAlertLevel } from './devicePreferences';
@@ -29,7 +30,7 @@ const BRIEF_VIBRATION_PATTERN = [0, 200];
 const DEFAULT_PERSISTENT_ALERT_TIMEOUT_MS = 30_000;
 type ActiveAgentNotification = {
   paneTargetKey: string;
-  tabTargetKey: string;
+  tabTargetKey?: string;
   persistent: boolean;
 };
 type AgentAlertTargets = Pick<ActiveAgentNotification, 'paneTargetKey' | 'tabTargetKey'>;
@@ -49,7 +50,9 @@ export type AgentAlertDelivery = AgentAlertLevel | 'brief';
 
 Notifications.setNotificationHandler({
   handleNotification: notification => {
-    if (notificationRegistrationProof(notification.request.content.data)) {
+    const { content } = notification.request;
+    const headless = content.data?.whip_notify && !content.title && !content.body;
+    if (headless || notificationRegistrationProof(content.data)) {
       return Promise.resolve({
         shouldPlaySound: false,
         shouldSetBadge: false,
@@ -70,7 +73,7 @@ Notifications.setNotificationHandler({
   },
 });
 
-export async function prepareAlerts(): Promise<void> {
+export async function prepareAlertChannels(): Promise<void> {
   setNotificationDeliveryAvailable(false);
   if (Platform.OS === 'android') {
     try {
@@ -100,6 +103,10 @@ export async function prepareAlerts(): Promise<void> {
       throw error;
     }
   }
+}
+
+export async function prepareAlerts(): Promise<void> {
+  await prepareAlertChannels();
   try {
     await Notifications.requestPermissionsAsync();
     setNotificationDeliveryAvailable(true);
@@ -205,6 +212,38 @@ export async function alertAgent(
     decrementAlertCount(pendingPaneAlertCounts, paneTargetKey);
     decrementAlertCount(pendingTabAlertCounts, tabTargetKey);
   }
+}
+
+/** Content and navigation here have already been authenticated on receipt. */
+export async function alertRemoteNotification(
+  event: RemoteNotificationEvent,
+  target: Pick<AgentNotificationTarget, 'hostId' | 'paneId' | 'remoteDeviceId'>,
+): Promise<void> {
+  if (event.urgency === 'record') return;
+  const persistent = event.urgency === 'emergency';
+  const regular = event.urgency !== 'urgent' && !persistent;
+  const delivery = persistent ? 'persistent' : regular ? 'regular' : 'brief';
+  const channelId = persistent ? PERSISTENT_CHANNEL_ID : regular ? REGULAR_CHANNEL_ID : BRIEF_CHANNEL_ID;
+  const identifier = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: event.title || 'Aries',
+      body: event.body || '',
+      sound: 'default',
+      ...(!regular ? { vibrate: persistent ? ALERT_VIBRATION_PATTERN : BRIEF_VIBRATION_PATTERN } : {}),
+      priority: regular ? Notifications.AndroidNotificationPriority.DEFAULT : Notifications.AndroidNotificationPriority.MAX,
+      data: { ...target, [ALERT_LEVEL_DATA_KEY]: delivery },
+    },
+    trigger: { channelId },
+  });
+  activeAgentNotifications.set(identifier, {
+    paneTargetKey: agentAlertTargetKey(target.hostId, target.paneId),
+    persistent,
+  });
+  if (persistent && Platform.OS === 'android') {
+    persistentAgentNotificationId = identifier;
+    await armPersistentAgentAlert(identifier, channelId, DEFAULT_PERSISTENT_ALERT_TIMEOUT_MS);
+  }
+  setNotificationDeliveryAvailable(true);
 }
 
 export async function dismissAgentAlerts(): Promise<void> {
