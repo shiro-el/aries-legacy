@@ -1348,7 +1348,8 @@ test('terminal-only commands switch to terminal after delivery and retain the ne
   await act(async () => finishSend());
   expect(terminalHandle.submitPastes).toHaveBeenCalledWith(agentTarget, ['/permissions'], true);
   expect(onPress).toHaveBeenCalledTimes(1);
-  expect(props.composerStore.snapshot(target.key).text).toBe('Next message');
+  await press('compose');
+  expect(ui('MessageComposer').props.initialValue).toBe('Next message');
 });
 
 test('late catalog discovery does not follow a switch to a shell pane', async () => {
