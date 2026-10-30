@@ -113,6 +113,7 @@ export interface SessionRuntimeController {
     sessionId: string,
     name: string,
     cwd: string,
+    launch?: TabLaunchIntent,
   ) => Promise<HerdrSnapshot['workspaces'][number]>;
   renameWorkspace: (
     sessionId: string,

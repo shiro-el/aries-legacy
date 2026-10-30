@@ -1115,3 +1115,22 @@ it('retains the menu and shows a connection error after the client runtime is re
   expect(text()).toContain('common.notConnected');
   expect(contextInput().props.value).toBe(contextFile.name);
 });
+
+it('folder selection browses directories and returns the loaded absolute path without file or Git actions', async () => {
+  const selected = jest.fn();
+  props.onSelectDirectory = selected;
+  native.listDirectory.mockResolvedValueOnce({ path: '/repo', entries: [
+    { name: 'child', path: '/repo/child', kind: 'directory', size: 0 },
+    { name: 'file.txt', path: '/repo/file.txt', kind: 'file', size: 10 },
+  ] });
+  jest.mocked(loadRemoteGitMode).mockResolvedValue(true);
+  native.discoverGitRepository.mockResolvedValue(repository);
+  await mount();
+  expect(hasButton('files.openFile:file.txt')).toBe(false);
+  expect(hasButton('files.gitMode')).toBe(false);
+  expect(hasButton('files.upload')).toBe(false);
+  expect(button('files.openDirectory:child').props.disabled).toBe(false);
+  await navigate('/repo/child');
+  await act(async () => button('files.selectDirectory').props.onPress());
+  expect(selected).toHaveBeenCalledWith('/repo/child');
+});
