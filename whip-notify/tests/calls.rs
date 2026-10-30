@@ -54,6 +54,243 @@ fn records(root: &std::path::Path) -> Vec<Value> {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
 }
+
+fn reply(root: &std::path::Path, id: &str, index: &str, pane: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_whip-notify"))
+        .arg("--dirs")
+        .arg(root.join("config"))
+        .arg(root.join("state"))
+        .args(["reply", id, index, pane])
+        .arg(root.join("herdr.sock"))
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn choice_reply_uses_original_text_and_enter_and_records_the_answer_without_resending() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        call(
+            root.path(),
+            "main",
+            &[
+                "--urgency",
+                "check",
+                "--title",
+                "Choose",
+                "--body",
+                "Plan?",
+                "--option",
+                "Ship it",
+                "--option",
+                "Wait"
+            ]
+        )
+        .status
+        .success()
+    );
+    let id = records(root.path())[0]["call_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let listener = UnixListener::bind(root.path().join("herdr.sock")).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut requests = Vec::new();
+        while requests.len() < 2 && std::time::Instant::now() < deadline {
+            let Ok((mut stream, _)) = listener.accept() else {
+                thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            };
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let result = if request["method"] == "session.snapshot" {
+                json!({"type":"session_snapshot","snapshot":{"panes":[{"pane_id":"main","workspace_id":"w1","agent":"codex"}]}})
+            } else {
+                json!({"type":"pane_input_sent"})
+            };
+            writeln!(stream, "{}", json!({"id":request["id"],"result":result})).unwrap();
+            requests.push(request);
+        }
+        requests
+    });
+    let output = reply(root.path(), &id, "0", "main");
+    let requests = server.join().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1]["method"], "pane.send_input");
+    assert_eq!(
+        requests[1]["params"],
+        json!({"pane_id":"main","text":"Ship it","keys":["enter"]})
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["reply_status"], "delivered");
+    let log = records(root.path());
+    assert_eq!(log.last().unwrap()["call_id"], id);
+    assert_eq!(log.last().unwrap()["reply"], "Ship it");
+    assert_eq!(log.last().unwrap()["reply_status"], "delivered");
+    // The socket no longer has a server. A duplicate must return the saved result.
+    assert!(reply(root.path(), &id, "0", "main").status.success());
+    assert!(!reply(root.path(), &id, "1", "main").status.success());
+}
+
+#[test]
+fn a_closed_pane_keeps_the_failed_answer_in_history_without_sending() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        call(
+            root.path(),
+            "main",
+            &[
+                "--urgency",
+                "check",
+                "--title",
+                "Choose",
+                "--body",
+                "Plan?",
+                "--option",
+                "Wait"
+            ]
+        )
+        .status
+        .success()
+    );
+    let id = records(root.path())[0]["call_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let listener = UnixListener::bind(root.path().join("herdr.sock")).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["method"], "session.snapshot");
+        writeln!(
+            stream,
+            "{}",
+            json!({"id":request["id"],"result":{"type":"session_snapshot","snapshot":{"panes":[]}}})
+        )
+        .unwrap();
+    });
+    let output = reply(root.path(), &id, "0", "main");
+    server.join().unwrap();
+    assert!(output.status.success());
+    let log = records(root.path());
+    assert_eq!(log.last().unwrap()["reply"], "Wait");
+    assert_eq!(log.last().unwrap()["reply_status"], "failed");
+    assert!(reply(root.path(), &id, "0", "main").status.success());
+}
+
+#[test]
+fn ambiguous_submission_is_recorded_and_never_retried() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        call(
+            root.path(),
+            "main",
+            &[
+                "--urgency",
+                "check",
+                "--title",
+                "Choose",
+                "--body",
+                "Plan?",
+                "--option",
+                "Wait"
+            ]
+        )
+        .status
+        .success()
+    );
+    let id = records(root.path())[0]["call_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let listener = UnixListener::bind(root.path().join("herdr.sock")).unwrap();
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            if request["method"] == "session.snapshot" {
+                writeln!(stream, "{}", json!({"id":request["id"],"result":{"type":"session_snapshot","snapshot":{"panes":[{"pane_id":"main","workspace_id":"w1","agent":"codex"}]}}})).unwrap();
+            } else {
+                assert_eq!(request["method"], "pane.send_input");
+                // Herdr may have applied the input before the connection dropped.
+            }
+        }
+    });
+    let output = reply(root.path(), &id, "0", "main");
+    server.join().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        records(root.path()).last().unwrap()["reply_status"],
+        "unknown"
+    );
+    assert!(reply(root.path(), &id, "0", "main").status.success());
+}
+
+#[test]
+fn missing_expired_approval_or_mismatched_calls_cannot_submit() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        call(
+            root.path(),
+            "main",
+            &[
+                "--urgency",
+                "check",
+                "--title",
+                "Choose",
+                "--body",
+                "Plan?",
+                "--option",
+                "Wait"
+            ]
+        )
+        .status
+        .success()
+    );
+    let original = records(root.path())[0].clone();
+    let id = original["call_id"].as_str().unwrap();
+    assert!(
+        !reply(root.path(), "missing-id", "0", "main")
+            .status
+            .success()
+    );
+    assert!(!reply(root.path(), id, "3", "main").status.success());
+    assert!(!reply(root.path(), id, "0", "other-pane").status.success());
+    for (field, value) in [
+        ("kind", json!("approval")),
+        ("created_at", json!(1)),
+        ("session", json!("/other.sock")),
+    ] {
+        let mut changed = original.clone();
+        changed[field] = value;
+        fs::write(
+            root.path().join("state/calls.jsonl"),
+            format!("{changed}\n"),
+        )
+        .unwrap();
+        assert!(!reply(root.path(), id, "0", "main").status.success());
+        assert_eq!(records(root.path()).len(), 1);
+        assert!(records(root.path())[0].get("reply").is_none());
+    }
+}
 #[test]
 fn record_call_keeps_sanitized_content_and_origin_without_sending_push() {
     let root = tempfile::tempdir().unwrap();

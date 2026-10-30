@@ -176,6 +176,21 @@ class HerdrBackgroundModule(
   }
 
   @ReactMethod
+  fun dismissPersistentAlertForNotification(identifier: String, promise: Promise) {
+    mainHandler.post {
+      try {
+        if (activeAlertIdentifier == identifier) {
+          cancelVibration()
+          stopPersistentAlert("Notification answered")
+        }
+        promise.resolve(null)
+      } catch (error: Throwable) {
+        promise.reject("E_PERSISTENT_ALERT_DISMISS", error)
+      }
+    }
+  }
+
+  @ReactMethod
   fun dismissPersistentAlert(promise: Promise) {
     mainHandler.post {
       try {

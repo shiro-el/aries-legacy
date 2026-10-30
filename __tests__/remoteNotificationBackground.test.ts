@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { NativeModules, Platform } from 'react-native';
-import { notificationOpen } from 'react-native-whip-ssh';
+import { notificationOpen, createHostRuntime } from 'react-native-whip-ssh';
+import { bindNotificationRuntime, unbindNotificationRuntime } from '../src/services/notificationRuntimeRegistry';
 
 const mockData = new Map<string, string>();
 const mockKeys = {
@@ -10,6 +11,7 @@ const mockRegistration = {
   hostId: 'saved-host', deviceId: 'device', keys: mockKeys,
   hostKey: 'pinned-host-key', session: '/tmp/herdr.sock', enabled: true,
   endToEndEncrypted: false,
+  hostIdentity: 'pinned-identity',
 };
 let mockTask: (body: { data: Notifications.NotificationTaskPayload; error?: unknown }) => Promise<unknown>;
 jest.mock('expo-task-manager', () => ({
@@ -23,19 +25,26 @@ jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   setNotificationChannelAsync: jest.fn().mockResolvedValue(null),
   scheduleNotificationAsync: jest.fn().mockResolvedValue('local-call'),
+  setNotificationCategoryAsync: jest.fn().mockResolvedValue(null),
   dismissNotificationAsync: jest.fn(),
   requestPermissionsAsync: jest.fn(),
 }));
 jest.mock('react-native-keychain', () => ({
-  getGenericPassword: jest.fn(async () => ({ password: JSON.stringify([mockRegistration]) })),
+  getGenericPassword: jest.fn(async ({ service }) => ({ password: service === 'dev.whip.notification-keys.v1'
+    ? JSON.stringify([mockRegistration]) : JSON.stringify({ secret: 'saved-password' }) })),
 }));
 jest.mock('expo-constants', () => ({ __esModule: true, default: {} }));
 jest.mock('expo-application', () => ({}));
+jest.mock('expo-file-system', () => ({ Directory: jest.fn(), File: jest.fn(), Paths: { document: { uri: '/documents' } } }));
+jest.mock('expo-image-picker', () => ({}));
 jest.mock('../src/services/appStorage', () => ({ appStorage: {
   getItem: jest.fn(async (key: string) => mockData.get(key) ?? null),
   setItem: jest.fn(async (key: string, value: string) => { mockData.set(key, value); }),
+  multiGet: jest.fn(async (keys: string[]) => keys.map(key => [key, mockData.get(key) ?? null])),
 } }));
-jest.mock('react-native-whip-ssh', () => ({ notificationOpen: jest.fn() }));
+jest.mock('react-native-whip-ssh', () => ({
+  ...require('./mockWhipSsh').createMockWhipSshModule(), notificationOpen: jest.fn(),
+}));
 jest.mock('../src/services/speechPlayback', () => ({ getSpeechPlayback: jest.fn() }));
 jest.mock('../src/i18n', () => ({ __esModule: true, default: { t: (key: string) => key } }));
 
@@ -53,6 +62,7 @@ beforeEach(() => {
   NativeModules.HerdrBackground = {
     armPersistentAlert: jest.fn().mockResolvedValue(undefined),
     dismissPersistentAlert: jest.fn().mockResolvedValue(undefined),
+    dismissPersistentAlertForNotification: jest.fn().mockResolvedValue(undefined),
   };
   if (!mockTask) require('../src/services/remoteNotificationBackground');
   jest.mocked(notificationOpen).mockImplementation((_keys, _host, _device, _envelope, ledger) => {
@@ -139,6 +149,114 @@ test('headless raw data objects use the same authenticated path as Android dataS
   if ('actionIdentifier' in received) throw new Error('expected receipt');
   await mockTask({ data: { notification: null, data: JSON.parse(received.data.dataString!) } });
   expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+});
+
+test.each([1, 2, 3])('%i call choices become background actions on the authenticated local alert', async count => {
+  const options = ['Ship it', 'Revise', 'Wait'].slice(0, count);
+  jest.mocked(notificationOpen).mockReturnValueOnce(JSON.stringify({
+    event: { pane_id: 'w1:p1', session: '/tmp/herdr.sock', kind: 'call', urgency: 'check',
+      call_id: 'call-123', title: 'Choose', options }, ledger: { accepted: 99999 },
+  }));
+  await mockTask({ data: headless() });
+  expect(Notifications.setNotificationCategoryAsync).toHaveBeenCalledWith('whip-call-call-123',
+    options.map((buttonTitle, index) => ({ identifier: `whip-choice-${index}`, buttonTitle,
+      options: { opensAppToForeground: false } })));
+  expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(expect.objectContaining({
+    content: expect.objectContaining({ categoryIdentifier: 'whip-call-call-123',
+      data: expect.objectContaining({ callId: 'call-123', hostId: 'saved-host', paneId: 'w1:p1' }) }),
+  }));
+});
+
+test('approval alerts never offer reply buttons even if their payload contains choices', async () => {
+  jest.mocked(notificationOpen).mockReturnValueOnce(JSON.stringify({
+    event: { pane_id: 'w1:p1', session: '/tmp/herdr.sock', kind: 'approval', urgency: 'urgent',
+      call_id: 'approval-1', options: ['Allow'] }, ledger: { accepted: 99999 },
+  }));
+  await mockTask({ data: headless() });
+  expect(Notifications.setNotificationCategoryAsync).not.toHaveBeenCalled();
+  const content = jest.mocked(Notifications.scheduleNotificationAsync).mock.calls[0][0].content;
+  expect(content.categoryIdentifier).toBeUndefined();
+  expect(content.data?.callId).toBeUndefined();
+});
+
+test('a cold background choice connects using saved credentials, verifies the host, submits the call choice and updates the same alert', async () => {
+  mockData.set('herdr.hosts.v2', JSON.stringify([{
+    id: 'saved-host', name: 'Workstation', host: 'host.example', port: '22', username: 'dev',
+    authMode: 'password', herdrCommand: 'herdr', herdrSocketPath: '/tmp/herdr.sock', sessionName: '',
+    createdAt: '2026-10-30', updatedAt: '2026-10-30',
+  }]));
+  mockData.set('herdr.credentials.backup-migration', '1');
+  const command = jest.fn(async (operation: string, payload: string) => {
+    if (operation === 'discover') return JSON.stringify({ paths: { binary: '/bin/notify', config: '/config', state: '/state' },
+      identity: { public_key: 'pinned-host-key', host_id: 'pinned-identity' }, session: '/tmp/herdr.sock' });
+    expect(operation).toBe('reply');
+    expect(JSON.parse(payload)).toEqual({ paths: { binary: '/bin/notify', config: '/config', state: '/state' },
+      call_id: 'call-123', option_index: 1, pane_id: 'w1:p1' });
+    return JSON.stringify({ call_id: 'call-123', pane_id: 'w1:p1', reply: 'Revise', reply_status: 'delivered' });
+  });
+  const ssh = { notificationCommand: command, disconnect: jest.fn(), requestHerdrApi: jest.fn(async () => ({
+    type: 'session_snapshot', snapshot: { panes: [] },
+  })) };
+  require('./mockWhipSsh').getMockWhipSshControl().connectWithPassword.mockResolvedValueOnce(ssh);
+  const action = { actionIdentifier: 'whip-choice-1', notification: { date: 1, request: {
+    identifier: 'local-call', trigger: null, content: { title: 'Choose', body: 'Which plan?',
+      categoryIdentifier: 'whip-call-call-123', data: {
+        hostId: 'saved-host', paneId: 'w1:p1', remoteDeviceId: 'device', callId: 'call-123', agentAlertLevel: 'persistent',
+      } },
+  } } } as unknown as Notifications.NotificationTaskPayload;
+  expect(await mockTask({ data: action })).toBe(Notifications.BackgroundNotificationTaskResult.NewData);
+  expect(createHostRuntime).toHaveBeenCalledWith(expect.objectContaining({
+    ssh: expect.objectContaining({ host: 'host.example', secret: 'saved-password' }),
+  }), expect.any(Function));
+  expect(command).toHaveBeenCalledWith('reply', expect.any(String));
+  expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(expect.objectContaining({
+    identifier: 'local-call', content: expect.objectContaining({ title: 'Choose', body: 'Delivered: Revise',
+      data: expect.objectContaining({ hostId: 'saved-host', paneId: 'w1:p1' }) }),
+  }));
+  expect(ssh.disconnect).toHaveBeenCalled();
+  expect(NativeModules.HerdrBackground.dismissPersistentAlertForNotification).toHaveBeenCalledWith('local-call');
+  expect(NativeModules.HerdrBackground.dismissPersistentAlert).not.toHaveBeenCalled();
+  expect(notificationOpen).not.toHaveBeenCalled();
+});
+
+test.each(['identity', 'session', 'offline', 'unknown', 'failed'])(
+  '%s reply failure updates the same alert with no remaining actions or automatic resend', async failure => {
+    const runtime = { notificationCommand: jest.fn(async (operation: string) => {
+      if (operation === 'discover') return JSON.stringify({ paths: { binary: '/bin/notify', config: '/config', state: '/state' },
+        identity: { public_key: failure === 'identity' ? 'different-key' : 'pinned-host-key', host_id: 'pinned-identity' },
+        session: failure === 'session' ? '/other.sock' : '/tmp/herdr.sock' });
+      if (failure === 'offline') throw new Error('SSH unavailable');
+      return JSON.stringify({ reply: 'Wait', reply_status: failure });
+    }) };
+    bindNotificationRuntime('saved-host', runtime);
+    try {
+      const action = { actionIdentifier: 'whip-choice-0', notification: { date: 1, request: {
+        identifier: 'local-call', trigger: null, content: { title: 'Choose', categoryIdentifier: 'whip-call-call-123',
+          data: { hostId: 'saved-host', paneId: 'w1:p1', remoteDeviceId: 'device', callId: 'call-123' } },
+      } } } as unknown as Notifications.NotificationResponse;
+      expect(await mockTask({ data: action })).toBe(Notifications.BackgroundNotificationTaskResult.NewData);
+      const update = jest.mocked(Notifications.scheduleNotificationAsync).mock.calls[0][0];
+      expect(update.identifier).toBe('local-call');
+      expect(update.content.body).toContain(failure === 'unknown' ? 'Delivery unconfirmed' : 'Failed to deliver');
+      expect(update.content.categoryIdentifier).toBeUndefined();
+      expect(update.content.data?.callId).toBeUndefined();
+      expect(runtime.notificationCommand.mock.calls.filter(([operation]) => operation === 'reply')).toHaveLength(
+        failure === 'identity' || failure === 'session' ? 0 : 1);
+      expect(createHostRuntime).not.toHaveBeenCalled();
+      expect(notificationOpen).not.toHaveBeenCalled();
+    } finally { unbindNotificationRuntime('saved-host', runtime); }
+  },
+);
+
+test.each(['push', 'wrong-category', 'no-call', 'default'])('a %s action cannot submit a reply', async invalid => {
+  const action = { actionIdentifier: invalid === 'default' ? 'default' : 'whip-choice-0', notification: { date: 1, request: {
+    identifier: 'local-call', trigger: invalid === 'push' ? { type: 'push' } : null,
+    content: { categoryIdentifier: invalid === 'wrong-category' ? 'other-call' : 'whip-call-call-123',
+      data: { hostId: 'saved-host', paneId: 'w1:p1', remoteDeviceId: 'device', ...(invalid === 'no-call' ? {} : { callId: 'call-123' }) } },
+  } } } as unknown as Notifications.NotificationResponse;
+  expect(await mockTask({ data: action })).toBe(Notifications.BackgroundNotificationTaskResult.NoData);
+  expect(createHostRuntime).not.toHaveBeenCalled();
+  expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
 });
 
 test('an emergency task stays alive until the native alarm stops, including shake or its 30-second deadline', async () => {

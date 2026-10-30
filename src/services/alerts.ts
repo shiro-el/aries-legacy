@@ -224,6 +224,14 @@ export async function alertRemoteNotification(
   const regular = event.urgency !== 'urgent' && !persistent;
   const delivery = persistent ? 'persistent' : regular ? 'regular' : 'brief';
   const channelId = persistent ? PERSISTENT_CHANNEL_ID : regular ? REGULAR_CHANNEL_ID : BRIEF_CHANNEL_ID;
+  const choices = event.kind === 'call' && event.call_id && event.options?.length
+    && event.options.length <= 3 ? event.options : undefined;
+  const categoryIdentifier = choices ? `whip-call-${event.call_id}` : undefined;
+  if (choices && categoryIdentifier) {
+    await Notifications.setNotificationCategoryAsync(categoryIdentifier, choices.map((buttonTitle, index) => ({
+      identifier: `whip-choice-${index}`, buttonTitle, options: { opensAppToForeground: false },
+    })));
+  }
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
       title: event.title || 'Aries',
@@ -231,7 +239,8 @@ export async function alertRemoteNotification(
       sound: 'default',
       ...(!regular ? { vibrate: persistent ? ALERT_VIBRATION_PATTERN : BRIEF_VIBRATION_PATTERN } : {}),
       priority: regular ? Notifications.AndroidNotificationPriority.DEFAULT : Notifications.AndroidNotificationPriority.MAX,
-      data: { ...target, [ALERT_LEVEL_DATA_KEY]: delivery },
+      categoryIdentifier,
+      data: { ...target, [ALERT_LEVEL_DATA_KEY]: delivery, ...(choices ? { callId: event.call_id } : {}) },
     },
     trigger: { channelId },
   });

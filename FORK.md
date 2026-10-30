@@ -212,3 +212,32 @@ fork keeps the herding theme with the ram that leads the flock.
   v1 compatibility and visible rollback. App tests cover urgency channels,
   native alarm arming, replay/concurrent/cold receipt, failure suppression,
   foreground silence and local tap navigation.
+
+### 9. Background answers from call notification buttons
+
+- **What:** Android call alerts expose their one to three choices as background
+  buttons. The same notification reports delivery or failure and keeps pane
+  navigation. Approval alerts keep no buttons.
+- **Why:** Short agent decisions should be answerable without opening the app,
+  while approval interactions remain inside the existing app controls.
+- **How:** Expo's registered task handles local action responses without opening
+  or decrypting a received envelope again. The app rechecks the registered host
+  identity/session over SSH, reuses a live runtime or creates a separate bounded
+  connection using saved credentials/jump hosts and existing strict key trust.
+  Cold key connections respect biometric requirements and never prompt.
+  - Plugin 0.1.6 adds `reply CALL_ID INDEX PANE SESSION`. The host resolves choice
+    text from its retained private call log, verifies a fresh agent pane, and
+    sends ordinary `pane.send_input` text plus Enter. A durable claim and store
+    lock prevent duplicate callbacks from submitting twice. Ambiguous sends stay
+    unconfirmed without automatic retries. Complete same-ID records carry
+    `reply` and `reply_status` for the call history surface.
+  - A scoped Android dismissal stops only the answered notification's alarm.
+    The result replaces its identifier without actions. Existing body-tap,
+    visible-push fallback, host trust and credential policies remain available.
+    No feature code was removed. Native app/host plugin rebuilds are required.
+- **Validation:** Jest covers cold and active-runtime action responses, result
+  replacement, identity/session failures, no foreground actions, approval
+  exclusion and existing body navigation. Binary tests cover exact submitted
+  text/Enter, log updates, duplicate/conflicting replies, missing/expired/wrong
+  calls, closed panes and ambiguous transport. Screen-off Samsung replies remain
+  unverified because real-device use and deployment were prohibited by the brief.

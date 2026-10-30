@@ -326,6 +326,9 @@ function createMockWhipSshModule() {
         return hostState;
       },
       resolvedSocketPath() { return resolvedSocket; },
+      notificationCommand(operation, payload) {
+        return runtime.controlClient.notificationCommand(operation, payload);
+      },
       resolveHerdrSocketPath() { return socketPath(); },
       async requestHerdrApi(request) {
         const call = async () => {

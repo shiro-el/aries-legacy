@@ -625,3 +625,17 @@ async function discoverRegisteredHost(registration: Registration, runtime: Notif
     throw new Error('The notification host or Herdr session changed; register this device again');
   return discovery;
 }
+
+/** Re-verify registration, pinned notification identity and session before replying. */
+export function replyToRemoteCall(
+  hostId: string, deviceId: string, runtime: NotificationRuntime, callId: string, paneId: string, optionIndex: number,
+): Promise<{ reply?: string; reply_status?: string }> {
+  return serial(async () => {
+    const registration = (await load()).find(r => r.enabled && r.hostId === hostId && r.deviceId === deviceId);
+    if (!registration) throw new Error('Notification registration was revoked');
+    const discovery = await discoverRegisteredHost(registration, runtime);
+    return JSON.parse(await runtime.notificationCommand('reply', JSON.stringify({
+      paths: discovery.paths, call_id: callId, pane_id: paneId, option_index: optionIndex,
+    }))) as { reply?: string; reply_status?: string };
+  });
+}

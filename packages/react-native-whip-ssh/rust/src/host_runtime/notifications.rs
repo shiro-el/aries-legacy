@@ -502,7 +502,12 @@ impl HostRuntime {
             .collect::<Vec<_>>()
             .join(" ");
         let ssh = current_ssh(&self.inner)?;
-        let output = tokio::time::timeout(Duration::from_secs(3), async {
+        let timeout = if args.first().is_some_and(|arg| arg == "reply") {
+            8
+        } else {
+            3
+        };
+        let output = tokio::time::timeout(Duration::from_secs(timeout), async {
             match input {
                 Some(bytes) => ssh.execute_with_input(&command, bytes).await,
                 None => ssh.execute(&command).await,
@@ -614,6 +619,27 @@ impl HostRuntime {
         let input: Value = serde_json::from_str(&payload).map_err(|_| failure())?;
         let paths: Paths = serde_json::from_value(input["paths"].clone()).map_err(|_| failure())?;
         let args = match operation.as_str() {
+            "reply" => {
+                let id = input["call_id"].as_str().ok_or_else(failure)?;
+                let pane = input["pane_id"].as_str().ok_or_else(failure)?;
+                let index = input["option_index"]
+                    .as_u64()
+                    .filter(|i| *i < 3)
+                    .ok_or_else(failure)?;
+                if !whip_notify::valid_id(id) || pane.is_empty() || pane.len() > 128 {
+                    return Err(failure());
+                }
+                vec![
+                    "reply".into(),
+                    id.into(),
+                    index.to_string(),
+                    pane.into(),
+                    self.inner
+                        .herdr
+                        .resolved_socket_path()
+                        .ok_or_else(failure)?,
+                ]
+            }
             "register" => vec!["register".into()],
             "unregister" => vec![
                 "unregister".into(),
