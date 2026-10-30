@@ -1,3 +1,5 @@
+import { Alert } from 'react-native';
+import { TerminalComposerStore } from '../src/lib/terminalComposerStore';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { appStorage } from '../src/services/appStorage';
 import {
@@ -96,6 +98,8 @@ function setup(
     terminals: {
       get: () => ({ sessions: terminals, activeTerminalId: null }),
       openPane,
+      selectChat: jest.fn(),
+      composerStore: new TerminalComposerStore(),
     },
     navigation: { selectPane: jest.fn() },
     select: jest.fn(),
@@ -302,4 +306,38 @@ test('reverse-control lifecycle events refresh the AppCore projection only for t
   client.detach();
   act(() => listener(event, runtime as unknown as HostRuntimeConnection));
   expect(update.options.commitAppCore).not.toHaveBeenCalled();
+});
+
+test.each(['agent', 'shell', 'failed'] as const)('new %s task opens the original workspace pane and surfaces launch errors', async kind => {
+  const client = new HerdrClient();
+  const pane = { pane_id: 'new-pane', terminal_id: 'new-terminal', workspace_id: 'new-workspace', tab_id: 'new-tab' } as PaneInfo;
+  const workspace = { workspace_id: 'new-workspace', pane_count: 1, tab_count: 1 };
+  const created = { type: 'workspace_created', workspace, root_pane: pane, tab: { tab_id: 'new-tab' } };
+  const createWorkspaceWithLaunch = jest.fn(async () => {
+    if (kind === 'failed') throw Object.assign(new Error('agent not installed'), {
+      code: 'TAB_LAUNCH_FAILED', created: { ...created, type: 'tab_created' }, workspace, launchType: 'agent',
+    });
+    return created;
+  });
+  const runtime = { ...nativeRuntime(), createWorkspaceWithLaunch };
+  jest.mocked(createHostRuntime).mockReturnValue(runtime as unknown as HostRuntimeConnection);
+  await client.connect(profile);
+  const openPane = jest.fn();
+  const update = setup(client, openPane);
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  try {
+    await act(async () => {
+      await expect(lifecycle.createWorkspace(profile.id, 'Project', '/repo', kind === 'shell' ? { type: 'shell' } : {
+        type: 'agent', kind: 'codex', args: ['-m', 'custom-model', '-c', 'model_reasoning_effort=high'],
+      })).resolves.toBe(workspace);
+    });
+    expect(openPane).toHaveBeenCalledWith(profile.id, pane);
+    expect(createWorkspaceWithLaunch).toHaveBeenCalledTimes(1);
+    if (kind === 'failed') expect(alert).toHaveBeenCalledWith('newTask.launchFailed', expect.stringContaining('agent not installed'));
+    else expect(alert).not.toHaveBeenCalled();
+    expect(update.options.terminals.selectChat).toHaveBeenCalledTimes(kind === 'agent' ? 1 : 0);
+    if (kind === 'agent') {
+      expect(update.options.terminals.selectChat).toHaveBeenCalledWith(profile.id, pane.terminal_id, true);
+    }
+  } finally { alert.mockRestore(); }
 });

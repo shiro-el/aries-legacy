@@ -1,5 +1,6 @@
 import { bestEffortCleanup } from '../services/backgroundOperations';
 import { browserRegistry } from '../browser/registry';
+import { Alert } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   subscribeReverseControlEvents,
@@ -13,6 +14,7 @@ import type { SessionRuntimeStore } from './sessionRuntimeTypes';
 import { findLiveHostSession, sessionSnapshot } from '../liveHostSessions';
 import {
   launchTabAndOpenCreatedTab,
+  createWorkspaceAndOpenPane,
   type TabCreationResult,
   type TabLaunchIntent,
 } from '../lib/herdrCreationFlows';
@@ -270,7 +272,31 @@ export function useSessionTerminalLifecycle({
   );
 
   const createWorkspace = useCallback(
-    async (sessionId: string, name: string, cwd: string) => {
+    async (sessionId: string, name: string, cwd: string, launch?: TabLaunchIntent) => {
+      if (launch) {
+        const { runtime, hostId } = await prepareAgentPreferences(sessionId);
+        const workspace = await createWorkspaceAndOpenPane(
+          runtime, name, cwd, launch,
+          (pane, agentStarted) => {
+            navigation.selectPane(null);
+            terminals.openPane(sessionId, pane);
+            if (agentStarted) {
+              terminals.selectChat(sessionId, pane.terminal_id, true);
+              terminals.composerStore.setToggles(
+                terminalRendererKey(sessionId, pane.terminal_id), true,
+              );
+            }
+            select(sessionId, 'terminal');
+          },
+          error => Alert.alert(t('newTask.launchFailed'), String(error)),
+        );
+        publishControls();
+        reportBackgroundFailure(
+          preferencesStorage.current.save(hostId, runtime),
+          'new-task-agent-preferences',
+        );
+        return workspace;
+      }
       const created = await requireRuntime(
         sessionId,
       ).client.native.requestHerdrApi({
@@ -286,7 +312,7 @@ export function useSessionTerminalLifecycle({
       }
       return created.workspace;
     },
-    [requireRuntime],
+    [requireRuntime, prepareAgentPreferences, navigation, terminals, select, t, publishControls],
   );
 
   const renameWorkspace = useCallback(

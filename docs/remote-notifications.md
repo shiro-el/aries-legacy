@@ -1,6 +1,6 @@
 # Remote notifications and optional encryption
 
-Remote notifications are optional for each mobile device and saved Herdr session. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. With E2EE on, the preview is generic and only this device can read agent details. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
+Remote notifications are optional for each mobile device and saved Herdr session. Aries now defaults to [main-agent approval hooks](#automatic-hook-policy-aries); explicit calls and approvals always omit plaintext previews. The preview settings below apply to legacy status notifications. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. With E2EE on, the preview is generic and only this device can read agent details. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
 
 ## Components and delivery
 
@@ -237,5 +237,39 @@ occurs as part of this code change.
 Explicit calls always omit readable previews, regardless of a legacy host
 preview preference. The current relay still sends a generic visible push whose
 body tap authenticates the envelope and opens the originating host/pane. The
-composer default, approval detection, urgency-specific local alerts, reply
+composer default, urgency-specific local alerts, reply
 buttons and log viewer are implemented by the other phone-first tickets.
+
+### Automatic hook policy (Aries)
+
+The default hook policy is `main-approval`: only `blocked` on the main agent
+(the first pane in the workspace's lowest-numbered tab) creates an `urgent`
+`approval` event. The host verifies topology through `session.snapshot`; focus
+and `HERDR_PANE_ID` do not decide which pane is main. Unknown panes, shell panes,
+unavailable topology, main `done`, and other panes' status changes stay quiet.
+This uses Herdr's `blocked` signal; it does not inspect terminal text to classify
+individual prompts. Explicit `call` requests are unaffected by this setting.
+
+To inspect or change the persistent **host** setting, run the installed binary
+with the config/state paths returned by its `paths` action:
+
+```sh
+whip-notify --dirs "$config" "$state" policy
+whip-notify --dirs "$config" "$state" policy all-panes
+whip-notify --dirs "$config" "$state" policy main-approval
+```
+
+Inside a plugin environment, omit `--dirs` to use `HERDR_PLUGIN_CONFIG_DIR` and
+`HERDR_PLUGIN_STATE_DIR`. `all-panes` restores upstream notifications for every
+pane's `blocked` and `done`, including its existing preview preference behavior.
+The private `hook-policy.json` setting applies to all sessions using that plugin
+installation. A missing file selects `main-approval`; malformed or unsafe files
+fail the operation without sending a push. The setting survives reinstall.
+
+Default-policy approval events are written to `calls.jsonl` before lease or relay
+handling, using the same retention and privacy rules as explicit calls. They
+carry `kind: "approval"`, `urgency: "urgent"`, a call ID, and no option buttons.
+They always omit plaintext previews. Tapping uses the existing authenticated
+host/session/pane navigation, refreshes topology, and opens the pane with its
+in-app controls; approval is performed there. Legacy status events retain their
+previous shape and do not become call-log entries.

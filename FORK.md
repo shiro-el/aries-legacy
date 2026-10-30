@@ -116,7 +116,52 @@ fork keeps the herding theme with the ram that leads the flock.
   - App taps reuse authenticated host/pane routing and fresh target resolution.
     See `docs/remote-notifications.md` for the command and log contract.
 
-### 5. Host call history and foreground calls
+### 5. Phone-first new task setup
+
+- **What:** Herd's new task action chooses a folder, then Claude Code, Codex, or
+  a shell. Agent tasks offer model shortcuts, a custom model ID, and effort.
+  The folder name pre-fills the workspace label. Workspace rename keeps its
+  existing editor; the old creation editor and operation remain in the code.
+- **Why:** Starting work from a phone should not require typing agent commands
+  or leave an unused shell beside the main agent.
+- **How:** Folder suggestions use all open panes on the selected host plus its
+  20 most recent task folders. The existing remote file manager has a folder
+  selection mode. Recent folders and each agent's model/effort persist under
+  `whip.new-task.v1.<saved-host-id>` in the Rust-owned application database.
+  A blank model uses the remote agent's default. React Native passes typed
+  argument arrays (`--model`/`--effort` for Claude, `-m`/`-c` for Codex).
+  Rust's `create_workspace_with_launch` uses the first pane returned by
+  `workspace.create`, with no additional tab or pane. Successful agent tasks
+  select Chat and open the composer. Typed partial failure opens the original
+  pane and shows the launch error, so retrying setup cannot duplicate the task.
+  UniFFI TypeScript/C++ bindings are regenerated from the Rust library.
+
+### 6. Main-agent approval hook policy
+
+- **What:** Automatic host pushes now report only the main agent's `blocked`
+  status as an `urgent` `approval`, with a call ID and a retained call-log entry.
+  Main-agent `done` and other panes' status changes stay quiet.
+- **Why:** Completion and other requests for attention belong to explicit agent
+  calls. Routine subagent status changes should not interrupt the phone user.
+- **How:** The hook reuses `call`'s Herdr snapshot verification of the first pane
+  in the workspace's lowest-numbered tab. Missing/unverifiable topology suppresses
+  automatic notifications. Recording precedes lease checks and delivery, so
+  active-app suppression and relay failures retain the approval. Approval events
+  carry no choices and omit plaintext previews, and taps use the existing
+  authenticated host/pane navigation and in-app interaction controls.
+  - The previous all-pane `blocked`/`done` path remains behind the persistent
+    host setting `whip-notify policy all-panes`; `policy main-approval` restores
+    the default. `policy` reads the current setting. The private atomic
+    `hook-policy.json` configuration is shared across that installation's
+    sessions and survives unregister/uninstall/reinstall, like host configuration.
+  - Legacy mode preserves the old event format and preview preferences. Unknown
+    or unsafe policy files fail closed rather than enabling legacy delivery.
+- **Validation:** Binary tests use fixture Herdr sockets and a local relay endpoint
+  to check both policies, suppression, approval records, active leases, failed
+  delivery, and resetting/invalid settings. Existing app navigation and screen
+  tests cover authenticated taps, fresh pane resolution and pane interaction.
+
+### 7. Host call history and foreground calls
 
 - **What:** More → Call log shows each host's retained calls and approvals,
   newest first, with effective urgency, time, pane, title/body, ineligibility and

@@ -5,7 +5,7 @@ import type {
   RuntimeTabLaunchFailure,
 } from 'react-native-whip-ssh';
 
-import type { WorkspaceInfo } from '../types';
+import type { PaneInfo, WorkspaceInfo } from '../types';
 
 export type TabCreationResult = RuntimeTabCreationResult;
 export type TabLaunchIntent = RuntimeTabLaunch;
@@ -62,5 +62,27 @@ export async function launchTabAndOpenCreatedTab(
       throw partial;
     }
     throw error;
+  }
+}
+
+/** Preserve the initial pane and workspace on a failed agent start. */
+export async function createWorkspaceAndOpenPane(
+  runtime: Pick<HostRuntimeConnection, 'createWorkspaceWithLaunch'>,
+  name: string,
+  cwd: string,
+  launch: TabLaunchIntent,
+  open: (pane: PaneInfo, agentStarted: boolean) => void,
+  reportFailure: (error: unknown) => void = () => undefined,
+): Promise<WorkspaceInfo> {
+  try {
+    const created = await runtime.createWorkspaceWithLaunch(name, cwd, launch);
+    open(created.root_pane, launch.type === 'agent');
+    return created.workspace;
+  } catch (error) {
+    const failure = error as RuntimeTabLaunchFailure;
+    if (failure.code !== 'TAB_LAUNCH_FAILED' || !failure.created || !failure.workspace) throw error;
+    open(failure.created.root_pane, false);
+    reportFailure(error);
+    return failure.workspace;
   }
 }
