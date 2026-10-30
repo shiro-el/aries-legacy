@@ -11,7 +11,7 @@ See [installation, protocol, leases, relay deployment and security model](../doc
 Whip offers per-host **Install on host** / **Uninstall from host** controls over its existing SSH connection. Installation downloads a version-pinned GitHub Release binary and verifies its SHA-256 checksum. No Rust compiler, Node or Python is needed on the host. This package is also directly installable without a marketplace listing:
 
 ```sh
-herdr plugin install --yes --ref whip-notify-install-v0.1.4 kosumic/whip/whip-notify
+herdr plugin install --yes --ref whip-notify-install-v0.1.5 kosumic/whip/whip-notify
 herdr plugin uninstall dev.whip.notify
 ```
 
@@ -36,10 +36,32 @@ The binary supports `paths`, `identity`, `register` (JSON on stdin), `unregister
 
 ## Releasing
 
-Run the **Release notification plugin** GitHub Action on the intended revision, or push a `whip-notify-v<VERSION>` tag. `Cargo.toml` and `herdr-plugin.toml` must have matching versions. The action tests this crate and the installer, builds all three host targets, smoke-tests the binaries, and publishes the binaries, their `.sha256` files and the plugin manifest only after all builds pass. It also publishes `whip-notify-install-v<VERSION>`, a parentless commit containing only `whip-notify/{build.sh,platform.sh,herdr-plugin.toml}`. Herdr installs from this small tree while the release/source tag retains the full source. Installer tags are immutable: changed contents require a version bump. It uses the repository's GitHub token; no new secrets are required. The plugin release does not replace the mobile app's latest release.
+Run the **Release notification plugin** GitHub Action on the intended revision, or push a `whip-notify-v<VERSION>` tag. `Cargo.toml` and `herdr-plugin.toml` must have matching versions. The action tests this crate and the installer, builds all three host targets, smoke-tests the binaries, and publishes the binaries, their `.sha256` files and the plugin manifest only after all builds pass. It also publishes `whip-notify-install-v<VERSION>`, a parentless commit containing only `whip-notify/{build.sh,platform.sh,skills.sh,call-human/SKILL.md,herdr-plugin.toml}`. Herdr installs from this small tree while the release/source tag retains the full source. Installer tags are immutable: changed contents require a version bump. It uses the repository's GitHub token; no new secrets are required. The plugin release does not replace the mobile app's latest release.
 
 ```sh
 gh workflow run release-whip-notify.yml --ref main
 ```
 
 Published releases are never overwritten by the workflow. Bump both version fields for a new release. The mobile core derives its install tag from this package's `PACKAGE_VERSION`. SHA-256 detects corruption and substitution against the downloaded checksum; authenticity trusts HTTPS, the GitHub repository and its release maintainers. This is not an independent code signature.
+
+## Calling the human from an agent
+
+The managed build hook and local `install.sh` install the single repository
+[`call-human/SKILL.md`](call-human/SKILL.md) into both
+`~/.claude/skills/call-human/` and `~/.agents/skills/call-human/`.
+Use `/call-human` in Claude Code or `$call-human` in Codex. The same instructions
+cover the four urgency levels, up to three choices, and the main-agent-only
+rule. They discover the plugin's executable/config/state through its `paths`
+action before invoking `whip-notify --dirs … call …`; no plugin environment
+variables need to be inherited by the agent.
+
+The app removes unchanged plugin-owned skills before unlinking the host plugin,
+while retaining host identity, registrations and logs. With the CLI, run
+`sh skills.sh uninstall` from the plugin source before
+`herdr plugin uninstall dev.whip.notify`. A raw Herdr unlink does not run a
+cleanup hook. Reinstall/upgrade refreshes owned skills. Install refuses to
+replace an existing custom/edited skill or skill symlink; uninstall preserves
+these and any extra user files. Ownership is tracked with a private
+`.whip-notify` copy of the installed instructions. Install and uninstall share a
+short-lived directory lock; after a killed installer, remove an abandoned
+`~/.whip-notify-skills.lock` only after confirming no install is running.

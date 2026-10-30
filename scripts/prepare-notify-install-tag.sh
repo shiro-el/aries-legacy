@@ -6,10 +6,10 @@ set -eu
 notify_source=${1:-HEAD}
 notify_version=$(git show "$notify_source:whip-notify/herdr-plugin.toml" | sed -n 's/^version = "\([0-9][0-9.]*\)"$/\1/p')
 [ -n "$notify_version" ] || { echo 'Invalid notification plugin version' >&2; exit 1; }
-for notify_file in build.sh herdr-plugin.toml platform.sh; do
+for notify_file in build.sh herdr-plugin.toml platform.sh skills.sh call-human/SKILL.md; do
   git cat-file -e "$notify_source:whip-notify/$notify_file"
 done
-notify_entries=$(git ls-tree "$notify_source:whip-notify" -- build.sh herdr-plugin.toml platform.sh)
+notify_entries=$(git ls-tree "$notify_source:whip-notify" -- build.sh herdr-plugin.toml platform.sh skills.sh call-human)
 notify_plugin_tree=$(printf '%s\n' "$notify_entries" | git mktree)
 notify_tree=$(printf '040000 tree %s\twhip-notify\n' "$notify_plugin_tree" | git mktree)
 notify_tag="whip-notify-install-v$notify_version"

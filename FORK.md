@@ -161,7 +161,27 @@ fork keeps the herding theme with the ram that leads the flock.
   delivery, and resetting/invalid settings. Existing app navigation and screen
   tests cover authenticated taps, fresh pane resolution and pane interaction.
 
-### 7. Host call history and foreground calls
+### 7. Shared call-human skill for Claude Code and Codex
+
+- **What:** Both agents receive the same `call-human` skill through the existing
+  host notification installer. App uninstall also removes the installed skills.
+- **Why:** The main agent needs consistent guidance for explicit human calls,
+  urgency and answer choices, while subagents should report to their coordinator.
+- **How:** One `whip-notify/call-human/SKILL.md` defines all four urgency levels,
+  up to three options, main-agent eligibility, and discovery of the existing
+  `paths` action before running `call`. The build hook and local installer copy
+  it into `~/.claude/skills` and `~/.agents/skills`. A shared shell lifecycle script
+  tracks ownership, preserves custom/edited skills and extra user files, and
+  serializes concurrent operations. The app runs its cleanup over authenticated
+  SSH before Herdr unlink; host configuration and call logs remain intact.
+  - Plugin version 0.1.5 includes the skill and lifecycle script in its immutable
+    minimal installer tree. No release, deployment or real-phone use is included.
+- **Validation:** Black-box installer tests cover both agent destinations, local
+  installation, reinstall, safe removal, custom/edited/symlink preservation,
+  concurrent installs and immutable installer packaging. Real-phone delivery
+  remains an acceptance check for the provisioned stack.
+
+### 8. Host call history and foreground calls
 
 - **What:** More → Call log shows each host's retained calls and approvals,
   newest first, with effective urgency, time, pane, title/body, ineligibility and
