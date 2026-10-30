@@ -5,6 +5,7 @@ mod agent_controls;
 pub use agent_controls::AgentControlView;
 mod agent_view;
 mod agents;
+mod catalog;
 mod chat_identity;
 mod connection;
 pub use connection::herdr_protocol_label;
@@ -587,6 +588,8 @@ impl RuntimeState {
 }
 
 struct RuntimeInner {
+    catalog_cache: Mutex<catalog::CatalogCache>,
+    catalog_operation: AsyncMutex<()>,
     interaction_response: AsyncMutex<HashMap<String, String>>,
     id: String,
     incarnation: u64,
@@ -909,6 +912,8 @@ pub fn create_host_runtime(
         config.herdr_enabled,
     );
     let inner = Arc::new(RuntimeInner {
+        catalog_cache: Mutex::new(catalog::CatalogCache::default()),
+        catalog_operation: AsyncMutex::new(()),
         interaction_response: AsyncMutex::new(HashMap::new()),
         id: id.clone(),
         incarnation,

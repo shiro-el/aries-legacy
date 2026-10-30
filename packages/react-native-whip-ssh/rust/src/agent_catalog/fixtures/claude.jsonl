@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","claude_code_version":"2.1.312","slash_commands":["compact","model","review"],"skills":["review"],"terminal_slash_commands":["doctor"]}
+{"type":"result","subtype":"success","result":"status"}

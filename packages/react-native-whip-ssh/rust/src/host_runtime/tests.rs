@@ -176,6 +176,8 @@ fn runtime_inner_with_state(
         runtime_config.herdr_enabled,
     );
     Arc::new(RuntimeInner {
+        catalog_cache: Mutex::new(catalog::CatalogCache::default()),
+        catalog_operation: AsyncMutex::new(()),
         interaction_response: AsyncMutex::new(HashMap::new()),
         id: id.to_owned(),
         incarnation: 1,

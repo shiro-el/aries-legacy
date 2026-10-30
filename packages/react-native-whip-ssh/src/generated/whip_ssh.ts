@@ -3124,6 +3124,163 @@ const stringConverter = (() => {
 })();
 const FfiConverterString = uniffiCreateFfiConverterString(stringConverter);
 
+export type AgentCatalogKey = {
+  host: string;
+  cwd: string;
+  agent: string;
+  version: string;
+};
+
+/**
+ * Generated factory for {@link AgentCatalogKey} record objects.
+ */
+export const AgentCatalogKey = (() => {
+  const defaults = () => ({});
+  const create = (() => {
+    return uniffiCreateRecord<AgentCatalogKey, ReturnType<typeof defaults>>(
+      defaults,
+    );
+  })();
+  return Object.freeze({
+    create,
+    new: create,
+    defaults: () => Object.freeze(defaults()) as Partial<AgentCatalogKey>,
+  });
+})();
+
+const FfiConverterTypeAgentCatalogKey = (() => {
+  type TypeName = AgentCatalogKey;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      return {
+        host: FfiConverterString.read(from),
+        cwd: FfiConverterString.read(from),
+        agent: FfiConverterString.read(from),
+        version: FfiConverterString.read(from),
+      };
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      FfiConverterString.write(value.host, into);
+      FfiConverterString.write(value.cwd, into);
+      FfiConverterString.write(value.agent, into);
+      FfiConverterString.write(value.version, into);
+    }
+    allocationSize(value: TypeName): number {
+      return (
+        FfiConverterString.allocationSize(value.host) +
+        FfiConverterString.allocationSize(value.cwd) +
+        FfiConverterString.allocationSize(value.agent) +
+        FfiConverterString.allocationSize(value.version)
+      );
+    }
+  }
+  return new FFIConverter();
+})();
+
+export type AgentCatalogEntry = {
+  name: string;
+  description: string;
+  argumentHint: string;
+  terminalOnly: boolean;
+};
+
+/**
+ * Generated factory for {@link AgentCatalogEntry} record objects.
+ */
+export const AgentCatalogEntry = (() => {
+  const defaults = () => ({});
+  const create = (() => {
+    return uniffiCreateRecord<AgentCatalogEntry, ReturnType<typeof defaults>>(
+      defaults,
+    );
+  })();
+  return Object.freeze({
+    create,
+    new: create,
+    defaults: () => Object.freeze(defaults()) as Partial<AgentCatalogEntry>,
+  });
+})();
+
+const FfiConverterTypeAgentCatalogEntry = (() => {
+  type TypeName = AgentCatalogEntry;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      return {
+        name: FfiConverterString.read(from),
+        description: FfiConverterString.read(from),
+        argumentHint: FfiConverterString.read(from),
+        terminalOnly: FfiConverterBool.read(from),
+      };
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      FfiConverterString.write(value.name, into);
+      FfiConverterString.write(value.description, into);
+      FfiConverterString.write(value.argumentHint, into);
+      FfiConverterBool.write(value.terminalOnly, into);
+    }
+    allocationSize(value: TypeName): number {
+      return (
+        FfiConverterString.allocationSize(value.name) +
+        FfiConverterString.allocationSize(value.description) +
+        FfiConverterString.allocationSize(value.argumentHint) +
+        FfiConverterBool.allocationSize(value.terminalOnly)
+      );
+    }
+  }
+  return new FFIConverter();
+})();
+
+export type AgentCatalog = {
+  key: AgentCatalogKey;
+  commands: Array<AgentCatalogEntry>;
+  skills: Array<AgentCatalogEntry>;
+};
+
+/**
+ * Generated factory for {@link AgentCatalog} record objects.
+ */
+export const AgentCatalog = (() => {
+  const defaults = () => ({});
+  const create = (() => {
+    return uniffiCreateRecord<AgentCatalog, ReturnType<typeof defaults>>(
+      defaults,
+    );
+  })();
+  return Object.freeze({
+    create,
+    new: create,
+    defaults: () => Object.freeze(defaults()) as Partial<AgentCatalog>,
+  });
+})();
+
+const FfiConverterTypeAgentCatalog = (() => {
+  type TypeName = AgentCatalog;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      return {
+        key: FfiConverterTypeAgentCatalogKey.read(from),
+        commands: FfiConverterSequenceTypeAgentCatalogEntry.read(from),
+        skills: FfiConverterSequenceTypeAgentCatalogEntry.read(from),
+      };
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      FfiConverterTypeAgentCatalogKey.write(value.key, into);
+      FfiConverterSequenceTypeAgentCatalogEntry.write(value.commands, into);
+      FfiConverterSequenceTypeAgentCatalogEntry.write(value.skills, into);
+    }
+    allocationSize(value: TypeName): number {
+      return (
+        FfiConverterTypeAgentCatalogKey.allocationSize(value.key) +
+        FfiConverterSequenceTypeAgentCatalogEntry.allocationSize(
+          value.commands,
+        ) +
+        FfiConverterSequenceTypeAgentCatalogEntry.allocationSize(value.skills)
+      );
+    }
+  }
+  return new FFIConverter();
+})();
+
 export enum AgentTranscriptKind {
   Claude,
   Codex,
@@ -26547,6 +26704,7 @@ export interface HostRuntimeLike {
     transferId: string,
     asyncOpts_?: { signal: AbortSignal },
   ) /*throws*/ : Promise<TransferResult>;
+  cachedAgentCatalog(paneId: string): AgentCatalog | undefined;
   cachedDirectory(path: string): RemoteDirectoryListing | undefined;
   cancelTransfer(transferId: string): boolean;
   closeAllTerminals(): void;
@@ -26708,6 +26866,10 @@ export interface HostRuntimeLike {
     reason: string,
     asyncOpts_?: { signal: AbortSignal },
   ) /*throws*/ : Promise<void>;
+  refreshAgentCatalog(
+    paneId: string,
+    asyncOpts_?: { signal: AbortSignal },
+  ) /*throws*/ : Promise<AgentCatalog | undefined>;
   refreshState(asyncOpts_?: {
     signal: AbortSignal;
   }) /*throws*/ : Promise<HostStateSnapshot>;
@@ -27161,6 +27323,27 @@ export class HostRuntime
       }
       throw __error;
     }
+  }
+
+  cachedAgentCatalog(paneId: string): AgentCatalog | undefined {
+    return ((__rb: Uint8Array) => {
+      try {
+        return FfiConverterOptionalTypeAgentCatalog.lift(__rb);
+      } finally {
+        nativeModule().rustbuffer_free(__rb);
+      }
+    })(
+      uniffiCaller.rustCall(
+        /*caller:*/ callStatus => {
+          return nativeModule().ubrn_uniffi_whip_ssh_fn_method_hostruntime_cached_agent_catalog(
+            uniffiTypeHostRuntimeObjectFactory.clonePointer(this),
+            FfiConverterString.lower(paneId, nativeModule().rustbuffer_alloc),
+            callStatus,
+          );
+        },
+        /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+      ),
+    );
   }
 
   cachedDirectory(path: string): RemoteDirectoryListing | undefined {
@@ -28803,6 +28986,54 @@ export class HostRuntime
           .ubrn_ffi_whip_ssh_rust_future_complete_void,
         /*freeFunc:*/ nativeModule().ubrn_ffi_whip_ssh_rust_future_free_void,
         /*liftFunc:*/ _v => {},
+        /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+        /*asyncOpts:*/ asyncOpts_,
+        /*errorHandler:*/ FfiConverterTypeHostRuntimeError.lift.bind(
+          FfiConverterTypeHostRuntimeError,
+        ),
+      );
+    } catch (__error: any) {
+      if (uniffiIsDebug && __error instanceof Error) {
+        __error.stack = __stack;
+      }
+      throw __error;
+    }
+  }
+
+  async refreshAgentCatalog(
+    paneId: string,
+    asyncOpts_?: { signal: AbortSignal },
+  ): Promise<AgentCatalog | undefined> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+      return await uniffiRustCallAsync(
+        /*rustCaller:*/ uniffiCaller,
+        /*rustFutureFunc:*/ () => {
+          return nativeModule().ubrn_uniffi_whip_ssh_fn_method_hostruntime_refresh_agent_catalog(
+            uniffiTypeHostRuntimeObjectFactory.clonePointer(this),
+            FfiConverterString.lower(paneId, nativeModule().rustbuffer_alloc),
+          );
+        },
+        /*pollFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_poll_rust_buffer,
+        /*cancelFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_cancel_rust_buffer,
+        /*completeFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_complete_rust_buffer,
+        /*freeFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_free_rust_buffer,
+        // Async returns always go through the JS-side converter: the
+        // FFI symbol returns the future handle (u64), and the user-level
+        // RustBuffer comes back via the shared `rust_future_complete_*`
+        // export. The bytes the runtime hands back must be deserialized
+        // here using the per-callable return-type converter.
+        /*liftFunc:*/ (__rb: Uint8Array) => {
+          try {
+            return FfiConverterOptionalTypeAgentCatalog.lift(__rb);
+          } finally {
+            nativeModule().rustbuffer_free(__rb);
+          }
+        },
         /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
         /*asyncOpts:*/ asyncOpts_,
         /*errorHandler:*/ FfiConverterTypeHostRuntimeError.lift.bind(
@@ -34117,6 +34348,11 @@ const uniffiCallbackInterfaceWhipSshEventSink: {
   },
 };
 
+// FfiConverter for Array<AgentCatalogEntry>
+const FfiConverterSequenceTypeAgentCatalogEntry = new FfiConverterArray(
+  FfiConverterTypeAgentCatalogEntry,
+);
+
 // FfiConverter for string | undefined
 const FfiConverterOptionalString = new FfiConverterOptional(FfiConverterString);
 
@@ -34433,6 +34669,11 @@ const FfiConverterOptionalTypeAgentInteractionPrompt = new FfiConverterOptional(
 // FfiConverter for ChatSearchFocus | undefined
 const FfiConverterOptionalTypeChatSearchFocus = new FfiConverterOptional(
   FfiConverterTypeChatSearchFocus,
+);
+
+// FfiConverter for AgentCatalog | undefined
+const FfiConverterOptionalTypeAgentCatalog = new FfiConverterOptional(
+  FfiConverterTypeAgentCatalog,
 );
 
 // FfiConverter for RemoteDirectoryListing | undefined
@@ -36072,6 +36313,14 @@ function uniffiEnsureInitialized() {
     );
   }
   if (
+    nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_cached_agent_catalog() !==
+    58490
+  ) {
+    throw new UniffiInternalError.ApiChecksumMismatch(
+      'uniffi_whip_ssh_checksum_method_hostruntime_cached_agent_catalog',
+    );
+  }
+  if (
     nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_cached_directory() !==
     55886
   ) {
@@ -36413,6 +36662,14 @@ function uniffiEnsureInitialized() {
   ) {
     throw new UniffiInternalError.ApiChecksumMismatch(
       'uniffi_whip_ssh_checksum_method_hostruntime_recover',
+    );
+  }
+  if (
+    nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_refresh_agent_catalog() !==
+    34765
+  ) {
+    throw new UniffiInternalError.ApiChecksumMismatch(
+      'uniffi_whip_ssh_checksum_method_hostruntime_refresh_agent_catalog',
     );
   }
   if (
@@ -36876,6 +37133,9 @@ function uniffiEnsureInitialized() {
 export default Object.freeze({
   initialize: uniffiEnsureInitialized,
   converters: {
+    FfiConverterTypeAgentCatalog,
+    FfiConverterTypeAgentCatalogEntry,
+    FfiConverterTypeAgentCatalogKey,
     FfiConverterTypeAgentChatBinding,
     FfiConverterTypeAgentChatOpenResult,
     FfiConverterTypeAgentChatPartKind,

@@ -767,6 +767,8 @@ export const zhHant: Record<string, string> = {
   'terminal.collapseComposer': '收合輸入編輯器',
   'terminal.expandedComposerTitle': '長文字編輯器',
   'terminal.composeCharacterCount': '{{count}} 個字元',
+  'terminal.commandCatalog': '代理程式指令',
+  'terminal.commandTerminalOnly': '僅限終端機',
   'terminal.composePlaceholder': '傳送前編輯指令或訊息…',
   'terminal.sendBufferedInput': '傳送至終端機',
   'terminal.closeCompose': '關閉輸入編輯器',

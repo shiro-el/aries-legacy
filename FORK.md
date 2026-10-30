@@ -92,3 +92,34 @@ fork keeps the herding theme with the ram that leads the flock.
 - **Validation:** Jest screen coverage exercises defaults, live agent changes,
   one-tap switching, drafts, independent panes and late preference restoration;
   persistence coverage checks restarts and ignoring upstream records.
+
+### 4. Agent command catalog and composer autocomplete
+
+- **What:** Agent composers offer command-only `/` completion with descriptions,
+  argument hints and a terminal-only label. Choosing a command inserts `/name `;
+  sending a terminal-only command opens Terminal after successful delivery.
+- **Why:** Phone users can discover commands without mixing them with skills or
+  losing access to CLI menus. Shell input and ordinary composer messages retain
+  their existing behavior when discovery is unavailable.
+- **How:** Rust owns a bounded, per-host cache keyed by cwd, agent and version,
+  with typed command and skill projections. Opening a pane reads its cached
+  catalog and refreshes it in the background. Discovery uses a separate SSH exec
+  channel and an optional Python 3 helper, never the interactive pane channel.
+  - Claude uses the read-only `/status` print-mode `system/init` with session
+    persistence disabled. Its skills are removed from commands, including skill
+    overrides of known builtins. User, ancestor-project and installed-plugin
+    frontmatter enriches discovered entries; known interactive commands fill
+    omissions in print-mode discovery.
+  - Codex uses app-server initialization and `skills/list`, direct user prompt
+    files, and a curated command registry for verified version 0.165.0. Other
+    versions expose discovered prompts and skills while their builtin commands
+    stay hidden until a version-specific registry is verified. The `/skills`
+    menu stays hidden from command completion for the separate skill entry.
+  - Discovery processes have time, output and file-scan limits and are killed
+    after metadata arrives. Missing Python or CLI discovery failures disable
+    completion without blocking typing, sending or queued retries. Cache entries
+    live only in the owning Rust runtime; no host catalog contents are persisted.
+- **Validation:** Rust fixtures cover command/skill separation, namespace-aware
+  frontmatter, interactive labels and version keys. Jest screen tests cover
+  filtering, caret position, insertion without sending, shell panes, failed/late
+  discovery, and successful versus failed terminal-only delivery.

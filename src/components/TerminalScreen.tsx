@@ -1,3 +1,4 @@
+import { useAgentCatalog } from '../hooks/useAgentCatalog';
 import { ChatSearchBar } from './ChatSearchBar';
 import { EMPTY_TERMINAL_SEARCH } from '../lib/terminalSearch';
 import {
@@ -163,6 +164,7 @@ const VOICE_CONTEXT_MESSAGES = 10;
 const VOICE_CONTEXT_CHARACTERS = 12_000;
 
 interface Props {
+  catalogPaneContext?: string;
   onResidencyEnd?: TerminalResidencyEnd;
   activeTarget: TerminalRenderTarget | null;
   targets: readonly TerminalRenderTarget[];
@@ -402,6 +404,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
   function TerminalScreenComponent(
     {
       activeTarget,
+      catalogPaneContext,
       onResidencyEnd,
       targets,
       visible,
@@ -498,6 +501,23 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       composerStore.subscribe,
       () => composerStore.snapshot(activeTarget?.key || ''),
     );
+    const catalog = useAgentCatalog(activeTarget, visible, catalogPaneContext);
+    const [composerSelection, setComposerSelection] = useState<{ key: string; start: number; end: number } | null>(null);
+    const terminalCommandSentRef = useRef<(target: TerminalRenderTarget, text: string) => void>(() => {});
+    terminalCommandSentRef.current = (target, text) => {
+      const name = text.match(/^\/([^\s]+)/)?.[1];
+      if (target.key !== activeTarget?.key || !catalog?.commands.some(command => command.name === name && command.terminalOnly)) return;
+      composerStore.setInputMode(target.key, 'terminal');
+      if (chatControl?.active) chatControl.onPress();
+    };
+    const selection = composerSelection?.key === activeTarget?.key ? composerSelection : null;
+    const firstWordEnd = composer.text.search(/\s/);
+    const wordEnd = firstWordEnd < 0 ? composer.text.length : firstWordEnd;
+    const cursorStart = selection?.start ?? composer.text.length;
+    const cursorEnd = selection?.end ?? composer.text.length;
+    const commandMatches = composer.text.startsWith('/') && cursorStart >= 1 && cursorEnd <= wordEnd
+      ? catalog?.commands.filter(command => command.name.toLowerCase().startsWith(composer.text.slice(1, cursorStart).toLowerCase())) ?? []
+      : [];
     const { composeOpen, composeExpanded } = composer;
     const composeOpenRef = useRef(composeOpen);
     // Each visit gets its own identity, including A -> B -> A and hide/show.
@@ -1021,6 +1041,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
     // Only programmatic edits touch native text; IME edits stay uncontrolled.
     const replaceComposeText = useCallback((targetKey: string, text: string) => {
       composerStore.setText(targetKey, text);
+      setComposerSelection({ key: targetKey, start: text.length, end: text.length });
       if (activeTargetRef.current?.key !== targetKey) return;
       composeInputRef.current?.setNativeProps({ text });
       composeInputRef.current?.setSelection(text.length, text.length);
@@ -1190,6 +1211,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
                 message.attempts === 0,
               );
               if (generation !== queueGenerationRef.current) return;
+              terminalCommandSentRef.current(target, message.text);
               if (target.key === activeTargetRef.current?.key) setError(null);
             } catch (reason) {
               if (generation !== queueGenerationRef.current) return;
@@ -1447,6 +1469,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       if (!target) return;
       onInteraction?.(target);
       composerStore.setText(target.key, value);
+      setComposerSelection(null);
     };
 
     const pasteComposerImage = useCallback((picked: ClipboardAttachmentResult) => {
@@ -1870,11 +1893,26 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       multiline: true,
       textAlignVertical: 'top',
       onChangeText: updateComposeText,
+      onSelectionChange: (event) => {
+        if (activeTarget) setComposerSelection({ key: activeTarget.key, ...event.nativeEvent.selection });
+      },
       placeholder: t('terminal.composePlaceholder'),
       placeholderTextColor: appGlassEnabled ? appColors.textSecondary : colors.muted,
     } satisfies ComponentProps<typeof ComposerInput>;
     const composerQueueAndAttachments = (
       <>
+        {commandMatches.length > 0 && (
+          <ScrollView keyboardShouldPersistTaps="always" style={{ maxHeight: 220 }} accessibilityLabel={t('terminal.commandCatalog')}>
+            {commandMatches.map(command => (
+              <Pressable key={command.name} accessibilityRole="button" accessibilityLabel={`/${command.name}`}
+                className="px-4 py-2"
+                onPress={() => { if (activeTarget) { replaceComposeText(activeTarget.key, `/${command.name} `); composeInputRef.current?.focus(); } }}>
+                <Text className="text-sm text-terminal-foreground">/{command.name} {command.argumentHint}</Text>
+                <Text className="text-xs text-terminal-muted">{command.description}{command.terminalOnly ? ` · ${t('terminal.commandTerminalOnly')}` : ''}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
         {speechInput.busy && (
           <Text accessibilityLiveRegion="polite" className="px-4 pt-2 text-xs text-terminal-muted" numberOfLines={2}>
             {speechInput.interimText || t(`terminal.voice.${speechInput.phase}`)}

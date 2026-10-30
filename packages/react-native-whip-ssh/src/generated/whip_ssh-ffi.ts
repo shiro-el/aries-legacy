@@ -1245,6 +1245,11 @@ interface NativeModuleInterface {
     uniffiSelf: bigint,
     transferId: Uint8Array,
   ): bigint;
+  ubrn_uniffi_whip_ssh_fn_method_hostruntime_cached_agent_catalog(
+    uniffiSelf: bigint,
+    paneId: Uint8Array,
+    uniffi_out_err: UniffiRustCallStatus,
+  ): Uint8Array;
   ubrn_uniffi_whip_ssh_fn_method_hostruntime_cached_directory(
     uniffiSelf: bigint,
     path: Uint8Array,
@@ -1451,6 +1456,10 @@ interface NativeModuleInterface {
     uniffiSelf: bigint,
     immediate: number,
     reason: Uint8Array,
+  ): bigint;
+  ubrn_uniffi_whip_ssh_fn_method_hostruntime_refresh_agent_catalog(
+    uniffiSelf: bigint,
+    paneId: Uint8Array,
   ): bigint;
   ubrn_uniffi_whip_ssh_fn_method_hostruntime_refresh_state(
     uniffiSelf: bigint,
@@ -1929,6 +1938,7 @@ interface NativeModuleInterface {
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_agent_transcript(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_agent_transcript_search(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_await_transfer(): number;
+  ubrn_uniffi_whip_ssh_checksum_method_hostruntime_cached_agent_catalog(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_cached_directory(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_cancel_transfer(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_close_all_terminals(): number;
@@ -1972,6 +1982,7 @@ interface NativeModuleInterface {
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_read_remote_text(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_read_terminal_selection(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_recover(): number;
+  ubrn_uniffi_whip_ssh_checksum_method_hostruntime_refresh_agent_catalog(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_refresh_state(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_remote_home(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_remove_remote_path(): number;

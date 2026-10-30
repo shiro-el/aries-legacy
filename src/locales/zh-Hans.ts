@@ -767,6 +767,8 @@ export const zhHans = {
   'terminal.collapseComposer': '收起输入编辑器',
   'terminal.expandedComposerTitle': '长文本编辑器',
   'terminal.composeCharacterCount': '{{count}} 个字符',
+  'terminal.commandCatalog': '智能体命令',
+  'terminal.commandTerminalOnly': '仅限终端',
   'terminal.composePlaceholder': '在发送之前编辑命令或消息...',
   'terminal.sendBufferedInput': '发送到终端',
   'terminal.closeCompose': '关闭输入编辑器',

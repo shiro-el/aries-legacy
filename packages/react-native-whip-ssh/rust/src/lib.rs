@@ -1,5 +1,6 @@
 //! Private QR-pinned bootstrap SSH connection used for WP4 pairing.
 
+mod agent_catalog;
 mod agent_sessions;
 mod agent_transcript;
 mod app_core;
@@ -40,6 +41,7 @@ mod test_allocations;
 mod transcript_database;
 mod usage;
 
+pub use agent_catalog::*;
 pub use agent_sessions::*;
 pub use agent_transcript::*;
 pub use app_core::*;

@@ -141,6 +141,8 @@ class MockNativeKnownHostStore {
 
 function createMockWhipSshModule() {
   const api = {
+    agentCatalogs: new Map(),
+    refreshAgentCatalog: jest.fn(async paneId => api.agentCatalogs.get(paneId)),
     connectWithPassword: jest.fn(),
     connectWithPasswordViaJump: jest.fn(),
     connectWithKey: jest.fn(),
@@ -236,6 +238,8 @@ function createMockWhipSshModule() {
 
     const runtime = {
       runtimeId: config.runtimeId,
+      cachedAgentCatalog: paneId => api.agentCatalogs.get(paneId),
+      refreshAgentCatalog: paneId => api.refreshAgentCatalog(paneId),
       herdrEnabled: config.herdrEnabled !== false,
       controlClient: undefined,
       async connect() {
