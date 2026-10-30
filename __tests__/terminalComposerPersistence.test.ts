@@ -15,8 +15,8 @@ jest.mock('../src/services/backgroundOperations', () => ({
   reportBackgroundFailure: (promise: Promise<unknown>) => { void promise.catch(jest.fn()); },
 }));
 
-const STORAGE_KEY = 'whip.terminal.composers.v1.host';
-const OTHER_STORAGE_KEY = 'whip.terminal.composers.v1.other-host';
+const STORAGE_KEY = 'aries.terminal.composers.v2.host';
+const OTHER_STORAGE_KEY = 'aries.terminal.composers.v2.other-host';
 const key = terminalRendererKey('runtime', 'term');
 const otherKey = terminalRendererKey('runtime', 'other');
 const saved = { text: 'saved draft', composeOpen: true, composeExpanded: true };
@@ -213,4 +213,25 @@ test('a later edit can persist after a failed write', async () => {
   store.setText(key, 'retry');
   await persistence.flush();
   expect(JSON.parse(disk.get(STORAGE_KEY)!)).toEqual({ term: { ...defaults, text: 'retry' } });
+});
+
+
+test('an explicit empty Terminal preference survives a restart and stays local to its pane', async () => {
+  const { store, persistence } = setup();
+  await persistence.bind('runtime', 'host');
+  store.setInputMode(key, 'terminal');
+  await persistence.flush();
+  const restarted = setup();
+  await restarted.persistence.bind('new-runtime', 'host');
+  expect(restarted.store.snapshot(terminalRendererKey('new-runtime', 'term')).inputMode).toBe('terminal');
+  expect(restarted.store.snapshot(terminalRendererKey('new-runtime', 'other')).inputMode).toBeUndefined();
+});
+
+test('upstream composer records cannot override the new pane defaults', async () => {
+  disk.set('whip.terminal.composers.v1.host', JSON.stringify({ term: { ...defaults, text: 'legacy draft' } }));
+  const { store, persistence } = setup();
+  await persistence.bind('runtime', 'host');
+  expect(store.snapshot(key)).toMatchObject(defaults);
+  expect(store.snapshot(key).inputMode).toBeUndefined();
+  expect(appStorage.getItem).not.toHaveBeenCalledWith('whip.terminal.composers.v1.host');
 });

@@ -4,7 +4,7 @@ import { terminalRendererKey } from '../lib/terminalRenderer';
 import { reportBackgroundFailure } from './backgroundOperations';
 import { recordStorageDiagnostic, storageErrorDetails, storageParseErrorDetails } from './storageDiagnostics';
 
-const STORAGE_PREFIX = 'whip.terminal.composers.v1.';
+const STORAGE_PREFIX = 'aries.terminal.composers.v2.';
 export const COMPOSER_SAVE_DEBOUNCE_MS = 300;
 const EMPTY_STATE: PersistedComposerState = { text: '', composeOpen: false, composeExpanded: false };
 
@@ -28,7 +28,7 @@ function parse(value: string | null, storageKey: string): Map<string, PersistedC
       if (!entry || typeof entry !== 'object') return [];
       const state = entry as Partial<PersistedComposerState>;
       if (typeof state.text !== 'string' || typeof state.composeOpen !== 'boolean' || typeof state.composeExpanded !== 'boolean') return [];
-      return [[key, { text: state.text, composeOpen: state.composeOpen, composeExpanded: state.composeOpen && state.composeExpanded }]];
+      return [[key, { ...(state.inputMode === 'chat' || state.inputMode === 'terminal' ? { inputMode: state.inputMode } : {}), text: state.text, composeOpen: state.composeOpen, composeExpanded: state.composeOpen && state.composeExpanded }]];
     }));
   } catch (error) {
     recordStorageDiagnostic('error', 'storage-parse-failed', {
@@ -158,10 +158,10 @@ export class TerminalComposerPersistence {
 
   private changed(targetKey: string): void {
     if (this.hydrating) return;
-    const { text, composeOpen, composeExpanded } = this.store.snapshot(targetKey);
-    const state = { text, composeOpen, composeExpanded };
+    const { text, composeOpen, composeExpanded, inputMode } = this.store.snapshot(targetKey);
+    const state = { text, composeOpen, composeExpanded, ...(inputMode ? { inputMode } : {}) };
     const previous = this.observed.get(targetKey) ?? EMPTY_STATE;
-    if (text === previous.text && composeOpen === previous.composeOpen && composeExpanded === previous.composeExpanded) return;
+    if (inputMode === previous.inputMode && text === previous.text && composeOpen === previous.composeOpen && composeExpanded === previous.composeExpanded) return;
     for (const [sessionId, hostId] of this.sessions) {
       const prefix = terminalRendererKey(sessionId, '');
       if (!targetKey.startsWith(prefix)) continue;
@@ -175,11 +175,12 @@ export class TerminalComposerPersistence {
       if (!host.loaded) {
         host.edits.set(id, {
           ...host.edits.get(id),
+          ...(inputMode !== previous.inputMode ? { inputMode } : {}),
           ...(text !== previous.text ? { text } : {}),
           ...(composeOpen !== previous.composeOpen || composeExpanded !== previous.composeExpanded ? { composeOpen, composeExpanded } : {}),
         });
       } else {
-        if (text || composeOpen || composeExpanded) host.values.set(id, state);
+        if (inputMode || text || composeOpen || composeExpanded) host.values.set(id, state);
         else host.values.delete(id);
         this.schedule(hostId, host);
       }
@@ -199,7 +200,7 @@ export class TerminalComposerPersistence {
     if (host.timer) clearTimeout(host.timer);
     host.timer = null;
     const revision = host.revision;
-    const value = JSON.stringify(Object.fromEntries([...host.values].filter(([, state]) => state.text || state.composeOpen || state.composeExpanded)));
+    const value = JSON.stringify(Object.fromEntries([...host.values].filter(([, state]) => state.inputMode || state.text || state.composeOpen || state.composeExpanded)));
     const write = async () => {
       if (revision !== host.revision) return;
       const storageKey = STORAGE_PREFIX + hostId;
