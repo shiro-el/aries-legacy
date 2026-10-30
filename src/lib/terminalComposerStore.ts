@@ -25,6 +25,7 @@ interface PendingImagePaste {
 
 export interface TerminalComposerSnapshot {
   readonly restoration: number;
+  readonly inputMode?: 'chat' | 'terminal';
   readonly composeOpen: boolean;
   readonly composeExpanded: boolean;
   readonly text: string;
@@ -33,7 +34,7 @@ export interface TerminalComposerSnapshot {
   readonly imagePastes: ReadonlyMap<number, PendingImagePaste>;
 }
 
-export type PersistedComposerState = Pick<TerminalComposerSnapshot, 'text' | 'composeOpen' | 'composeExpanded'>;
+export type PersistedComposerState = Pick<TerminalComposerSnapshot, 'text' | 'composeOpen' | 'composeExpanded' | 'inputMode'>;
 
 const EMPTY_COMPOSER: TerminalComposerSnapshot = {
   restoration: 0,
@@ -63,6 +64,11 @@ export class TerminalComposerStore {
   restore(targetKey: string, state: PersistedComposerState): void {
     const current = this.snapshot(targetKey);
     this.publish(targetKey, { ...current, ...state, restoration: current.restoration + 1 });
+  }
+
+  setInputMode(targetKey: string, inputMode: 'chat' | 'terminal'): void {
+    const current = this.snapshot(targetKey);
+    this.publish(targetKey, { ...current, inputMode, composeOpen: inputMode === 'chat', composeExpanded: false });
   }
 
   nextAttachmentId(): number {
@@ -271,12 +277,13 @@ export class TerminalComposerStore {
       composeOpen: current.composeOpen,
       composeExpanded: current.composeExpanded,
       restoration: current.restoration,
+      inputMode: current.inputMode,
     });
     this.disposeResources(current);
   }
 
   private publish(targetKey: string, snapshot: TerminalComposerSnapshot): void {
-    if (!snapshot.composeOpen && !snapshot.composeExpanded && !snapshot.text && !snapshot.attachments.length && !snapshot.queue.length && !snapshot.imagePastes.size)
+    if (!snapshot.inputMode && !snapshot.composeOpen && !snapshot.composeExpanded && !snapshot.text && !snapshot.attachments.length && !snapshot.queue.length && !snapshot.imagePastes.size)
       this.drafts.delete(targetKey);
     else this.drafts.set(targetKey, snapshot);
     this.emit(targetKey);

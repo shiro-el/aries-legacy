@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -523,6 +524,12 @@ export function SessionScreen({
         target.hostSessionId === hostSessionId &&
         target.session.terminalId === activeTerminalSession?.terminalId,
     ) || null;
+  const composerState = useSyncExternalStore(
+    composerStore.subscribe,
+    () => composerStore.snapshot(activeTarget?.key || ''),
+  );
+  const paneAgent = chatAgentForPane(activePane);
+  const paneInputMode = composerState.inputMode ?? (paneAgent ? 'chat' : 'terminal');
   const activeChatView = activeTarget
     ? chatViews.get(activeTarget.key) || null
     : null;
@@ -965,7 +972,8 @@ export function SessionScreen({
     const selectedProjection = preload?.type === 'bound'
       ? preload
       : preloadTarget && projections.get(preloadTarget.key);
-    const restoreSelection = preloadTarget?.session.chatSelected &&
+    const restoreSelection = preloadTarget &&
+      (composerStore.snapshot(preloadTarget.key).inputMode ?? 'chat') === 'chat' &&
       (!existing || existing.presentation.phase === AgentChatPresentationPhase.Dormant ||
         existing.presentation.phase === AgentChatPresentationPhase.Warm);
     const selectedView = selectedProjection?.type === 'bound' &&
@@ -1002,6 +1010,7 @@ export function SessionScreen({
     terminalState.sessions,
     terminalTargets,
     requestedChatPresentation,
+    composerStore,
   ]);
 
   useLayoutEffect(() => {
@@ -1452,6 +1461,7 @@ export function SessionScreen({
   };
 
   const closeActiveChat = useCallback(() => {
+    if (activeTarget) composerStore.setInputMode(activeTarget.key, 'terminal');
     if (activeTerminalSession) onTerminalChatSelect(hostSessionId, activeTerminalSession.terminalId, false);
     if (savedChatOpen) {
       setSavedChatOpen(false);
@@ -1473,9 +1483,10 @@ export function SessionScreen({
         ...view, presentation: closeChatPresentation(view.presentation),
       });
     });
-  }, [activeTerminalSession, activeTarget, cancelChatOpen, hostSessionId, onTerminalChatSelect, savedChatOpen, updateChatRestoreIntent]);
+  }, [composerStore, activeTerminalSession, activeTarget, cancelChatOpen, hostSessionId, onTerminalChatSelect, savedChatOpen, updateChatRestoreIntent]);
 
   const openAgentChat = () => {
+    if (activeTarget) composerStore.setInputMode(activeTarget.key, 'chat');
     if (!client) return openSavedChat();
     if (activeChatView && chatPresentationRequested(activeChatView.presentation)) return;
     if (activeTarget && activeChatView) {
@@ -1508,6 +1519,33 @@ export function SessionScreen({
     }
     return chatOpen.open();
   };
+
+  // Default requests never become a user preference. A later agent start/exit
+  // can therefore change an untouched pane's presentation.
+  const applyPaneInputMode = useEffectEvent(() => {
+    if (!activeTarget || !visible || !appActive || activeTarget.session.kind === 'ssh') return;
+    if (composerState.composeOpen !== (paneInputMode === 'chat')) {
+      composerStore.setToggles(activeTarget.key, paneInputMode === 'chat');
+    }
+    if (composerState.inputMode === 'chat' && composerState.restoration === 0) return;
+    if (paneInputMode === 'chat') {
+      if (!activeChatView || !chatPresentationRequested(activeChatView.presentation)) {
+        reportBackgroundFailure(client ? chatOpen.open() : openSavedChat(), 'pane-default-chat');
+      }
+    } else {
+      cancelChatOpen();
+      setSavedChatOpen(false);
+      setChatViews(current => {
+        const view = current.get(activeTarget.key);
+        return view ? new Map(current).set(activeTarget.key, {
+          ...view, presentation: closeChatPresentation(view.presentation),
+        }) : current;
+      });
+    }
+  });
+  useEffect(() => {
+    applyPaneInputMode();
+  }, [activeTarget?.key, paneAgent, paneInputMode, visible, appActive, client, composerState.restoration]);
 
   return (
     <View

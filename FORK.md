@@ -68,3 +68,27 @@ fork keeps the herding theme with the ram that leads the flock.
     migrations first with `cf d1 migrations apply 4fa5c576-d2e6-4c73-9006-76505724bf36 --dir migrations`.
 - **Not changed yet:** the relay's generic E2EE notification title is still
   "Whip" (`notify-relay/src/index.ts`).
+
+
+### 3. Pane-aware Chat and composer defaults
+
+- **What:** Detected agent panes open Chat View with the composer visible. Shell
+  panes open Terminal View. The Chat/Terminal button switches both presentation
+  and input in one tap, preserving the pane's draft.
+- **Why:** Phone conversations should be ready to type into, while shell panes
+  keep direct terminal input. A choice in one pane must not change another pane.
+- **How:** The existing target-specific composer store now records an optional
+  explicit `inputMode`. Without a choice, agent detection determines the mode,
+  including when an agent starts or exits. Existing transcript preload, viewport,
+  reconnect and terminal renderer lifecycles remain in use.
+  - Composer records use `aries.terminal.composers.v2.<host>`; the Rust app-data
+    allowlist accepts this family. Upstream `whip.terminal.composers.v1.<host>`
+    records stay on disk but are not read by composer persistence, so old closed
+    composer values cannot suppress the new default. This also starts fresh
+    drafts under the new key; no old records are deleted or migrated.
+  - Explicit Terminal choices persist even with an empty draft. Automatic
+    defaults never become explicit preferences, so untouched panes follow agent
+    start/exit changes. Notification and Herd navigation share this pane behavior.
+- **Validation:** Jest screen coverage exercises defaults, live agent changes,
+  one-tap switching, drafts, independent panes and late preference restoration;
+  persistence coverage checks restarts and ignoring upstream records.
