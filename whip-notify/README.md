@@ -2,7 +2,9 @@
 
 Independent Rust HPKE protocol library and short-lived Herdr notification plugin. No WhipAir dependency, host daemon or listener.
 
-E2EE is configurable per saved host on each device. New Whip registrations default to readable previews; existing registrations remain encrypted. With encryption off, the hook sends bounded tab/agent/status and available task text alongside the authenticated encrypted routing envelope. With encryption on, it sends only the envelope and the OS shows a generic update. Plugin 0.1.3 adds the preview capability; upgrading preserves host identity and registrations.
+Aries defaults to automatic urgent approval notifications only when the workspace’s main agent is `blocked`. These approvals are logged before lease/delivery handling and always encrypted without plaintext previews. Use `whip-notify policy all-panes` to restore all-pane `blocked`/`done` notifications, or `policy main-approval` to restore the default. `policy` reads the persistent host setting. See the [hook policy details](../docs/remote-notifications.md#automatic-hook-policy-aries).
+
+For legacy status notifications, E2EE is configurable per saved host on each device. New Whip registrations default to readable previews; existing registrations remain encrypted. With encryption off, the hook sends bounded tab/agent/status and available task text alongside the authenticated encrypted routing envelope. With encryption on, it sends only the envelope and the OS shows a generic update. Plugin 0.1.3 adds the preview capability; upgrading preserves host identity and registrations.
 
 See [installation, protocol, leases, relay deployment and security model](../docs/remote-notifications.md).
 
@@ -30,7 +32,7 @@ WHIP_NOTIFY_BINARY="$PWD/target/release/whip-notify" sh install.sh
 cargo test --locked
 ```
 
-The binary supports `paths`, `identity`, `register` (JSON on stdin), `unregister <device-id>`, `lease renew <device-id>`, `hook` and explicit administrator `uninstall`. It uses Herdr's `HERDR_PLUGIN_CONFIG_DIR` / `HERDR_PLUGIN_STATE_DIR`; `--dirs <config> <state>` supplies those same discovered paths for authenticated SSH commands outside a hook. The protocol library builds independently using `--no-default-features`.
+The binary supports `paths`, `identity`, `register` (JSON on stdin), `unregister <device-id>`, `lease renew <device-id>`, `hook`, `policy [main-approval|all-panes]`, `call` and explicit administrator `uninstall`. It uses Herdr's `HERDR_PLUGIN_CONFIG_DIR` / `HERDR_PLUGIN_STATE_DIR`; `--dirs <config> <state>` supplies those same discovered paths for authenticated SSH commands outside a hook. The protocol library builds independently using `--no-default-features`.
 
 ## Releasing
 

@@ -64,6 +64,34 @@ pub fn prepare(
     if title.is_empty() || options.iter().any(String::is_empty) {
         return Err("empty call text".into());
     }
+    let (workspace, eligible) = main_agent(pane, session);
+    Ok(CallRecord {
+        event: NotificationEvent {
+            pane_id: pane.into(),
+            workspace_id: workspace,
+            session: session.into(),
+            status: "blocked".into(),
+            title: Some(title),
+            kind: Some("call".into()),
+            urgency: Some(if eligible {
+                urgency.clone()
+            } else {
+                "record".into()
+            }),
+            body: Some(body),
+            options,
+            call_id: Some(uuid::Uuid::new_v4().to_string()),
+        },
+        created_at: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs(),
+        requested_urgency: urgency,
+        ineligible_reason: (!eligible).then(|| "자격 없음".into()),
+    })
+}
+
+/// Resolve main-agent eligibility from server topology, never focus or hook context.
+pub fn main_agent(pane: &str, session: &str) -> (String, bool) {
     let snapshot = snapshot(session).unwrap_or(Value::Null);
     let empty = Vec::new();
     let panes = snapshot["panes"].as_array().unwrap_or(&empty);
@@ -89,29 +117,7 @@ pub fn prepare(
         .and_then(|p| p["pane_id"].as_str());
     let eligible = first_pane == Some(pane)
         && caller.is_some_and(|p| p["agent"].as_str().is_some_and(|a| !a.is_empty()));
-    Ok(CallRecord {
-        event: NotificationEvent {
-            pane_id: pane.into(),
-            workspace_id: workspace.into(),
-            session: session.into(),
-            status: "blocked".into(),
-            title: Some(title),
-            kind: Some("call".into()),
-            urgency: Some(if eligible {
-                urgency.clone()
-            } else {
-                "record".into()
-            }),
-            body: Some(body),
-            options,
-            call_id: Some(uuid::Uuid::new_v4().to_string()),
-        },
-        created_at: SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_secs(),
-        requested_urgency: urgency,
-        ineligible_reason: (!eligible).then(|| "자격 없음".into()),
-    })
+    (workspace.to_owned(), eligible)
 }
 
 fn snapshot(session: &str) -> Result<Value> {

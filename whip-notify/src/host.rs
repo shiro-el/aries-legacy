@@ -337,6 +337,53 @@ impl Store {
     }
 }
 
+/// Host-wide hook preference; older installations adopt the quiet default.
+#[derive(Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum HookPolicy {
+    #[default]
+    MainApproval,
+    AllPanes,
+}
+impl HookPolicy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::MainApproval => "main-approval",
+            Self::AllPanes => "all-panes",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "main-approval" => Ok(Self::MainApproval),
+            "all-panes" => Ok(Self::AllPanes),
+            _ => Err("invalid hook policy".into()),
+        }
+    }
+}
+impl Store {
+    pub fn hook_policy(&self) -> Result<HookPolicy> {
+        let path = self.config.join("hook-policy.json");
+        match open_private(&path) {
+            Ok(file) => Ok(serde_json::from_slice(&read_private_file(file)?)?),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(HookPolicy::default())
+            }
+            Err(error) => Err(error),
+        }
+    }
+    pub fn set_hook_policy(&self, policy: &HookPolicy) -> Result<()> {
+        let _lock = self.lock()?;
+        atomic_write(
+            &self.config.join("hook-policy.json"),
+            &serde_json::to_vec(policy)?,
+        )
+    }
+}
+
 #[derive(Deserialize)]
 struct Hook {
     event: String,
