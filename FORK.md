@@ -115,3 +115,23 @@ fork keeps the herding theme with the ram that leads the flock.
     are separate work. Legacy preview preferences remain available.
   - App taps reuse authenticated host/pane routing and fresh target resolution.
     See `docs/remote-notifications.md` for the command and log contract.
+
+### 5. Host call history and foreground calls
+
+- **What:** More → Call log shows each host's retained calls and approvals,
+  newest first, with effective urgency, time, pane, title/body, ineligibility and
+  reply text. Urgency filters and rows open the recorded pane through fresh host
+  state. Connected hosts surface new calls in an in-app banner while foreground.
+- **Why:** Lease-suppressed calls and calls received while the phone was offline
+  must remain visible without depending on push delivery.
+- **How:** The existing authenticated notification runtime discovers the plugin
+  state directory. Rust reads a bounded `calls.jsonl` snapshot and owns a
+  generation-guarded `tail -n +1 -F` SSH stream, frames JSONL bytes and validates
+  records before exposing them through notification commands. Snapshot replay
+  closes the subscription gap; call IDs deduplicate rotation/reconnect replay.
+  The foreground consumer drains the native buffer each second, pauses in the
+  background, cleans up on detach, and retries after failures. Initial history
+  stays silent; `record` entries never show banners. No remote log is deleted.
+- **Validation:** Jest screens over mockWhipSsh cover history, approval/reply
+  display, urgency filtering, host/pane navigation, ineligible records,
+  foreground deduplication, background cleanup and reconnect catch-up.

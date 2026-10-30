@@ -361,9 +361,9 @@ mod tests {
     }
 }
 #[derive(Deserialize)]
-struct Paths {
+pub(super) struct Paths {
     config: String,
-    state: String,
+    pub(super) state: String,
     binary: String,
 }
 fn failure() -> HostRuntimeError {
@@ -521,6 +521,9 @@ impl HostRuntime {
     ) -> Result<String, HostRuntimeError> {
         if payload.len() > 16384 {
             return Err(failure());
+        }
+        if operation.starts_with("calls-") {
+            return self.call_log_command(&operation, &payload).await;
         }
         match operation.as_str() {
             "plugin-install-progress" => {

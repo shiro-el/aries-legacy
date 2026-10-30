@@ -1,4 +1,5 @@
 import { KeyboardAwareScrollView as ScrollView } from 'react-native-keyboard-controller';
+import { Pressable } from 'react-native';
 import { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
@@ -34,6 +35,7 @@ type Props = Omit<
   entitlements: WhipEntitlementsController;
   membershipEnabled: boolean;
   onOpenLicenses: () => void;
+  onOpenCallLog: () => void;
 };
 
 export function MoreScreen(props: Props) {
@@ -58,6 +60,9 @@ export function MoreScreen(props: Props) {
             onOpenPurchaseScreen={() => setPurchaseScreenVisible(true)}
           />
         ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="Call log" onPress={props.onOpenCallLog} className="px-5 py-4">
+          <Text>Call log</Text>
+        </Pressable>
         <AboutSection onOpenLicenses={props.onOpenLicenses} />
         {props.developerOptionsEnabled ? (
           <TipJarSection />
