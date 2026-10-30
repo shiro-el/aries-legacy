@@ -68,3 +68,27 @@ fork keeps the herding theme with the ram that leads the flock.
     migrations first with `cf d1 migrations apply 4fa5c576-d2e6-4c73-9006-76505724bf36 --dir migrations`.
 - **Not changed yet:** the relay's generic E2EE notification title is still
   "Whip" (`notify-relay/src/index.ts`).
+
+### 3. Explicit host calls and notification envelope v2
+
+- **What:** `whip-notify call` accepts urgency, title, body and up to three
+  choices, and writes a private host call log. Notifications can carry `call`
+  or `approval` metadata in envelope v2; the app still decrypts v1 envelopes.
+- **Why:** The main agent needs to ask for human attention explicitly, and all
+  calls must remain available even when pushes are suppressed or fail.
+- **How:**
+  - The command reads pane/session identity from Herdr environment variables
+    and verifies the first pane of the workspace's first numbered tab through
+    `session.snapshot`. Other or unverifiable callers become `record` entries
+    marked `자격 없음` (ineligible).
+  - `$HERDR_PLUGIN_STATE_DIR/calls.jsonl` retains the newest 1 MiB and 30 days.
+    Writes use the existing private, atomic, locked storage path. Recording
+    precedes leases and delivery, so a relay error cannot erase a call.
+  - V2 adds kind, urgency, body, options and call ID to authenticated plaintext,
+    retaining the HPKE suite and authenticated version header. Padding grows
+    from 1024 to 2048 bytes; v1 retains its original framing. The relay and
+    native reader accept both versions. Calls always omit plaintext previews
+    and use the existing visible push path; urgency channels and reply buttons
+    are separate work. Legacy preview preferences remain available.
+  - App taps reuse authenticated host/pane routing and fresh target resolution.
+    See `docs/remote-notifications.md` for the command and log contract.

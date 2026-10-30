@@ -10,12 +10,22 @@ use sha2::{Digest, Sha256};
 pub use zeroize::Zeroizing;
 
 #[cfg(feature = "host")]
+pub mod calls;
+#[cfg(feature = "host")]
 pub mod host;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const VERSION: u8 = 1;
-pub const PADDED_BYTES: usize = 1024;
+pub const VERSION: u8 = 2;
+pub const PADDED_BYTES: usize = 2048;
+const LEGACY_PADDED_BYTES: usize = 1024;
+fn padded_bytes(version: u8) -> usize {
+    if version == 1 {
+        LEGACY_PADDED_BYTES
+    } else {
+        PADDED_BYTES
+    }
+}
 pub const MAX_AGE_SECONDS: u64 = 86_400;
 const INFO: &[u8] = b"whip-notify/hpke-auth/x25519-hkdf-sha256-chacha20poly1305/v1";
 
@@ -82,7 +92,7 @@ pub struct Envelope {
     pub ciphertext: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct NotificationEvent {
     pub pane_id: String,
@@ -90,11 +100,21 @@ pub struct NotificationEvent {
     pub session: String,
     pub status: String,
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub urgency: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 impl Header {
     pub fn validate(&self) -> Result<()> {
-        if self.version != VERSION
+        if !matches!(self.version, 1 | VERSION)
             || ![&self.host_id, &self.device_id, &self.key_id, &self.event_id]
                 .into_iter()
                 .all(|s| valid_id(s))
@@ -127,11 +147,12 @@ pub fn encrypt(
     if header.host_id != key_id(&host.public_key) || header.key_id != key_id(recipient) {
         return Err("identity mismatch".into());
     }
+    let padded_bytes = padded_bytes(header.version);
     let json = Zeroizing::new(serde_json::to_vec(event)?);
-    if json.len() > PADDED_BYTES - 2 {
+    if json.len() > padded_bytes - 2 {
         return Err("event too large".into());
     }
-    let mut padded = Zeroizing::new(vec![0; PADDED_BYTES]);
+    let mut padded = Zeroizing::new(vec![0; padded_bytes]);
     padded[..2].copy_from_slice(&(json.len() as u16).to_be_bytes());
     padded[2..json.len() + 2].copy_from_slice(&json);
     let sk = HpkePrivateKey::new(B64.decode(&host.private_key)?);
@@ -172,7 +193,7 @@ pub fn decrypt(
     }
     let enc = B64.decode(&envelope.enc)?;
     let ct = B64.decode(&envelope.ciphertext)?;
-    if enc.len() != 32 || ct.len() != PADDED_BYTES + 16 {
+    if enc.len() != 32 || ct.len() != padded_bytes(h.version) + 16 {
         return Err("invalid envelope length".into());
     }
     let bytes = Zeroizing::new(
@@ -194,6 +215,20 @@ pub fn decrypt(
     let event: NotificationEvent = serde_json::from_slice(json)?;
     if !matches!(event.status.as_str(), "blocked" | "done") || event.pane_id.is_empty() {
         return Err("invalid event".into());
+    }
+    if let Some(kind) = event.kind.as_deref() {
+        if h.version < 2
+            || !matches!(kind, "call" | "approval")
+            || !matches!(
+                event.urgency.as_deref(),
+                Some("emergency" | "urgent" | "check" | "record")
+            )
+            || event.call_id.as_deref().is_none_or(|id| !valid_id(id))
+            || event.options.len() > 3
+            || (kind == "approval" && !event.options.is_empty())
+        {
+            return Err("invalid call event".into());
+        }
     }
     Ok(event)
 }

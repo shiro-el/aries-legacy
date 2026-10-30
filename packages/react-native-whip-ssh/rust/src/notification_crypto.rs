@@ -36,7 +36,7 @@ pub fn notification_open(
 ) -> Result<String, HostRuntimeError> {
     let key_json = whip_notify::Zeroizing::new(key_json);
     let result = (|| -> whip_notify::Result<String> {
-        if key_json.len() > 1024 || envelope_json.len() > 3072 || ledger_json.len() > 4_000_000 {
+        if key_json.len() > 1024 || envelope_json.len() > 4096 || ledger_json.len() > 4_000_000 {
             return Err("oversize notification".into());
         }
         let key: KeyPair = serde_json::from_str(&key_json)?;

@@ -5,7 +5,7 @@ use std::{
 };
 use whip_notify::{
     Result,
-    host::{Store, notification_preview, parse_event, renew_lease},
+    host::{NotificationPreview, Store, notification_preview, parse_event, renew_lease},
 };
 
 fn main() {
@@ -63,6 +63,24 @@ fn run() -> Result<()> {
             }
             renew_lease(&store.state, &device)?;
         }
+        "call" => {
+            let call = whip_notify::calls::prepare(
+                args,
+                &std::env::var("HERDR_PANE_ID")?,
+                &std::env::var("HERDR_SOCKET_PATH")?,
+            )?;
+            whip_notify::calls::record(&store, &call)?;
+            if call.event.urgency.as_deref() != Some("record") {
+                push(
+                    &store,
+                    &call.event,
+                    &NotificationPreview {
+                        title: call.event.title.clone().unwrap_or_default(),
+                        body: call.event.body.clone().unwrap_or_default(),
+                    },
+                )?;
+            }
+        }
         "hook" => {
             let session = std::env::var("HERDR_SOCKET_PATH")?;
             let context =
@@ -70,22 +88,7 @@ fn run() -> Result<()> {
             let json = std::env::var("HERDR_PLUGIN_EVENT_JSON")?;
             if let Some(event) = parse_event(&json, &context, &session)? {
                 let preview = notification_preview(&event, &json, &context)?;
-                let deadline = Instant::now() + Duration::from_secs(4);
-                whip_notify::host::deliver(&store, &event, &|device, envelope| {
-                    let remaining = deadline
-                        .checked_duration_since(Instant::now())
-                        .ok_or("hook deadline")?;
-                    let agent: ureq::Agent = ureq::Agent::config_builder()
-                        .timeout_global(Some(remaining))
-                        .max_redirects(0)
-                        .build()
-                        .into();
-                    agent
-                        .post(format!("{}/v1/push", device.relay_url))
-                        .header("Authorization", format!("Bearer {}", device.route_token))
-                        .send_json(device.push_request(envelope, &preview))?;
-                    Ok(())
-                })?;
+                push(&store, &event, &preview)?;
             }
         }
         "uninstall" => {
@@ -100,5 +103,33 @@ fn run() -> Result<()> {
         }
         _ => return Err("unknown command".into()),
     }
+    Ok(())
+}
+
+fn push(
+    store: &Store,
+    event: &whip_notify::NotificationEvent,
+    preview: &NotificationPreview,
+) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(4);
+    whip_notify::host::deliver(store, event, &|device, envelope| {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or("push deadline")?;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(remaining))
+            .max_redirects(0)
+            .build()
+            .into();
+        let mut request = device.push_request(envelope, preview);
+        if event.kind.is_some() {
+            request.preview = None;
+        }
+        agent
+            .post(format!("{}/v1/push", device.relay_url))
+            .header("Authorization", format!("Bearer {}", device.route_token))
+            .send_json(request)?;
+        Ok(())
+    })?;
     Ok(())
 }
