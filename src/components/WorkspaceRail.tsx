@@ -70,7 +70,7 @@ export function WorkspaceRail({
         ))}
       </ScrollView>
       {!readOnly && <Button
-        accessibilityLabel={t('rail.newWorkspace')}
+        accessibilityLabel={t('newTask.title')}
         className={cn('h-[62px] items-center justify-center rounded-none px-0 py-0', Platform.OS === 'ios' ? 'w-14' : 'w-12')}
         disabled={busy}
         size="content"

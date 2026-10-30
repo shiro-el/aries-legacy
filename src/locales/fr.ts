@@ -1,6 +1,23 @@
 import type { en } from './en';
 
 export const fr = {
+  "newTask.title": "Nouvelle tâche",
+  "newTask.folder": "Dossier",
+  "newTask.folderRequired": "Choisissez ou saisissez un dossier.",
+  "newTask.browse": "Parcourir les dossiers distants",
+  "newTask.kind": "Premier panneau",
+  "newTask.shell": "Shell",
+  "newTask.configuration": "Modèle et effort",
+  "newTask.model": "Modèle",
+  "newTask.customModel": "Saisir un identifiant de modèle",
+  "newTask.defaultModel": "Par défaut de l’agent",
+  "newTask.effort": "Effort",
+  "newTask.next": "Suivant",
+  "newTask.back": "Retour",
+  "newTask.create": "Créer la tâche",
+  "newTask.launchFailed": "Tâche créée, échec du lancement de l’agent",
+  "files.selectDirectory": "Utiliser ce dossier",
+
   'settings.clearChatCache': "Vider le cache des discussions",
   'settings.chatCacheSize': 'Taille du cache : {{size}}',
   'settings.chatCacheSizeLoading': 'Calcul…',

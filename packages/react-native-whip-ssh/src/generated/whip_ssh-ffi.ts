@@ -1315,6 +1315,12 @@ interface NativeModuleInterface {
     label: Uint8Array,
     launch: Uint8Array,
   ): bigint;
+  ubrn_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
+    uniffiSelf: bigint,
+    label: Uint8Array,
+    cwd: Uint8Array,
+    launch: Uint8Array,
+  ): bigint;
   ubrn_uniffi_whip_ssh_fn_method_hostruntime_current_agent_chat(
     uniffiSelf: bigint,
     terminalId: Uint8Array,
@@ -1953,6 +1959,7 @@ interface NativeModuleInterface {
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_remote_directory(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_launch(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_reverse_control(): number;
+  ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_current_agent_chat(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_detach_agent_chat(): number;
   ubrn_uniffi_whip_ssh_checksum_method_hostruntime_disconnect(): number;

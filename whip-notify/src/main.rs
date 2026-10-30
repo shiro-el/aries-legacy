@@ -5,7 +5,7 @@ use std::{
 };
 use whip_notify::{
     Result,
-    host::{Store, notification_preview, parse_event, renew_lease},
+    host::{NotificationPreview, Store, notification_preview, parse_event, renew_lease},
 };
 
 fn main() {
@@ -63,29 +63,69 @@ fn run() -> Result<()> {
             }
             renew_lease(&store.state, &device)?;
         }
+        "call" => {
+            let call = whip_notify::calls::prepare(
+                args,
+                &std::env::var("HERDR_PANE_ID")?,
+                &std::env::var("HERDR_SOCKET_PATH")?,
+            )?;
+            whip_notify::calls::record(&store, &call)?;
+            if call.event.urgency.as_deref() != Some("record") {
+                push(
+                    &store,
+                    &call.event,
+                    &NotificationPreview {
+                        title: call.event.title.clone().unwrap_or_default(),
+                        body: call.event.body.clone().unwrap_or_default(),
+                    },
+                )?;
+            }
+        }
+        "policy" => {
+            let value = args.next();
+            if args.next().is_some() {
+                return Err("unexpected policy argument".into());
+            }
+            if let Some(value) = value {
+                store.set_hook_policy(&whip_notify::host::HookPolicy::parse(&value)?)?;
+            }
+            println!("{}", store.hook_policy()?.name());
+        }
         "hook" => {
             let session = std::env::var("HERDR_SOCKET_PATH")?;
             let context =
                 std::env::var("HERDR_PLUGIN_CONTEXT_JSON").unwrap_or_else(|_| "{}".into());
             let json = std::env::var("HERDR_PLUGIN_EVENT_JSON")?;
-            if let Some(event) = parse_event(&json, &context, &session)? {
+            if let Some(mut event) = parse_event(&json, &context, &session)? {
                 let preview = notification_preview(&event, &json, &context)?;
-                let deadline = Instant::now() + Duration::from_secs(4);
-                whip_notify::host::deliver(&store, &event, &|device, envelope| {
-                    let remaining = deadline
-                        .checked_duration_since(Instant::now())
-                        .ok_or("hook deadline")?;
-                    let agent: ureq::Agent = ureq::Agent::config_builder()
-                        .timeout_global(Some(remaining))
-                        .max_redirects(0)
-                        .build()
-                        .into();
-                    agent
-                        .post(format!("{}/v1/push", device.relay_url))
-                        .header("Authorization", format!("Bearer {}", device.route_token))
-                        .send_json(device.push_request(envelope, &preview))?;
-                    Ok(())
-                })?;
+                if store.hook_policy()? == whip_notify::host::HookPolicy::AllPanes {
+                    return push(&store, &event, &preview);
+                }
+                if event.status != "blocked" {
+                    return Ok(());
+                }
+                let (workspace, eligible) =
+                    whip_notify::calls::main_agent(&event.pane_id, &session);
+                if !eligible || workspace != event.workspace_id {
+                    return Ok(());
+                }
+                event.kind = Some("approval".into());
+                event.urgency = Some("urgent".into());
+                event.title = Some(preview.title.clone());
+                event.body = Some(preview.body.clone());
+                event.call_id = Some(uuid::Uuid::new_v4().to_string());
+                whip_notify::calls::record(
+                    &store,
+                    &whip_notify::calls::CallRecord {
+                        event: event.clone(),
+                        created_at: std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+                            .as_secs(),
+                        requested_urgency: "urgent".into(),
+                        ineligible_reason: None,
+                    },
+                )?;
+                push(&store, &event, &preview)?;
             }
         }
         "uninstall" => {
@@ -100,5 +140,33 @@ fn run() -> Result<()> {
         }
         _ => return Err("unknown command".into()),
     }
+    Ok(())
+}
+
+fn push(
+    store: &Store,
+    event: &whip_notify::NotificationEvent,
+    preview: &NotificationPreview,
+) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(4);
+    whip_notify::host::deliver(store, event, &|device, envelope| {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or("push deadline")?;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(remaining))
+            .max_redirects(0)
+            .build()
+            .into();
+        let mut request = device.push_request(envelope, preview);
+        if event.kind.is_some() {
+            request.preview = None;
+        }
+        agent
+            .post(format!("{}/v1/push", device.relay_url))
+            .header("Authorization", format!("Bearer {}", device.route_token))
+            .send_json(request)?;
+        Ok(())
+    })?;
     Ok(())
 }

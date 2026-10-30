@@ -525,6 +525,7 @@ export type RuntimeTabLaunchFailure = Error & {
   created?: RuntimeTabCreationResult;
   launchType?: 'agent' | 'command';
   nativeFailure?: unknown;
+  workspace?: WhipWorkspaceInfo;
 };
 export type RuntimeTerminalState =
   | 'opening'
@@ -2875,6 +2876,29 @@ export class NativeHostRuntime {
   ): void {
     if (runtimeAttachments.get(this.runtimeId) !== this) return;
     this.runtime.setMonitoringState(appActive, hostsVisible, accessLocked);
+  }
+
+  async createWorkspaceWithLaunch(
+    label: string,
+    cwd: string,
+    launch: RuntimeTabLaunch,
+  ): Promise<RuntimeWorkspaceCreationResult> {
+    const nativeLaunch = launch.type === 'shell'
+      ? HerdrTabLaunch.Shell.new()
+      : launch.type === 'agent'
+        ? HerdrTabLaunch.Agent.new({ kind: runtimeAgentKind(launch.kind), args: launch.args || [] })
+        : HerdrTabLaunch.Command.new({ command: launch.command });
+    let outcome;
+    try { outcome = await this.runtime.createWorkspaceWithLaunch(label, cwd, nativeLaunch); }
+    catch (error) { throw controlError(error); }
+    const createdWorkspace = workspace(outcome.workspace);
+    try {
+      const created = this.projectTabLaunch(outcome.launch);
+      return { ...created, type: 'workspace_created', workspace: createdWorkspace };
+    } catch (error) {
+      (error as RuntimeTabLaunchFailure).workspace = createdWorkspace;
+      throw error;
+    }
   }
 
   async createTabWithLaunch(

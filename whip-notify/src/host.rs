@@ -50,7 +50,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     result
 }
 
-fn open_private(path: &Path) -> Result<File> {
+pub(crate) fn open_private(path: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -155,7 +155,7 @@ impl Registration {
     }
 }
 
-fn preview_text(value: &str, max_bytes: usize) -> String {
+pub(crate) fn preview_text(value: &str, max_bytes: usize) -> String {
     let mut text = String::new();
     for c in value.trim().chars().filter(|c| !c.is_control()) {
         if text.len() + c.len_utf8() > max_bytes {
@@ -337,6 +337,53 @@ impl Store {
     }
 }
 
+/// Host-wide hook preference; older installations adopt the quiet default.
+#[derive(Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum HookPolicy {
+    #[default]
+    MainApproval,
+    AllPanes,
+}
+impl HookPolicy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::MainApproval => "main-approval",
+            Self::AllPanes => "all-panes",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "main-approval" => Ok(Self::MainApproval),
+            "all-panes" => Ok(Self::AllPanes),
+            _ => Err("invalid hook policy".into()),
+        }
+    }
+}
+impl Store {
+    pub fn hook_policy(&self) -> Result<HookPolicy> {
+        let path = self.config.join("hook-policy.json");
+        match open_private(&path) {
+            Ok(file) => Ok(serde_json::from_slice(&read_private_file(file)?)?),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(HookPolicy::default())
+            }
+            Err(error) => Err(error),
+        }
+    }
+    pub fn set_hook_policy(&self, policy: &HookPolicy) -> Result<()> {
+        let _lock = self.lock()?;
+        atomic_write(
+            &self.config.join("hook-policy.json"),
+            &serde_json::to_vec(policy)?,
+        )
+    }
+}
+
 #[derive(Deserialize)]
 struct Hook {
     event: String,
@@ -377,6 +424,7 @@ pub fn parse_event(json: &str, context: &str, session: &str) -> Result<Option<No
         session: session.to_owned(),
         status: hook.data.agent_status,
         title: hook.data.title.map(|s| s.chars().take(80).collect()),
+        ..Default::default()
     }))
 }
 
@@ -386,11 +434,17 @@ pub fn deliver(
     event: &NotificationEvent,
     send: &(impl Fn(&Registration, &Envelope) -> Result<()> + Sync),
 ) -> Result<usize> {
+    if event.urgency.as_deref() == Some("record") {
+        return Ok(0);
+    }
     let host = store.identity()?;
     let devices = store.registrations()?;
     let now = SystemTime::now();
     let timestamp = now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
-    let event_id = uuid::Uuid::new_v4().to_string();
+    let event_id = event
+        .call_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let pending = devices
         .into_iter()
         .filter(|d| {

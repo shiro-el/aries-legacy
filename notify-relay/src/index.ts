@@ -5,7 +5,7 @@ declare const crypto: import('@cloudflare/workers-types').Crypto;
 const ID = /^[a-zA-Z0-9_-]{16,64}$/;
 const TOKEN = /^[a-zA-Z0-9_-]{43,64}$/;
 const EXPO_TOKEN = /^(?:ExponentPushToken|ExpoPushToken)\[[a-zA-Z0-9_-]+\]$/;
-const MAX_BYTES = 3072;
+const MAX_BYTES = 4096;
 const EXPO_ORIGIN = 'https://exp.host/--/api/v2/push';
 const DAY = 86_400;
 const REGISTRATION_TTL = 120;
@@ -155,7 +155,7 @@ function envelope(value: Record<string, unknown>): Envelope {
   const h = object(value.header);
   const now = Math.floor(Date.now() / 1000);
   if (
-    h.version !== 1 ||
+    (h.version !== 1 && h.version !== 2) ||
     typeof h.issued_at !== 'number' ||
     !Number.isSafeInteger(h.issued_at) ||
     h.issued_at < now - DAY ||
@@ -164,7 +164,7 @@ function envelope(value: Record<string, unknown>): Envelope {
     reject(400);
   return {
     header: {
-      version: 1,
+      version: h.version,
       host_id: string(h.host_id),
       device_id: string(h.device_id),
       key_id: string(h.key_id),
@@ -172,7 +172,7 @@ function envelope(value: Record<string, unknown>): Envelope {
       issued_at: h.issued_at,
     },
     enc: string(value.enc, /^[a-zA-Z0-9_-]{43}$/),
-    ciphertext: string(value.ciphertext, /^[a-zA-Z0-9_-]{1387}$/),
+    ciphertext: string(value.ciphertext, h.version === 1 ? /^[a-zA-Z0-9_-]{1387}$/ : /^[a-zA-Z0-9_-]{2752}$/),
   };
 }
 async function expo(

@@ -69,7 +69,6 @@ fork keeps the herding theme with the ram that leads the flock.
 - **Not changed yet:** the relay's generic E2EE notification title is still
   "Whip" (`notify-relay/src/index.ts`).
 
-
 ### 3. Pane-aware Chat and composer defaults
 
 - **What:** Detected agent panes open Chat View with the composer visible. Shell
@@ -93,7 +92,76 @@ fork keeps the herding theme with the ram that leads the flock.
   one-tap switching, drafts, independent panes and late preference restoration;
   persistence coverage checks restarts and ignoring upstream records.
 
-### 4. Agent command catalog and composer autocomplete
+### 4. Explicit host calls and notification envelope v2
+
+- **What:** `whip-notify call` accepts urgency, title, body and up to three
+  choices, and writes a private host call log. Notifications can carry `call`
+  or `approval` metadata in envelope v2; the app still decrypts v1 envelopes.
+- **Why:** The main agent needs to ask for human attention explicitly, and all
+  calls must remain available even when pushes are suppressed or fail.
+- **How:**
+  - The command reads pane/session identity from Herdr environment variables
+    and verifies the first pane of the workspace's first numbered tab through
+    `session.snapshot`. Other or unverifiable callers become `record` entries
+    marked `자격 없음` (ineligible).
+  - `$HERDR_PLUGIN_STATE_DIR/calls.jsonl` retains the newest 1 MiB and 30 days.
+    Writes use the existing private, atomic, locked storage path. Recording
+    precedes leases and delivery, so a relay error cannot erase a call.
+  - V2 adds kind, urgency, body, options and call ID to authenticated plaintext,
+    retaining the HPKE suite and authenticated version header. Padding grows
+    from 1024 to 2048 bytes; v1 retains its original framing. The relay and
+    native reader accept both versions. Calls always omit plaintext previews
+    and use the existing visible push path; urgency channels and reply buttons
+    are separate work. Legacy preview preferences remain available.
+  - App taps reuse authenticated host/pane routing and fresh target resolution.
+    See `docs/remote-notifications.md` for the command and log contract.
+
+### 5. Phone-first new task setup
+
+- **What:** Herd's new task action chooses a folder, then Claude Code, Codex, or
+  a shell. Agent tasks offer model shortcuts, a custom model ID, and effort.
+  The folder name pre-fills the workspace label. Workspace rename keeps its
+  existing editor; the old creation editor and operation remain in the code.
+- **Why:** Starting work from a phone should not require typing agent commands
+  or leave an unused shell beside the main agent.
+- **How:** Folder suggestions use all open panes on the selected host plus its
+  20 most recent task folders. The existing remote file manager has a folder
+  selection mode. Recent folders and each agent's model/effort persist under
+  `whip.new-task.v1.<saved-host-id>` in the Rust-owned application database.
+  A blank model uses the remote agent's default. React Native passes typed
+  argument arrays (`--model`/`--effort` for Claude, `-m`/`-c` for Codex).
+  Rust's `create_workspace_with_launch` uses the first pane returned by
+  `workspace.create`, with no additional tab or pane. Successful agent tasks
+  select Chat and open the composer. Typed partial failure opens the original
+  pane and shows the launch error, so retrying setup cannot duplicate the task.
+  UniFFI TypeScript/C++ bindings are regenerated from the Rust library.
+
+### 6. Main-agent approval hook policy
+
+- **What:** Automatic host pushes now report only the main agent's `blocked`
+  status as an `urgent` `approval`, with a call ID and a retained call-log entry.
+  Main-agent `done` and other panes' status changes stay quiet.
+- **Why:** Completion and other requests for attention belong to explicit agent
+  calls. Routine subagent status changes should not interrupt the phone user.
+- **How:** The hook reuses `call`'s Herdr snapshot verification of the first pane
+  in the workspace's lowest-numbered tab. Missing/unverifiable topology suppresses
+  automatic notifications. Recording precedes lease checks and delivery, so
+  active-app suppression and relay failures retain the approval. Approval events
+  carry no choices and omit plaintext previews, and taps use the existing
+  authenticated host/pane navigation and in-app interaction controls.
+  - The previous all-pane `blocked`/`done` path remains behind the persistent
+    host setting `whip-notify policy all-panes`; `policy main-approval` restores
+    the default. `policy` reads the current setting. The private atomic
+    `hook-policy.json` configuration is shared across that installation's
+    sessions and survives unregister/uninstall/reinstall, like host configuration.
+  - Legacy mode preserves the old event format and preview preferences. Unknown
+    or unsafe policy files fail closed rather than enabling legacy delivery.
+- **Validation:** Binary tests use fixture Herdr sockets and a local relay endpoint
+  to check both policies, suppression, approval records, active leases, failed
+  delivery, and resetting/invalid settings. Existing app navigation and screen
+  tests cover authenticated taps, fresh pane resolution and pane interaction.
+
+### 7. Agent command catalog and composer autocomplete
 
 - **What:** Agent composers offer command-only `/` completion with descriptions,
   argument hints and a terminal-only label. Choosing a command inserts `/name `;
