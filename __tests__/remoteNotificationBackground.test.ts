@@ -179,7 +179,7 @@ test('approval alerts never offer reply buttons even if their payload contains c
   expect(content.data?.callId).toBeUndefined();
 });
 
-test('a cold background choice connects using saved credentials, verifies the host, submits the call choice and updates the same alert', async () => {
+test.each([false, true])('a cold background choice connects, verifies, submits and updates the same alert (cleanup fails: %s)', async cleanupFails => {
   mockData.set('herdr.hosts.v2', JSON.stringify([{
     id: 'saved-host', name: 'Workstation', host: 'host.example', port: '22', username: 'dev',
     authMode: 'password', herdrCommand: 'herdr', herdrSocketPath: '/tmp/herdr.sock', sessionName: '',
@@ -194,7 +194,7 @@ test('a cold background choice connects using saved credentials, verifies the ho
       call_id: 'call-123', option_index: 1, pane_id: 'w1:p1' });
     return JSON.stringify({ call_id: 'call-123', pane_id: 'w1:p1', reply: 'Revise', reply_status: 'delivered' });
   });
-  const ssh = { notificationCommand: command, disconnect: jest.fn(), requestHerdrApi: jest.fn(async () => ({
+  const ssh = { notificationCommand: command, disconnect: jest.fn(() => { if (cleanupFails) throw new Error('cleanup failed'); }), requestHerdrApi: jest.fn(async () => ({
     type: 'session_snapshot', snapshot: { panes: [] },
   })) };
   require('./mockWhipSsh').getMockWhipSshControl().connectWithPassword.mockResolvedValueOnce(ssh);
@@ -237,7 +237,7 @@ test.each(['identity', 'session', 'offline', 'unknown', 'failed'])(
       expect(await mockTask({ data: action })).toBe(Notifications.BackgroundNotificationTaskResult.NewData);
       const update = jest.mocked(Notifications.scheduleNotificationAsync).mock.calls[0][0];
       expect(update.identifier).toBe('local-call');
-      expect(update.content.body).toContain(failure === 'unknown' ? 'Delivery unconfirmed' : 'Failed to deliver');
+      expect(update.content.body).toContain(failure === 'unknown' || failure === 'offline' ? 'Delivery unconfirmed' : 'Failed to deliver');
       expect(update.content.categoryIdentifier).toBeUndefined();
       expect(update.content.data?.callId).toBeUndefined();
       expect(runtime.notificationCommand.mock.calls.filter(([operation]) => operation === 'reply')).toHaveLength(

@@ -6,6 +6,7 @@ import { loadConnectionProfile, loadHostProfiles, loadJumpHostConnectionProfiles
 import { loadKnownHosts } from './knownHosts';
 import { loadDevicePreferences } from './devicePreferences';
 import { notificationRuntimes, type NotificationRuntime } from './notificationRuntimeRegistry';
+import { recordOperationalDiagnostic } from './operationalDiagnostics';
 
 /** A cold task gets its own short-lived native runtime; it never takes ownership
  * of, disconnects, or replaces a UI runtime or its event listener. */
@@ -37,6 +38,7 @@ export async function withNotificationReplyConnection<T>(hostId: string, work: (
     await runtime.connect();
     return await work(runtime);
   } finally {
-    await runtime.disconnect();
+    try { await runtime.disconnect(); }
+    catch { recordOperationalDiagnostic('warn', 'Notification', 'reply-connection-cleanup-failed', {}); }
   }
 }

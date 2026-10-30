@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { dismissPersistentAgentAlertForNotification } from './backgroundMonitoring';
-import { replyToRemoteCall } from './remoteNotifications';
+import { RemoteCallDeliveryUnconfirmedError, replyToRemoteCall } from './remoteNotifications';
 
 /** Only local, authenticated call alerts carry a category and a call reference.
  * Host-side lookup validates every reference and supplies the actual choice. */
@@ -21,7 +21,9 @@ export async function handleNotificationChoice(response: Notifications.Notificat
     ));
     if (result.reply_status === 'delivered' && result.reply) body = `Delivered: ${result.reply}`;
     else if (result.reply_status !== 'failed') body = 'Delivery unconfirmed. Open the app to check before replying again.';
-  } catch {
+  } catch (error) {
+    if (error instanceof RemoteCallDeliveryUnconfirmedError)
+      body = 'Delivery unconfirmed. Open the app to check before replying again.';
     // Do not log host content, credentials or selected text. Never auto-resend.
   }
   await dismissPersistentAgentAlertForNotification(request.identifier);
