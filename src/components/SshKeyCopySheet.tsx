@@ -99,7 +99,7 @@ export function SshKeyCopySheet({
                   >
                     <LocalSvg
                       asset={bundledAsset(
-                        require('../../assets/whip-cyborg-hand-concept.svg'),
+                        require('../../assets/aries/aries-icon-small.svg'),
                       )}
                       width="100%"
                       height="100%"

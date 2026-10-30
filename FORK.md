@@ -8,8 +8,8 @@ Each change records what changed, why, and how, so upstream merges stay easy.
 Aries (the ram). herdr comes from "herder", and whip is the herder's tool; the
 fork keeps the herding theme with the ram that leads the flock.
 
-- Reuse this motif for the app icon later (Q26-7 UX redesign). The launcher
-  icon is still upstream's whip icon.
+- The app icon uses this motif: a gold ram whose horn spirals from a `>-`
+  prompt, with the Aries constellation on its flank (see change 14).
 
 ## Changes
 
@@ -354,3 +354,30 @@ fork keeps the herding theme with the ram that leads the flock.
   skills, mixed envelope versions/oversized legacy routes, encrypted hook wording,
   and unused versus active notification categories. Rebuilt native app/host
   plugin and physical Android background-delivery checks remain required.
+
+### 14. Aries app icon and logos
+
+- **What:** The launcher icon, splash logo, status-bar notification icon,
+  in-app mark (`assets/whip-mark.png`), Expo `assets/icon.png` and the SSH key
+  QR center logo now use the Aries artwork. The final SVG set lives in
+  `assets/aries/`.
+- **Why:** The fork ships as its own app beside whip, so it needs its own
+  identity on the home screen and in notifications.
+- **How:**
+  - `npm run generate:android-icon` rasterizes everything from `assets/aries/`.
+    The SVGs use masks and gradients, which Android VectorDrawable can't
+    express, so the generator now writes per-density PNGs instead of a vector.
+  - Resource names stay upstream's (`ic_launcher_whip_*`, `whip_launch_logo`,
+    `ic_notification_whip`) so manifests and native code merge cleanly. The
+    upstream vector XMLs `drawable/ic_launcher_whip_foreground.xml` and
+    `drawable/ic_notification_whip.xml` are deleted because a bitmap with the
+    same resource name can't coexist with them.
+  - The adaptive background is the tile color `#2B2724`. The foreground maps
+    the 1024 design onto the 72dp visible viewport, so the ram's bleed ends at
+    the launcher mask. A circular mask trims the tip of the constellation.
+  - The notification icon keeps the ram's dark body as a white silhouette and
+    cuts out the horn, prompt and stars.
+  - The upstream whip artwork (`assets/whip-cyborg-hand-concept.svg`) stays for
+    the upstream install QR script.
+- **Not changed yet:** iOS `AppIcon.icon`.
+
