@@ -221,6 +221,11 @@ export function AppShell({
         onSelectWorkspace={sessions.selectWorkspace}
         onFocusWorkspace={sessions.focusWorkspace}
         onCreateWorkspace={sessions.createWorkspace}
+        getClient={sessions.getClient}
+        preferenceHostIds={Object.fromEntries(sessions.presentationSessions.map(session => [session.id, session.hostId]))}
+        folderCandidates={Object.fromEntries(sessions.presentationSessions.map(session => [session.id,
+          session.snapshot.panes.flatMap(pane => [pane.foreground_cwd, pane.cwd].filter((path): path is string => Boolean(path))),
+        ]))}
         onRenameWorkspace={sessions.renameWorkspace}
         onCloseWorkspace={sessions.closeWorkspace}
         onCloseTab={sessions.closeTab}

@@ -68,3 +68,23 @@ fork keeps the herding theme with the ram that leads the flock.
     migrations first with `cf d1 migrations apply 4fa5c576-d2e6-4c73-9006-76505724bf36 --dir migrations`.
 - **Not changed yet:** the relay's generic E2EE notification title is still
   "Whip" (`notify-relay/src/index.ts`).
+
+### 3. Phone-first new task setup
+
+- **What:** Herd's new task action chooses a folder, then Claude Code, Codex, or
+  a shell. Agent tasks offer model shortcuts, a custom model ID, and effort.
+  The folder name pre-fills the workspace label. Workspace rename keeps its
+  existing editor; the old creation editor and operation remain in the code.
+- **Why:** Starting work from a phone should not require typing agent commands
+  or leave an unused shell beside the main agent.
+- **How:** Folder suggestions use all open panes on the selected host plus its
+  20 most recent task folders. The existing remote file manager has a folder
+  selection mode. Recent folders and each agent's model/effort persist under
+  `whip.new-task.v1.<saved-host-id>` in the Rust-owned application database.
+  A blank model uses the remote agent's default. React Native passes typed
+  argument arrays (`--model`/`--effort` for Claude, `-m`/`-c` for Codex).
+  Rust's `create_workspace_with_launch` uses the first pane returned by
+  `workspace.create`, with no additional tab or pane. Successful agent tasks
+  select Chat and open the composer. Typed partial failure opens the original
+  pane and shows the launch error, so retrying setup cannot duplicate the task.
+  UniFFI TypeScript/C++ bindings are regenerated from the Rust library.

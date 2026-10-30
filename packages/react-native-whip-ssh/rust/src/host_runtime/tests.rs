@@ -4389,3 +4389,157 @@ fn foreground_service_policy_changes_never_disconnect_registered_runtime() {
         .block_on(runtime.disconnect())
         .unwrap();
 }
+
+#[test]
+fn new_workspace_launch_uses_the_initial_pane_and_literal_agent_arguments() {
+    crate::runtime().unwrap().block_on(async {
+        let snapshot = lifecycle_snapshot();
+        let workspace = snapshot.workspaces[0].clone();
+        let tab = snapshot.tabs[0].clone();
+        let pane = snapshot.panes[0].clone();
+        let mut requests = Vec::new();
+        let result = agents::create_workspace_with_launch_using(
+            " Project ".to_owned(),
+            "/srv/Project".to_owned(),
+            HerdrTabLaunch::Agent {
+                kind: HerdrAgentKind::Codex,
+                args: vec![
+                    "-m".into(),
+                    "custom;model".into(),
+                    "-c".into(),
+                    "model_reasoning_effort=high".into(),
+                ],
+            },
+            |request| {
+                requests.push(request.clone());
+                std::future::ready(Ok(match request {
+                    HerdrControlRequest::WorkspaceCreate { .. } => {
+                        HerdrControlResult::WorkspaceCreated {
+                            workspace: workspace.clone(),
+                            tab: tab.clone(),
+                            root_pane: pane.clone(),
+                        }
+                    }
+                    HerdrControlRequest::AgentStart { .. } => HerdrControlResult::AgentStarted {
+                        agent: snapshot.agents[0].clone(),
+                        argv: Vec::new(),
+                    },
+                    _ => panic!("new task must never create an extra tab or pane"),
+                }))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            requests,
+            vec![
+                HerdrControlRequest::WorkspaceCreate {
+                    label: Some("Project".into()),
+                    cwd: Some("/srv/Project".into())
+                },
+                HerdrControlRequest::AgentStart {
+                    pane_id: pane.pane_id.clone(),
+                    kind: HerdrAgentKind::Codex,
+                    args: vec![
+                        "-m".into(),
+                        "custom;model".into(),
+                        "-c".into(),
+                        "model_reasoning_effort=high".into()
+                    ],
+                    name: "tab".into()
+                },
+            ]
+        );
+        assert_eq!(result.workspace, workspace);
+        assert_eq!(
+            result.launch,
+            HerdrTabLaunchResult::Created {
+                tab,
+                root_pane: pane
+            }
+        );
+    });
+}
+
+#[test]
+fn new_workspace_shell_and_failed_claude_launch_keep_the_initial_pane() {
+    crate::runtime().unwrap().block_on(async {
+        for launch in [
+            HerdrTabLaunch::Shell,
+            HerdrTabLaunch::Agent {
+                kind: HerdrAgentKind::Claude,
+                args: vec![
+                    "--model".into(),
+                    "sonnet".into(),
+                    "--effort".into(),
+                    "medium".into(),
+                ],
+            },
+        ] {
+            let snapshot = lifecycle_snapshot();
+            let mut workspace = snapshot.workspaces[0].clone();
+            workspace.pane_count = 1.0;
+            let mut tab = snapshot.tabs[0].clone();
+            tab.pane_count = 1.0;
+            let pane = snapshot.panes[0].clone();
+            let mut requests = Vec::new();
+            let is_shell = matches!(launch, HerdrTabLaunch::Shell);
+            let result = agents::create_workspace_with_launch_using(
+                "Project".into(),
+                " /srv/project ".into(),
+                launch,
+                |request| {
+                    requests.push(request.clone());
+                    std::future::ready(match request {
+                        HerdrControlRequest::WorkspaceCreate { .. } => {
+                            Ok(HerdrControlResult::WorkspaceCreated {
+                                workspace: workspace.clone(),
+                                tab: tab.clone(),
+                                root_pane: pane.clone(),
+                            })
+                        }
+                        HerdrControlRequest::AgentStart {
+                            kind: HerdrAgentKind::Claude,
+                            args,
+                            ..
+                        } => {
+                            assert_eq!(args, vec!["--model", "sonnet", "--effort", "medium"]);
+                            Err(HerdrControlError::ProtocolError(
+                                "agent_not_found".into(),
+                                "Claude is not installed".into(),
+                            ))
+                        }
+                        _ => panic!("unexpected pane or tab creation"),
+                    })
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.workspace.pane_count, 1.0);
+            assert_eq!(requests.len(), if is_shell { 1 } else { 2 });
+            if is_shell {
+                assert_eq!(
+                    result.launch,
+                    HerdrTabLaunchResult::Created {
+                        tab,
+                        root_pane: pane
+                    }
+                );
+            } else {
+                let HerdrTabLaunchResult::LaunchFailed {
+                    tab: created_tab,
+                    root_pane,
+                    stage,
+                    failure,
+                } = result.launch
+                else {
+                    panic!("failed launch must preserve the created workspace")
+                };
+                assert_eq!(created_tab, tab);
+                assert_eq!(root_pane, pane);
+                assert_eq!(stage, HerdrTabLaunchStage::AgentStart);
+                assert!(failure.message.contains("Claude is not installed"));
+            }
+        }
+    });
+}

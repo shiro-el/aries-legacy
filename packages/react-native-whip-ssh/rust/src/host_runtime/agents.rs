@@ -193,6 +193,53 @@ pub(super) fn launch_request(
     }
 }
 
+pub(super) async fn create_workspace_with_launch_using<F, Fut>(
+    label: String,
+    cwd: String,
+    launch: HerdrTabLaunch,
+    mut send: F,
+) -> Result<crate::herdr_api::HerdrWorkspaceLaunchResult, HerdrControlError>
+where
+    F: FnMut(HerdrControlRequest) -> Fut,
+    Fut: Future<Output = Result<HerdrControlResult, HerdrControlError>>,
+{
+    let launch = normalize_tab_launch(launch)?;
+    let label = label.trim();
+    let cwd = cwd.trim();
+    let created = send(HerdrControlRequest::WorkspaceCreate {
+        label: (!label.is_empty()).then(|| label.to_owned()),
+        cwd: (!cwd.is_empty()).then(|| cwd.to_owned()),
+    })
+    .await?;
+    let HerdrControlResult::WorkspaceCreated {
+        workspace,
+        tab,
+        root_pane,
+    } = created
+    else {
+        return Err(HerdrControlError::UnsupportedResponse(
+            "workspace.create returned a non-workspace result".to_owned(),
+        ));
+    };
+    let outcome = if let Some((stage, request)) = launch_request(&tab, &root_pane, launch) {
+        match launch_when_shell_ready(request, AGENT_SHELL_READINESS_TIMEOUT, &mut send).await {
+            Ok(_) => HerdrTabLaunchResult::Created { tab, root_pane },
+            Err(error) => HerdrTabLaunchResult::LaunchFailed {
+                tab,
+                root_pane,
+                stage,
+                failure: error.into(),
+            },
+        }
+    } else {
+        HerdrTabLaunchResult::Created { tab, root_pane }
+    };
+    Ok(crate::herdr_api::HerdrWorkspaceLaunchResult {
+        workspace,
+        launch: outcome,
+    })
+}
+
 pub(super) async fn create_tab_with_launch_inner(
     inner: Arc<RuntimeInner>,
     workspace_id: String,
@@ -497,6 +544,54 @@ impl HostRuntime {
         self.inner
             .agents
             .accepts_event(&key.into(), operation_epoch)
+    }
+
+    /// Create one workspace and launch in the pane returned by workspace.create.
+    pub async fn create_workspace_with_launch(
+        &self,
+        label: String,
+        cwd: String,
+        launch: HerdrTabLaunch,
+    ) -> Result<crate::herdr_api::HerdrWorkspaceLaunchResult, HerdrControlError> {
+        let inner = self.inner.clone();
+        let remembered_launch = launch.clone();
+        let identity = {
+            let state = inner.state.lock();
+            (state.generation, state.herdr_recovery_revision)
+        };
+        let outcome = crate::runtime()
+            .map_err(HerdrControlError::TransportDisconnected)?
+            .spawn(async move {
+                create_workspace_with_launch_using(label, cwd, launch, |request| {
+                    let inner = inner.clone();
+                    async move {
+                        {
+                            let state = inner.state.lock();
+                            if (state.generation, state.herdr_recovery_revision) != identity {
+                                return Err(HerdrControlError::RequestCancelled(
+                                    "Herdr connection changed during workspace launch".to_owned(),
+                                ));
+                            }
+                        }
+                        control_request_inner(inner, request).await
+                    }
+                })
+                .await
+            })
+            .await
+            .map_err(|error| {
+                HerdrControlError::RequestCancelled(format!(
+                    "host workspace launch task failed: {error}"
+                ))
+            })??;
+        if let HerdrTabLaunchResult::Created { root_pane, .. } = &outcome.launch {
+            self.inner.agent_preferences.lock().remember(
+                &root_pane.terminal_id,
+                &remembered_launch,
+                false,
+            );
+        }
+        Ok(outcome)
     }
 
     pub async fn create_tab_with_launch(

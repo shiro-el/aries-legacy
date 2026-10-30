@@ -96,6 +96,7 @@ interface Props {
   onPathChange: (path: string) => void;
   onFileChange?: (path: string | null) => void;
   onClose: () => void;
+  onSelectDirectory?: (path: string) => void;
 }
 
 interface FilePreview {
@@ -130,7 +131,7 @@ const remoteGitTreeIndentStyles = Array.from({ length: 16 }, (_, depth) => ({
   paddingLeft: 8 + depth * 16,
 }));
 
-export function RemoteFileManager({ visible, client, hostId, initialPath, initialFilePath, initialLine, onPathChange, onFileChange, onClose, onAskAgent, agentWorking = false }: Props) {
+export function RemoteFileManager({ visible, client, hostId, initialPath, initialFilePath, initialLine, onPathChange, onFileChange, onClose, onSelectDirectory, onAskAgent, agentWorking = false }: Props) {
   const { colors } = useTheme();
   const appGlassEnabled = useAppGlassEnabled();
   const backgroundClassName = appGlassBackgroundClassName(appGlassEnabled);
@@ -189,7 +190,8 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
   onPathChangeRef.current = onPathChange;
   const onFileChangeRef = useRef(onFileChange);
   onFileChangeRef.current = onFileChange;
-  const visibleEntries = useMemo(() => (showHiddenFiles ? entries : entries.filter(entry => !isRemoteHiddenPath(remoteEntryName(entry)))), [entries, showHiddenFiles]);
+  const selectingDirectory = Boolean(onSelectDirectory);
+  const visibleEntries = useMemo(() => (showHiddenFiles ? entries : entries.filter(entry => !isRemoteHiddenPath(remoteEntryName(entry)))).filter(entry => !selectingDirectory || entry.kind === 'directory'), [entries, showHiddenFiles, selectingDirectory]);
   const sortedEntries = useMemo(() => sortRemoteEntries(visibleEntries, sortField, sortDirection), [sortDirection, sortField, visibleEntries]);
   const visibleGitStatus = useMemo(() => (showHiddenFiles ? gitStatus : gitStatus.filter(status => !isRemoteHiddenPath(status.path))), [gitStatus, showHiddenFiles]);
   const gitTree = useMemo(() => buildRemoteGitTree(visibleGitStatus), [visibleGitStatus]);
@@ -304,6 +306,11 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
           return;
         }
         showListing(listing);
+        if (selectingDirectory) {
+          clearGitContext();
+          gitPendingRef.current = null;
+          return;
+        }
         // Git has its own request lifetime: opening a file may change requestRef
         // without changing the directory whose Git preferences we are restoring.
         const gitIsCurrent = () => gitRequest === gitRequestRef.current && connectionIsCurrent();
@@ -383,7 +390,7 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
         if (request === requestRef.current && connectionIsCurrent()) setBusy(false);
       }
     },
-    [clearGitContext, client, hostId, loadGitStatus, replacePreview, restoreGitCollapsedPaths],
+    [clearGitContext, client, hostId, loadGitStatus, replacePreview, restoreGitCollapsedPaths, selectingDirectory],
   );
 
   useEffect(() => {
@@ -1138,6 +1145,10 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
                   <Text className="text-[17px] font-bold text-foreground">{t('files.title')}</Text>
                   <Text className="text-[8px] uppercase tracking-[1px] text-muted-foreground">{t(gitMode ? 'files.gitRemote' : 'files.remote')}</Text>
                 </View>
+                {onSelectDirectory ? <Button accessibilityLabel={t('files.selectDirectory')}
+                  disabled={busy || Boolean(error) || !path} variant="secondary" onPress={() => onSelectDirectory(path)}>
+                  <Text>{t('files.selectDirectory')}</Text>
+                </Button> : null}
                 <Button accessibilityLabel={t('files.close')} className="size-11 rounded-full px-0" variant="ghost" onPress={dismissNow}>
                   <X size={19} color={colors.text} />
                 </Button>
@@ -1161,9 +1172,9 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
                 <Button accessibilityLabel={t('files.options')} className="h-12 w-12 rounded-none px-0" disabled={busy || actionBusy} variant="ghost" onPress={hapticPress(() => setSortMenuVisible(true))}>
                   <SlidersHorizontal size={18} color={colors.text} />
                 </Button>
-                <Button accessibilityLabel={t('files.upload')} className="h-12 w-12 rounded-none px-0" disabled={busy || actionBusy || !path} variant="ghost" onPress={hapticPress(uploadFile)}>
+                {!selectingDirectory ? <Button accessibilityLabel={t('files.upload')} className="h-12 w-12 rounded-none px-0" disabled={busy || actionBusy || !path} variant="ghost" onPress={hapticPress(uploadFile)}>
                   {actionBusy ? <ActivityIndicator size="small" color={colors.primary} /> : <Upload size={18} color={colors.text} />}
-                </Button>
+                </Button> : null}
                 <Button accessibilityLabel={t('files.refresh')} className="h-12 w-12 rounded-none px-0" disabled={busy || actionBusy || gitBusy} variant="ghost" onPress={hapticPress(() => (gitMode ? refreshGitChanges() : loadDirectory(path || initialPath, false)))}>
                   <RefreshCw size={18} color={colors.text} />
                 </Button>
@@ -1276,7 +1287,7 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
                     const directory = entry.kind === 'directory';
                     const kind = remotePreviewKind(name, entry.size);
                     return (
-                      <SwipeableRemoteFileRow key={entry.path} deleting={deletingPath === entry.path} disabled={Boolean(deletingPath) || actionBusy || contextEntry !== null} name={name} onDelete={() => confirmDeleteEntry(entry)}>
+                      <SwipeableRemoteFileRow key={entry.path} deleting={deletingPath === entry.path} disabled={selectingDirectory || Boolean(deletingPath) || actionBusy || contextEntry !== null} name={name} onDelete={() => confirmDeleteEntry(entry)}>
                         {({ actionsOpen, closeActions }) => (
                           <Button
                             accessibilityLabel={t(directory ? 'files.openDirectory' : 'files.openFile', { name })}
@@ -1285,7 +1296,7 @@ export function RemoteFileManager({ visible, client, hostId, initialPath, initia
                             variant="ghost"
                             delayLongPress={450}
                             onPressIn={() => { longPressedPath.current = null; }}
-                            onLongPress={hapticPress(() => {
+                            onLongPress={selectingDirectory ? undefined : hapticPress(() => {
                               longPressedPath.current = entry.path;
                               closeActions();
                               if (!client.activeNative) { Alert.alert(t('common.notConnected')); return; }

@@ -54,6 +54,8 @@ import { bottomNavigationInset } from '@/src/lib/floatingChrome';
 import { chatAgentForPane } from '@/src/lib/agentChatSession';
 import { DEFAULT_SPRING_CONFIG } from '@/src/lib/motion';
 import { createWorkspaceAndSelect } from '@/src/lib/herdrCreationFlows';
+import { NewTaskSheet } from './NewTaskSheet';
+import type { HerdrClient } from '../services/HerdrClient';
 import { runWithInFlightGuard } from '@/src/lib/inFlightSubmission';
 import { terminalFontFamily } from '@/src/lib/terminalFonts';
 import { cn } from '@/src/lib/utils';
@@ -119,10 +121,14 @@ interface Props {
   onNewHost: () => void;
   onSelectWorkspace: (hostId: string, workspaceId: string) => void;
   onFocusWorkspace: (hostId: string, workspaceId: string) => Promise<void>;
+  preferenceHostIds?: Readonly<Record<string, string>>;
+  folderCandidates?: Readonly<Record<string, string[]>>;
+  getClient?: (hostId: string) => HerdrClient | null | undefined;
   onCreateWorkspace: (
     hostId: string,
     name: string,
     cwd: string,
+    launch?: TabLaunchIntent,
   ) => Promise<WorkspaceInfo>;
   onRenameWorkspace: (
     hostId: string,
@@ -168,6 +174,9 @@ export function HerdScreen({
   onSelectWorkspace,
   onFocusWorkspace,
   onCreateWorkspace,
+  getClient,
+  preferenceHostIds,
+  folderCandidates,
   onRenameWorkspace,
   onCloseWorkspace,
   onCloseTab,
@@ -536,6 +545,17 @@ export function HerdScreen({
         />
       ) : null}
 
+      {workspaceEditorMode === 'create' && selectedQueue ? <NewTaskSheet
+        key={selectedQueue.id} hostId={preferenceHostIds?.[selectedQueue.id] ?? selectedQueue.id} hostLabel={selectedQueue.label}
+        folders={folderCandidates?.[selectedQueue.id] ?? selectedQueue.agents.flatMap(agent => [agent.foreground_cwd, agent.cwd].filter((path): path is string => Boolean(path)))}
+        client={getClient?.(selectedQueue.id) ?? undefined}
+        onClose={() => setWorkspaceEditorMode(null)}
+        onCreate={(name, cwd, launch) => onCreateWorkspace(selectedQueue.id, name, cwd, launch)}
+        onCreated={workspace => {
+          onWorkspaceFilterChange(selectedQueue.id, workspace.workspace_id);
+          onSelectWorkspace(selectedQueue.id, workspace.workspace_id);
+        }}
+      /> : null}
       <ResourceEditorSheet
         busy={workspaceBusy}
         context={selectedQueue?.label}
@@ -547,29 +567,25 @@ export function HerdScreen({
             ? t('herd.renameSpace')
             : t('rail.newWorkspace')
         }
-        visible={workspaceEditorMode !== null && Boolean(selectedQueue)}
+        visible={workspaceEditorMode === 'rename' && Boolean(selectedQueue)}
       >
-        <ResourceEditorField label={t('herd.labelOptional')}>
+        {workspaceEditorMode !== 'create' ? <ResourceEditorField label={t('herd.labelOptional')}>
           <Input
             accessibilityLabel={t('herd.labelOptional')}
             autoFocus
             autoCorrect={false}
             editable={!workspaceBusy}
-            returnKeyType={workspaceEditorMode === 'create' ? 'next' : 'done'}
+            returnKeyType="done"
             selectTextOnFocus={workspaceEditorMode === 'rename'}
             value={workspaceName}
             onChangeText={setWorkspaceName}
             onSubmitEditing={
-              workspaceEditorMode === 'create'
-                ? () => workspaceCwdInputRef.current?.focus()
-                : () => {
-                    reportBackgroundFailure(saveWorkspace(), 'workspace-save');
-                  }
+              () => { reportBackgroundFailure(saveWorkspace(), 'workspace-save'); }
             }
             placeholder={t('herd.labelOptional')}
             placeholderTextColor={colors.textTertiary}
           />
-        </ResourceEditorField>
+        </ResourceEditorField> : null}
         {workspaceEditorMode === 'create' ? (
           <ResourceEditorField label={t('herd.workingDirectoryOptional')}>
             <Input
