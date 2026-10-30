@@ -23,6 +23,10 @@ pub struct CallRecord {
     pub requested_urgency: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ineligible_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_status: Option<String>,
 }
 
 /// CLI flags deliberately carry only content; routing always comes from Herdr.
@@ -87,6 +91,8 @@ pub fn prepare(
             .as_secs(),
         requested_urgency: urgency,
         ineligible_reason: (!eligible).then(|| "자격 없음".into()),
+        reply: None,
+        reply_status: None,
     })
 }
 
@@ -121,6 +127,14 @@ pub fn main_agent(pane: &str, session: &str) -> (String, bool) {
 }
 
 fn snapshot(session: &str) -> Result<Value> {
+    let response = request(session, "session.snapshot", json!({}))?;
+    if response["type"] != "session_snapshot" {
+        return Err("invalid snapshot response".into());
+    }
+    Ok(response["snapshot"].clone())
+}
+
+fn request(session: &str, method: &str, params: Value) -> Result<Value> {
     let mut stream = UnixStream::connect(session)?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -128,7 +142,7 @@ fn snapshot(session: &str) -> Result<Value> {
     writeln!(
         stream,
         "{}",
-        json!({"id":id,"method":"session.snapshot","params":{}})
+        json!({"id":id,"method":method,"params":params})
     )?;
     let mut bytes = Vec::new();
     BufReader::new(stream)
@@ -138,16 +152,23 @@ fn snapshot(session: &str) -> Result<Value> {
         return Err("invalid snapshot size".into());
     }
     let response: Value = serde_json::from_slice(&bytes)?;
-    if response["id"] != id || response["result"]["type"] != "session_snapshot" {
-        return Err("invalid snapshot response".into());
+    if response["id"] != id || response.get("error").is_some() || !response["result"].is_object() {
+        return Err("invalid Herdr response".into());
     }
-    Ok(response["result"]["snapshot"].clone())
+    Ok(response["result"].clone())
 }
 
 pub fn record(store: &Store, call: &CallRecord) -> Result<()> {
     let _lock = store.lock()?;
+    record_locked(store, call)
+}
+
+fn record_locked(store: &Store, call: &CallRecord) -> Result<()> {
     let path = store.state.join("calls.jsonl");
     let mut lines = Vec::new();
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)?
+        .as_secs();
     if path.exists() {
         // Read the private file with the same no-symlink policy as other state.
         let file = crate::host::open_private(&path)?;
@@ -159,7 +180,7 @@ pub fn record(store: &Store, call: &CallRecord) -> Result<()> {
         }
         for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
             let entry: CallRecord = serde_json::from_slice(line)?;
-            if entry.created_at >= call.created_at.saturating_sub(CALL_LOG_MAX_AGE) {
+            if entry.created_at >= now.saturating_sub(CALL_LOG_MAX_AGE) {
                 lines.push(line.to_vec());
             }
         }
@@ -177,4 +198,96 @@ pub fn record(store: &Store, call: &CallRecord) -> Result<()> {
         bytes.push(b'\n');
     }
     atomic_write(&path, &bytes)
+}
+
+/// Resolve choices from the private host log, never notification-supplied text.
+/// Claim before sending: ambiguous transport/process failures cannot be retried
+/// automatically without risking a second Enter in the agent's next turn.
+pub fn reply(
+    store: &Store,
+    id: &str,
+    index: usize,
+    pane: &str,
+    session: &str,
+) -> Result<CallRecord> {
+    if !crate::valid_id(id) || index >= 3 || pane.len() > 128 || session.len() > 512 {
+        return Err("invalid reply".into());
+    }
+    let _lock = store.lock()?;
+    let file = crate::host::open_private(&store.state.join("calls.jsonl"))?;
+    let mut bytes = Vec::new();
+    file.take((CALL_LOG_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > CALL_LOG_BYTES {
+        return Err("call log too large".into());
+    }
+    let mut original = None;
+    for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+        let entry: CallRecord = serde_json::from_slice(line)?;
+        if entry.event.call_id.as_deref() == Some(id) {
+            original = Some(entry);
+        }
+    }
+    let mut call = original.ok_or("call unavailable")?;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)?
+        .as_secs();
+    if call.event.kind.as_deref() != Some("call")
+        || call.event.pane_id != pane
+        || call.event.session != session
+        || call.created_at > now
+        || now - call.created_at > CALL_LOG_MAX_AGE
+    {
+        return Err("call context changed".into());
+    }
+    let text = call
+        .event
+        .options
+        .get(index)
+        .ok_or("choice unavailable")?
+        .clone();
+    if text.is_empty() || text.len() > OPTION_BYTES || text.chars().any(char::is_control) {
+        return Err("invalid choice".into());
+    }
+    if let Some(previous) = &call.reply {
+        if previous != &text {
+            return Err("call already answered".into());
+        }
+        return Ok(call);
+    }
+    call.reply = Some(text.clone());
+    call.reply_status = Some("unknown".into());
+    record_locked(store, &call)?;
+    if let Ok(snapshot) = snapshot(session) {
+        let exists = snapshot["panes"].as_array().is_some_and(|panes| {
+            panes.iter().any(|p| {
+                p["pane_id"].as_str() == Some(pane)
+                    && p["workspace_id"].as_str() == Some(&call.event.workspace_id)
+                    && p["agent"].as_str().is_some_and(|a| !a.is_empty())
+            })
+        });
+        call.reply_status = Some(
+            if exists {
+                if request(
+                    session,
+                    "pane.send_input",
+                    json!({"pane_id":pane,"text":text,"keys":["enter"]}),
+                )
+                .is_ok()
+                {
+                    "delivered"
+                } else {
+                    "unknown"
+                }
+            } else {
+                "failed"
+            }
+            .into(),
+        );
+    } else {
+        // No submission was attempted; an unavailable snapshot is a known failure.
+        call.reply_status = Some("failed".into());
+    }
+    record_locked(store, &call)?;
+    Ok(call)
 }

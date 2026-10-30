@@ -294,6 +294,48 @@ ticket reuses the existing alarm implementation without changing those policies.
 These device checks and relay deployment were prohibited by the implementer
 brief and remain outstanding.
 
+## Background call choices (Aries, Android)
+
+Authenticated local `call` alerts with one to three options offer one button per
+option. Each action sets `opensAppToForeground: false`; the notification body
+still opens the original pane's Chat View and composer. Approval alerts never
+have reply actions. The visible push fallback retains its existing tap behavior.
+
+The background task uses the connected host runtime when available. A cold task
+loads the saved host and jump-host credentials and known SSH keys, then creates
+and disconnects a separate short-lived native runtime. It never asks for host-key
+trust or biometric access from the background. Missing credentials, unknown or
+changed SSH keys, revoked registrations and changed notification identities or
+Herdr sessions fail without submitting. A cold connection requiring biometric
+SSH key use must be completed in the app instead. Existing credential protection
+and host-key verification remain in effect.
+
+The native `notificationCommand('reply', …)` operation passes only the discovered
+plugin paths, call ID, option index, expected pane and native-resolved session to
+`whip-notify --dirs CONFIG STATE reply CALL_ID INDEX PANE SESSION` (plugin 0.1.6+).
+The host resolves the retained original call, validates kind/session/pane/age and
+option bounds, and obtains the choice text from its private log. A fresh Herdr
+snapshot must still contain that agent pane in the original workspace. Submission
+uses the same `pane.send_input` text plus `keys: ["enter"]` as an ordinary composer
+paste and submit. No choice text is interpreted as shell code.
+
+Before submission, the host durably claims the answer under its store lock. It
+appends complete records with the original `call_id`, string `reply`, and
+`reply_status` (`delivered`, `failed`, or `unknown`). Call history merges these by
+ID. Repeated or concurrent callbacks return the saved result without resending;
+a conflicting choice is rejected. The lock covers the bounded snapshot/send
+sequence. Interrupted or unacknowledged sends stay `unknown` and are never retried
+automatically. Check the pane in the app before answering again.
+
+The task stops only that notification's emergency alarm and replaces the same
+notification identifier with Delivered, Failed, or Delivery unconfirmed text,
+without buttons. The host retains failed answers when it could resolve the call;
+an unreachable host cannot record an answer. Result notifications keep the
+authenticated pane navigation target. A rebuilt Android app and updated host
+plugin are required; no release or deployment occurred in this implementation.
+Screen-off/locked/Doze action delivery, cold credential availability and watch
+button behavior still require Samsung hardware validation.
+
 ### Automatic hook policy (Aries)
 
 The default hook policy is `main-approval`: only `blocked` on the main agent

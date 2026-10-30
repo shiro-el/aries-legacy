@@ -4,16 +4,20 @@ import { Platform } from 'react-native';
 import { alertRemoteNotification, prepareAlertChannels } from './alerts';
 import { receiveRemoteNotification } from './remoteNotifications';
 import { recordOperationalDiagnostic } from './operationalDiagnostics';
+import { handleNotificationChoice } from './notificationChoices';
 
 const TASK = 'aries-remote-notifications-v1';
 
 // Required by index.js so Expo can run this without mounting the application.
 TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ data, error }) => {
   if (error) return Notifications.BackgroundNotificationTaskResult.Failed;
-  // Visible fallback pushes already have an OS alert. Action handling belongs
-  // to navigation/reply workflows, never to receipt/decryption a second time.
   try {
-    if (!data || 'actionIdentifier' in data || data.notification !== null)
+    if (data && 'actionIdentifier' in data) {
+      return await handleNotificationChoice(data)
+        ? Notifications.BackgroundNotificationTaskResult.NewData : Notifications.BackgroundNotificationTaskResult.NoData;
+    }
+    // Visible fallback pushes already have an OS alert.
+    if (data?.notification !== null)
       return Notifications.BackgroundNotificationTaskResult.NoData;
     const payload: unknown = data.data.dataString ? JSON.parse(data.data.dataString) : data.data;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))

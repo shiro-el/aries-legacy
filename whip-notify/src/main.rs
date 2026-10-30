@@ -81,6 +81,21 @@ fn run() -> Result<()> {
                 )?;
             }
         }
+        "reply" => {
+            let id = args.next().ok_or("missing call id")?;
+            let index: usize = args.next().ok_or("missing choice")?.parse()?;
+            let pane = args.next().ok_or("missing pane")?;
+            let session = args.next().ok_or("missing session")?;
+            if args.next().is_some() {
+                return Err("unexpected reply argument".into());
+            }
+            println!(
+                "{}",
+                serde_json::to_string(&whip_notify::calls::reply(
+                    &store, &id, index, &pane, &session
+                )?)?
+            );
+        }
         "policy" => {
             let value = args.next();
             if args.next().is_some() {
@@ -123,6 +138,8 @@ fn run() -> Result<()> {
                             .as_secs(),
                         requested_urgency: "urgent".into(),
                         ineligible_reason: None,
+                        reply: None,
+                        reply_status: None,
                     },
                 )?;
                 push(&store, &event, &preview)?;
