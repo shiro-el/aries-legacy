@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Whip",
+    "name": "Aries",
     "slug": "herdr-remote",
     "icon": "./assets/icon.png",
     "scheme": "whip",
@@ -90,7 +90,7 @@
         "ACCESS_NETWORK_STATE"
       ],
       "allowBackup": true,
-      "package": "io.github.kaminarios.whip"
+      "package": "io.github.shiroel.aries"
     },
     "web": {
       "bundler": "metro"

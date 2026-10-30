@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Whip</string>
+    <string name="app_name">Aries</string>
     <string name="chat_speech_listening">Listening to %1$s</string>
     <string name="chat_speech_stop">Stop listening</string>
     <string name="herdr_background_channel">Whip background monitoring</string>
