@@ -81,13 +81,50 @@ fn run() -> Result<()> {
                 )?;
             }
         }
+        "policy" => {
+            let value = args.next();
+            if args.next().is_some() {
+                return Err("unexpected policy argument".into());
+            }
+            if let Some(value) = value {
+                store.set_hook_policy(&whip_notify::host::HookPolicy::parse(&value)?)?;
+            }
+            println!("{}", store.hook_policy()?.name());
+        }
         "hook" => {
             let session = std::env::var("HERDR_SOCKET_PATH")?;
             let context =
                 std::env::var("HERDR_PLUGIN_CONTEXT_JSON").unwrap_or_else(|_| "{}".into());
             let json = std::env::var("HERDR_PLUGIN_EVENT_JSON")?;
-            if let Some(event) = parse_event(&json, &context, &session)? {
+            if let Some(mut event) = parse_event(&json, &context, &session)? {
                 let preview = notification_preview(&event, &json, &context)?;
+                if store.hook_policy()? == whip_notify::host::HookPolicy::AllPanes {
+                    return push(&store, &event, &preview);
+                }
+                if event.status != "blocked" {
+                    return Ok(());
+                }
+                let (workspace, eligible) =
+                    whip_notify::calls::main_agent(&event.pane_id, &session);
+                if !eligible || workspace != event.workspace_id {
+                    return Ok(());
+                }
+                event.kind = Some("approval".into());
+                event.urgency = Some("urgent".into());
+                event.title = Some(preview.title.clone());
+                event.body = Some(preview.body.clone());
+                event.call_id = Some(uuid::Uuid::new_v4().to_string());
+                whip_notify::calls::record(
+                    &store,
+                    &whip_notify::calls::CallRecord {
+                        event: event.clone(),
+                        created_at: std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+                            .as_secs(),
+                        requested_urgency: "urgent".into(),
+                        ineligible_reason: None,
+                    },
+                )?;
                 push(&store, &event, &preview)?;
             }
         }

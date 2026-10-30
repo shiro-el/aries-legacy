@@ -115,3 +115,28 @@ fork keeps the herding theme with the ram that leads the flock.
     are separate work. Legacy preview preferences remain available.
   - App taps reuse authenticated host/pane routing and fresh target resolution.
     See `docs/remote-notifications.md` for the command and log contract.
+
+### 5. Main-agent approval hook policy
+
+- **What:** Automatic host pushes now report only the main agent's `blocked`
+  status as an `urgent` `approval`, with a call ID and a retained call-log entry.
+  Main-agent `done` and other panes' status changes stay quiet.
+- **Why:** Completion and other requests for attention belong to explicit agent
+  calls. Routine subagent status changes should not interrupt the phone user.
+- **How:** The hook reuses `call`'s Herdr snapshot verification of the first pane
+  in the workspace's lowest-numbered tab. Missing/unverifiable topology suppresses
+  automatic notifications. Recording precedes lease checks and delivery, so
+  active-app suppression and relay failures retain the approval. Approval events
+  carry no choices and omit plaintext previews, and taps use the existing
+  authenticated host/pane navigation and in-app interaction controls.
+  - The previous all-pane `blocked`/`done` path remains behind the persistent
+    host setting `whip-notify policy all-panes`; `policy main-approval` restores
+    the default. `policy` reads the current setting. The private atomic
+    `hook-policy.json` configuration is shared across that installation's
+    sessions and survives unregister/uninstall/reinstall, like host configuration.
+  - Legacy mode preserves the old event format and preview preferences. Unknown
+    or unsafe policy files fail closed rather than enabling legacy delivery.
+- **Validation:** Binary tests use fixture Herdr sockets and a local relay endpoint
+  to check both policies, suppression, approval records, active leases, failed
+  delivery, and resetting/invalid settings. Existing app navigation and screen
+  tests cover authenticated taps, fresh pane resolution and pane interaction.
