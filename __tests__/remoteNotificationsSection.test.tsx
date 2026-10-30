@@ -81,7 +81,7 @@ const betaHost: HostProfile = {
   name: 'Beta',
   host: 'beta.example',
 };
-const installCommand = "'herdr' --session 'default' plugin install --yes --ref 'whip-notify-install-v0.1.4' 'kosumic/whip/whip-notify'";
+const installCommand = "'herdr' --session 'default' plugin install --yes --ref 'whip-notify-install-v0.1.5' 'kosumic/whip/whip-notify'";
 beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(remoteNotificationStates).mockResolvedValue([]);
@@ -109,7 +109,7 @@ test('install is available only for a connected host and refreshes that host aft
       .mocked(notificationPluginState)
       .mockImplementation(async hostId =>
         hostId === 'alpha'
-          ? { installed: true, enabled: true, version: '0.1.4', install_command: installCommand }
+          ? { installed: true, enabled: true, version: '0.1.5', install_command: installCommand }
           : undefined,
       );
     mockRefresh?.();
@@ -233,7 +233,7 @@ test('installation shows real stages and elapsed time, and keeps the failing sta
 });
 
 test('enabling an existing plugin shows only the stages it performed', async () => {
-  jest.mocked(notificationPluginState).mockResolvedValue({ installed: true, enabled: false, version: '0.1.4' });
+  jest.mocked(notificationPluginState).mockResolvedValue({ installed: true, enabled: false, version: '0.1.5' });
   jest.mocked(installNotificationPlugin).mockImplementationOnce(async (_host, onProgress) => {
     onProgress?.({
       stage: 'complete', completed_stages: ['checking-host', 'enabling', 'verifying'],
@@ -301,7 +301,7 @@ test('an older plugin offers upgrade and hides it after upgrading', async () => 
   });
   jest.mocked(installNotificationPlugin).mockImplementationOnce(async () => {
     jest.mocked(notificationPluginState).mockResolvedValue({
-      installed: true, enabled: true, version: '0.1.4', update_available: false,
+      installed: true, enabled: true, version: '0.1.5', update_available: false,
       install_command: installCommand,
     });
     mockRefresh?.();
@@ -317,7 +317,7 @@ test('an older plugin offers upgrade and hides it after upgrading', async () => 
   expect(view.root.findAllByType(SyntaxCodeText)).toHaveLength(0);
 });
 
-test.each(['0.1.4', '0.2.0'])('a current or newer plugin (%s) has no upgrade button', async version => {
+test.each(['0.1.5', '0.2.0'])('a current or newer plugin (%s) has no upgrade button', async version => {
   jest.mocked(notificationPluginState).mockResolvedValue({
     installed: true, enabled: true, version, update_available: false,
   });
@@ -328,7 +328,7 @@ test.each(['0.1.4', '0.2.0'])('a current or newer plugin (%s) has no upgrade but
 
 test('a current disabled plugin can still be enabled without an upgrade', async () => {
   jest.mocked(notificationPluginState).mockResolvedValue({
-    installed: true, enabled: false, version: '0.1.4', update_available: false,
+    installed: true, enabled: false, version: '0.1.5', update_available: false,
   });
   await mount();
   expect(view.root.findByProps({ accessibilityLabel: 'Enable notification plugin on Alpha' }).props.disabled).toBe(false);
@@ -353,12 +353,12 @@ test('a disconnected host shows unknown status instead of offering installation'
 test('reconnecting discovers an existing plugin without offering to reinstall it', async () => {
   await mount(betaHost);
   jest.mocked(notificationPluginState).mockResolvedValue({
-    installed: true, enabled: true, version: '0.1.4', update_available: false,
+    installed: true, enabled: true, version: '0.1.5', update_available: false,
   });
   await act(async () => { mockRefresh?.(); });
   const copy = view.root.findAllByType('Text' as never)
     .flatMap(node => node.children.filter(child => typeof child === 'string')).join(' ');
-  expect(copy).toContain('Host plugin 0.1.4');
+  expect(copy).toContain('Host plugin 0.1.5');
   expect(copy).not.toContain('Install on host');
   expect(view.root.findAllByProps({ accessibilityLabel: 'Upgrade notification plugin on Beta' })).toHaveLength(0);
   expect(view.root.findByProps({ accessibilityLabel: 'Enable remote notifications on Beta' }).props.disabled).toBe(false);

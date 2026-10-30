@@ -40,6 +40,7 @@ impl Installer {
         // Node, Python or an unmocked downloader, even on a developer's machine.
         for name in [
             "sh", "dirname", "sed", "mktemp", "rm", "mv", "chmod", "cat", "mkdir", "install",
+            "cmp", "rmdir", "sleep",
         ] {
             symlink(tool(name), bin.join(name)).unwrap();
         }
@@ -84,9 +85,21 @@ esac
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$WHIP_TEST_ROOT/herdr-args\"\n",
         );
         let source = Path::new(env!("CARGO_MANIFEST_DIR"));
-        for name in ["build.sh", "install.sh", "herdr-plugin.toml", "platform.sh"] {
+        for name in [
+            "build.sh",
+            "install.sh",
+            "herdr-plugin.toml",
+            "platform.sh",
+            "skills.sh",
+        ] {
             fs::copy(source.join(name), root.path().join(name)).unwrap();
         }
+        fs::create_dir(root.path().join("call-human")).unwrap();
+        fs::copy(
+            source.join("call-human/SKILL.md"),
+            root.path().join("call-human/SKILL.md"),
+        )
+        .unwrap();
         let bytes = b"binary fixture; downloaded executables must never run during installation\n";
         fs::write(root.path().join("payload"), bytes).unwrap();
         let target = match (platform, arch) {
@@ -186,6 +199,93 @@ fn downloads_matching_linux_and_macos_binaries_without_a_compiler() {
 }
 
 #[test]
+fn build_installs_the_same_call_human_skill_for_both_agents() {
+    let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
+    assert!(installer.run().status.success());
+    let expected =
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("call-human/SKILL.md")).unwrap();
+    for scope in [".claude", ".agents"] {
+        let skill = installer
+            .root
+            .path()
+            .join(scope)
+            .join("skills/call-human/SKILL.md");
+        assert_eq!(fs::read(&skill).unwrap(), expected);
+        assert_eq!(
+            fs::metadata(skill).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
+
+#[test]
+fn skills_can_be_reinstalled_and_removed_without_removing_other_user_files() {
+    let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
+    assert!(installer.run().status.success());
+    assert!(installer.run().status.success());
+    let claude = installer.root.path().join(".claude/skills/call-human");
+    fs::write(claude.join("notes.txt"), "my notes").unwrap();
+    let output = installer
+        .command("skills.sh")
+        .arg("uninstall")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!claude.join("SKILL.md").exists());
+    assert_eq!(
+        fs::read_to_string(claude.join("notes.txt")).unwrap(),
+        "my notes"
+    );
+    assert!(
+        !installer
+            .root
+            .path()
+            .join(".agents/skills/call-human")
+            .exists()
+    );
+    assert!(
+        installer
+            .command("skills.sh")
+            .arg("uninstall")
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
+#[test]
+fn installation_and_uninstall_preserve_custom_edited_and_symlinked_skills() {
+    for kind in ["custom", "edited", "symlink"] {
+        let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
+        let skill = installer.root.path().join(".agents/skills/call-human");
+        if kind == "custom" {
+            fs::create_dir_all(&skill).unwrap();
+            fs::write(skill.join("SKILL.md"), "user-owned skill").unwrap();
+        } else {
+            assert!(installer.run().status.success());
+            fs::write(skill.join("SKILL.md"), "user-owned skill").unwrap();
+            if kind == "symlink" {
+                fs::rename(&skill, installer.root.path().join("original")).unwrap();
+                symlink(installer.root.path().join("original"), &skill).unwrap();
+            }
+        }
+        assert!(!installer.run().status.success());
+        assert!(
+            installer
+                .command("skills.sh")
+                .env("notify_skill_action", "uninstall")
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert_eq!(
+            fs::read_to_string(skill.join("SKILL.md")).unwrap(),
+            "user-owned skill"
+        );
+    }
+}
+
+#[test]
 fn failed_download_preserves_previous_executable_and_cleans_up() {
     let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
     let binary = installer.root.path().join("whip-notify");
@@ -255,11 +355,29 @@ fn simultaneous_installations_use_independent_staging_directories() {
 fn downloaded_plugin_can_be_privately_linked_with_herdr() {
     let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
     assert!(installer.run().status.success());
+    assert!(
+        installer
+            .command("skills.sh")
+            .arg("uninstall")
+            .status()
+            .unwrap()
+            .success()
+    );
     let output = installer.command("install.sh").output().unwrap();
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read(
+            installer
+                .root
+                .path()
+                .join(".agents/skills/call-human/SKILL.md")
+        )
+        .unwrap(),
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("call-human/SKILL.md")).unwrap()
     );
     let destination = installer.root.path().join("installed");
     for (filename, mode) in [("whip-notify", 0o700), ("herdr-plugin.toml", 0o600)] {
@@ -288,9 +406,15 @@ fn installer_tag_excludes_the_app_and_is_immutable() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"));
     let plugin = root.path().join("whip-notify");
     fs::create_dir(&plugin).unwrap();
-    for name in ["build.sh", "platform.sh", "herdr-plugin.toml"] {
+    for name in ["build.sh", "platform.sh", "herdr-plugin.toml", "skills.sh"] {
         fs::copy(source.join(name), plugin.join(name)).unwrap();
     }
+    fs::create_dir(plugin.join("call-human")).unwrap();
+    fs::copy(
+        source.join("call-human/SKILL.md"),
+        plugin.join("call-human/SKILL.md"),
+    )
+    .unwrap();
     fs::write(root.path().join("unrelated-app-asset"), [0; 16_384]).unwrap();
     let git = |args: &[&str]| {
         let output = Command::new(tool("git"))
@@ -332,7 +456,7 @@ fn installer_tag_excludes_the_app_and_is_immutable() {
     assert_eq!(git(&["rev-list", "--count", &tag]), "1");
     assert_eq!(
         git(&["ls-tree", "-r", "--name-only", &tag]),
-        "whip-notify/build.sh\nwhip-notify/herdr-plugin.toml\nwhip-notify/platform.sh"
+        "whip-notify/build.sh\nwhip-notify/call-human/SKILL.md\nwhip-notify/herdr-plugin.toml\nwhip-notify/platform.sh\nwhip-notify/skills.sh"
     );
     assert!(prepare().status.success());
     fs::write(plugin.join("build.sh"), "changed installer").unwrap();

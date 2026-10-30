@@ -57,4 +57,5 @@ chmod 700 "$notify_tmp/$notify_asset"
 # Both paths are on the same filesystem. A failed download leaves the old binary.
 [ ! -d "$notify_root/whip-notify" ] || { echo 'Plugin executable is a directory' >&2; exit 1; }
 mv -f "$notify_tmp/$notify_asset" "$notify_root/whip-notify"
+sh "$notify_root/skills.sh" install
 printf 'Downloaded Whip notification plugin %s (%s).\n' "$notify_version" "$notify_target"
