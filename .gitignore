@@ -110,3 +110,6 @@ AGENTS.md
 /.direnv/
 
 !/notify-relay/.dev.vars.example
+
+# Local issue tracker (mattpocock skills)
+.scratch/
