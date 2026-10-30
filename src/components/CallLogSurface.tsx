@@ -62,8 +62,9 @@ export function CallLogSurface({
       operation: string,
       payload: string,
     ) => {
-      const result = (pending.get(runtime) ?? Promise.resolve())
-        .then(() => runtime.notificationCommand(operation, payload));
+      const result = (pending.get(runtime) ?? Promise.resolve()).then(() =>
+        runtime.notificationCommand(operation, payload),
+      );
       pending.set(runtime, settledPromise(result));
       return result;
     };
@@ -100,7 +101,12 @@ export function CallLogSurface({
           const incoming = JSON.parse(value) as CallRecord[];
           const notify = initialized;
           initialized = true;
-          const fresh = incoming.filter(record => !seen.has(record.call_id));
+          const updates = new Map(
+            incoming.map(record => [record.call_id, record]),
+          );
+          const fresh = [...updates.values()].filter(
+            record => !seen.has(record.call_id),
+          );
           incoming.forEach(record => seen.add(record.call_id));
           setRecords(previous => {
             const merged = new Map(
@@ -143,7 +149,10 @@ export function CallLogSurface({
       consumers.set(hostId, () => {
         stopped = true;
         clearInterval(timer);
-        bestEffortCleanup(command(runtime, 'calls-stop', '{}'), 'call-log-stop');
+        bestEffortCleanup(
+          command(runtime, 'calls-stop', '{}'),
+          'call-log-stop',
+        );
       });
       void tick();
     };

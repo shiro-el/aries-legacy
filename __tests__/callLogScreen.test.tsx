@@ -224,3 +224,24 @@ test('offers a connection from the selected offline host history', async () => {
   await press('Connect host');
   expect(connect).toHaveBeenCalledWith('offline');
 });
+test('coalesces same-call reply updates and rotation replay within one stream batch', async () => {
+  await act(async () => {
+    root = create(<CallLogSurface hosts={hosts} onOpenPane={openPane} />);
+  });
+  const live = {
+    ...historical,
+    call_id: 'updated',
+    urgency: 'urgent',
+    title: 'One request',
+  };
+  command.mockResolvedValue(
+    JSON.stringify([live, { ...live, reply: 'Go ahead' }]),
+  );
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  await press('Dismiss call');
+  expect(texts()).not.toContain('New call');
+  await press('Call log');
+  expect(texts()).toContain('Go ahead');
+});

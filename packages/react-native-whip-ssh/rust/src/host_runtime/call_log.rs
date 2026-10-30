@@ -70,20 +70,29 @@ impl HostRuntime {
                 Ok("[]".into())
             }
             "calls-read" => {
-                let state = self.inner.state.lock();
-                let log = state
-                    .call_log
-                    .as_ref()
-                    .ok_or_else(|| failure("Call log is not attached"))?;
-                let mut buffer = log.buffer.lock();
-                if !log.stream.is_current() || buffer.closed {
+                let (stream, buffer) = {
+                    let state = self.inner.state.lock();
+                    let log = state
+                        .call_log
+                        .as_ref()
+                        .ok_or_else(|| failure("Call log is not attached"))?;
+                    let stream = log.stream.clone();
+                    let buffer = log.buffer.clone();
+                    drop(state);
+                    (stream, buffer)
+                };
+                if !stream.is_current() {
                     return Err(failure("Call log stream disconnected; reconnecting"));
                 }
-                let result = serde_json::to_string(&buffer.records)
-                    .map_err(|_| failure("Invalid call log"))?;
-                buffer.records.clear();
-                buffer.bytes = 0;
-                Ok(result)
+                let records = {
+                    let mut buffer = buffer.lock();
+                    if buffer.closed {
+                        return Err(failure("Call log stream disconnected; reconnecting"));
+                    }
+                    buffer.bytes = 0;
+                    std::mem::take(&mut buffer.records)
+                };
+                serde_json::to_string(&records).map_err(|_| failure("Invalid call log"))
             }
             "calls-open" => {
                 let input: Value =
