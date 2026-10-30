@@ -2,7 +2,6 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { useHerdrInstallation } from '../src/hooks/useHerdrInstallation';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 
 function host() {
   let resolve!: (outcome: 'succeeded' | 'cancelled') => void;

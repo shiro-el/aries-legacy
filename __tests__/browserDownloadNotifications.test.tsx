@@ -6,9 +6,6 @@ import {
   browserDownloads,
   BROWSER_DOWNLOAD_LINK,
 } from '../src/browser/downloads';
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 
 jest.mock('react-native', () => ({
   Linking: {

@@ -1,5 +1,4 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const { withNativeWind } = require('nativewind/metro');
 const path = require('node:path');
 const projectBuildDirectories = require('./scripts/project-build-directories.cjs');
 
@@ -15,4 +14,4 @@ config.resolver.blockList = [
   }),
 ];
 
-module.exports = withNativeWind(config, { input: './global.css', inlineRem: 16 });
+module.exports = config;

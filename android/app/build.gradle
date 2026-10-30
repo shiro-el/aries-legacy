@@ -93,6 +93,7 @@ def uploadKeystorePropertiesFile = uploadKeystorePropertiesPath
 def hasUploadSigning = uploadKeystorePropertiesFile.isFile()
 def usePreviewSigning = (findProperty('whip.previewSigning') ?: 'false').toBoolean()
 def skipR8 = (findProperty('whip.skipR8') ?: 'false').toBoolean()
+def debugUploadSigning = (findProperty('whip.debugUploadSigning') ?: 'false').toBoolean()
 def enableProfiling = (findProperty('whip.profileable') ?: 'false').toBoolean()
 
 if (hasUploadSigning) {
@@ -149,7 +150,11 @@ android {
     }
     buildTypes {
         debug {
-            signingConfig = signingConfigs.debug
+            // A dev client signed with the upload key installs over the
+            // release app in place, keeping its hosts, keys and push setup.
+            signingConfig = debugUploadSigning && hasUploadSigning
+                ? signingConfigs.upload
+                : signingConfigs.debug
         }
         release {
             // Distribution builds use the private upload key. Local preview APKs

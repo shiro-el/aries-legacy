@@ -18,9 +18,6 @@ import { HerdrClient } from '../src/services/HerdrClient';
 import { recordOperationalDiagnostic } from '../src/services/operationalDiagnostics';
 import type { ConnectionProfile, PaneInfo } from '../src/types';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('react-native-whip-ssh', () => ({
   ...require('./mockWhipSsh').createMockWhipSshModule(),
   createHostRuntime: jest.fn(),

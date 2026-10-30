@@ -1,4 +1,10 @@
-import type { SearchCandidate } from '../components/ChatSearchBar';
+export interface SearchCandidate {
+  before: string;
+  matched: string;
+  after: string;
+  leading: boolean;
+  trailing: boolean;
+}
 
 export interface TerminalSearchResult {
   query: string;

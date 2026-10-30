@@ -6,9 +6,6 @@ import {
   stopBackgroundMonitoring,
 } from '../src/services/backgroundMonitoring';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('../src/services/backgroundMonitoring', () => ({
   startBackgroundMonitoring: jest.fn(async () => {}),
   stopBackgroundMonitoring: jest.fn(async () => {}),

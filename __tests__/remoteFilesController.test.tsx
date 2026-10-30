@@ -6,9 +6,6 @@ import {
 import type { AppCoreProjection } from 'react-native-whip-ssh';
 import type { HerdrClient } from '../src/services/HerdrClient';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 
 it('routes the selected diff back to its source pane and rejects stale or closed pane requests', () => {
   const pane = {

@@ -4,7 +4,6 @@ import { useAnimatedRef } from 'react-native-reanimated';
 import { useAnimatedKeyboardHeight, useKeyboardInset } from '../src/hooks/useKeyboardInset';
 import { commitKeyboardState, endKeyboard, keyboardSubscriberCount, keyboardViewport, keyboardWindow, moveKeyboard, publishKeyboard, resetKeyboardController, startKeyboard } from '../test-support/keyboardAnimation';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 jest.mock('react-native', () => ({
   Animated: { Value: jest.fn() },
   View: 'View',

@@ -6,9 +6,6 @@ import {
 } from '../src/hooks/useAppNavigation';
 import { beginAppPerformanceTrace } from '../src/services/performanceTrace';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('react-native', () => ({
   BackHandler: {
     addEventListener: jest.fn(() => ({ remove: jest.fn() })),

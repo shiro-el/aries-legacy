@@ -15,9 +15,6 @@ import { DEVICE_PREFERENCES_FLUSH_INTERVAL_MS } from '../src/services/devicePref
 import type { StartupStorageSnapshot } from '../src/services/startupStorage';
 import type { LoadState } from '../src/hooks/useStartupStorage';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('react-native', () => ({
   AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
   Appearance: { setColorScheme: jest.fn() },

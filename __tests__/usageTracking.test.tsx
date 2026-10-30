@@ -7,9 +7,6 @@ import {
 
 import { useUsageTracking } from '../src/hooks/useUsageTracking';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('react-native', () => ({
   AppState: {
     currentState: 'active',

@@ -2,7 +2,6 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useGitReviewRefresh } from '../src/hooks/useGitReviewRefresh';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 const mockRemove = jest.fn();
 let mockOnState: (state: AppStateStatus) => void;
 jest.mock('react-native', () => ({ AppState: {

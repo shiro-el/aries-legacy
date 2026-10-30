@@ -18,7 +18,6 @@ const {
 const ANDROID_ASSET = 'android/app/src/main/assets/herdr-terminal.html';
 const IOS_ASSET = 'modules/whip-terminal-assets/ios/TerminalAssets/index.html';
 const GENERATOR = 'scripts/sync-terminal-assets.ts';
-const RENDERER_HOST = 'src/components/TerminalRendererHost.tsx';
 const HERDR_CLIENT = 'src/services/HerdrClient.ts';
 const TERMINAL_RENDERER = 'src/lib/terminalRenderer.ts';
 
@@ -74,7 +73,6 @@ describe('generated terminal artifacts', () => {
       GENERATOR,
       ANDROID_ASSET,
       IOS_ASSET,
-      RENDERER_HOST,
       HERDR_CLIENT,
       TERMINAL_RENDERER,
     ]) {

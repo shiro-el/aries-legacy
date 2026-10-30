@@ -10,14 +10,12 @@
     "ignoreDeprecations": "6.0",
     "types": [
       "jest",
-      "node",
-      "nativewind/types"
+      "node"
     ]
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    "nativewind-env.d.ts"
+    "**/*.tsx"
   ],
   "exclude": [
     "artifacts",

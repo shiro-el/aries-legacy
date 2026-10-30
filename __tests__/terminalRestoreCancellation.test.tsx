@@ -4,7 +4,6 @@ import type { NativeAppCore } from 'react-native-whip-ssh';
 import { useTerminalSessions } from '../src/hooks/useTerminalSessions';
 import { loadPersistedTerminals, type PersistedTerminalRestore } from '../src/services/persistedTerminals';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 jest.mock('../src/services/persistedTerminals', () => ({
   loadPersistedTerminals: jest.fn(),
   PersistedTerminalsWriter: jest.fn(() => ({ retainSessions: jest.fn() })),

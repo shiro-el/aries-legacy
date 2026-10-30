@@ -6,7 +6,6 @@ import { setSpeechInputActive } from '../src/services/speechInputFocus';
 import type { TranscriptMessage, TranscriptTurn } from '../src/agentChat';
 
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 jest.mock('../src/services/chatSpeech', () => ({ readChatResponse: jest.fn() }));
 
 const target: ChatSpeechTarget = {

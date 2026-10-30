@@ -3,7 +3,6 @@ import { appStorage } from '../src/services/appStorage';
 
 import { useRemoteScrollProgress } from '../src/hooks/useRemoteScrollProgress';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 jest.mock('react-native', () => ({
   AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
 }));

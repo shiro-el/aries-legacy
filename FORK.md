@@ -381,3 +381,38 @@ fork keeps the herding theme with the ram that leads the flock.
     the upstream install QR script.
 - **Not changed yet:** iOS `AppIcon.icon`.
 
+
+### 15. Dev client signed with the upload key
+
+- **What:** `-Pwhip.debugUploadSigning=true` signs the debug (dev client)
+  build with the upload key instead of the debug keystore.
+- **Why:** The debug build shares the release `applicationId`. Signed with the
+  debug key it can't install over the release app without wiping its hosts,
+  SSH keys and push registration. A UI overhaul needs live Metro reloads on
+  the real phone, so the dev client has to replace the release app in place.
+- **How:** The flag is off by default and falls back to the debug keystore
+  when no upload keystore exists. Reinstalling a release APK afterwards goes
+  back to the normal app with the same data.
+
+### 16. UI layer removed for a rebuild
+
+- **What:** Deleted every screen and component (`src/components/`, including
+  the `ui/` primitives, and the `src/browser/*.tsx` screens), the colour and
+  spacing tokens (`src/theme.ts`, `src/lib/theme.ts`, `src/lib/diffColors.ts`,
+  `global.css`), the styling toolchain (NativeWind, Tailwind,
+  `tailwindcss-animate`, `class-variance-authority`, `clsx`,
+  `tailwind-merge`, `@rn-primitives/*`, `components.json`, `src/lib/utils.ts`)
+  and the 59 tests that rendered those screens. `App.tsx` now only hides the
+  launch screen and renders an empty view.
+- **Why:** Deleted rather than hidden, against the fork's usual rule. The UI
+  is being redesigned from scratch, and the old screens kept pulling the new
+  design back toward their structure. Keeping them in the tree, even unused,
+  defeated the rebuild. Git history keeps them.
+- **How:** `src/hooks`, `src/services`, `src/lib`, `src/billing`, the
+  non-UI `src/browser/*.ts` modules, locales and every native package stay.
+  They don't import any removed module. `lib/terminalSearch.ts` now declares
+  its own `SearchCandidate` type, which used to live in the chat search bar.
+  Native UI modules (`@callstack/liquid-glass`, `expo-blur`,
+  `@shopify/flash-list`, `react-native-svg`, `react-native-reanimated`,
+  `lucide-react-native`, CodeMirror) stay installed until the new UI decides
+  whether to use them.

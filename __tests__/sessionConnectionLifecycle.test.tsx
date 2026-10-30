@@ -12,7 +12,6 @@ import type { ConnectionProfile } from '../src/types';
 import { loadJumpHostConnectionProfiles } from '../src/services/hostProfiles';
 import { herdrSnapshotCache } from '../src/services/herdrSnapshotCache';
 
-jest.mock('react-native-css-interop/jsx-runtime', () => jest.requireActual('react/jsx-runtime'));
 jest.mock('react-native-whip-ssh', () => require('./mockWhipSsh').createMockWhipSshModule());
 jest.mock('../src/services/hostProfiles', () => ({
   loadJumpHostConnectionProfiles: jest.fn(async () => []),

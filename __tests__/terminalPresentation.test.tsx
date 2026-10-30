@@ -4,9 +4,6 @@ import { useTerminalSessions } from '../src/hooks/useTerminalSessions';
 import { loadPersistedTerminals } from '../src/services/persistedTerminals';
 import { terminalRendererKey } from '../src/lib/terminalRenderer';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('../src/services/persistedTerminals', () => ({
   loadPersistedTerminals: jest.fn(),
   PersistedTerminalsWriter: jest.fn(() => ({

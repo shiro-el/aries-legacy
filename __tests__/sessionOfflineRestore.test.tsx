@@ -5,9 +5,6 @@ import { useSessionOfflineRestore } from '../src/hooks/useSessionOfflineRestore'
 import { herdrSnapshotCache } from '../src/services/herdrSnapshotCache';
 import type { HostProfile } from '../src/types';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 jest.mock('../src/services/herdrSnapshotCache', () => ({
   herdrSnapshotCache: { load: jest.fn() },
 }));

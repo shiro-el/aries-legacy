@@ -4,9 +4,6 @@ import type { AppCoreProjection } from 'react-native-whip-ssh';
 
 import { useAppCoreSessions } from '../src/hooks/useAppCoreSessions';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 
 const host = { id: 'host' };
 const view: AppCoreProjection = {

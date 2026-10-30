@@ -11,9 +11,6 @@ import type { HerdrClient } from '../src/services/HerdrClient';
 import type { HerdrSnapshot, PaneInfo } from '../src/types';
 import type { ChatAgent } from '../src/lib/agentChatSession';
 
-jest.mock('react-native-css-interop/jsx-runtime', () =>
-  jest.requireActual('react/jsx-runtime'),
-);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
