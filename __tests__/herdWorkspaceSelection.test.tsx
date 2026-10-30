@@ -246,6 +246,104 @@ describe('Herd workspace selection intent', () => {
     agentTranscriptService.reset();
   });
 
+  test('New task chooses an open folder, names the workspace, and sends a typed Codex launch', async () => {
+    const screenProps = agentTray();
+    screenProps.queues[0].agents = [{ ...screenProps.agents[0].agent, cwd: '/srv/project' }];
+    jest.mocked(screenProps.onCreateWorkspace).mockResolvedValue(workspace('new-space'));
+    await act(() => { renderer = create(<HerdScreen {...screenProps} />); });
+    await act(async () => findHost(renderer.root, 'WorkspaceRail').props.onNew());
+    const button = (label: string) => renderer.root.find(node =>
+      String(node.type) === 'Button' && node.props.accessibilityLabel === label);
+    await act(() => button('/srv/project').props.onPress());
+    expect(renderer.root.find(node => String(node.type) === 'Input'
+      && node.props.accessibilityLabel === 'herd.labelOptional').props.value).toBe('project');
+    await act(async () => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title').props.onSave());
+    await act(() => button('Codex').props.onPress());
+    await act(async () => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title').props.onSave());
+    await act(() => renderer.root.find(node => String(node.type) === 'Input'
+      && node.props.accessibilityLabel === 'newTask.model').props.onChangeText('custom-model'));
+    await act(() => button('high').props.onPress());
+    await act(async () => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title').props.onSave());
+    expect(screenProps.onCreateWorkspace).toHaveBeenCalledWith('host-1', 'project', '/srv/project', {
+      type: 'agent', kind: 'codex', args: ['-m', 'custom-model', '-c', 'model_reasoning_effort=high'],
+    });
+  });
+
+  test('new task keeps recent folders and independent model choices for each saved host and agent', async () => {
+    const screenProps = props({ preferenceHostIds: { 'host-1': 'saved-task-host-a', 'host-2': 'saved-task-host-b' } });
+    screenProps.onCreateWorkspace.mockResolvedValue(workspace('new-space'));
+    const button = (label: string) => renderer.root.find(node => String(node.type) === 'Button' && node.props.accessibilityLabel === label);
+    const input = (label: string) => renderer.root.find(node => String(node.type) === 'Input' && node.props.accessibilityLabel === label);
+    const next = async () => act(async () => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title').props.onSave());
+    const open = async () => act(async () => findHost(renderer.root, 'WorkspaceRail').props.onNew());
+    const cancel = async () => act(() => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title').props.onClose());
+    await act(() => { renderer = create(<HerdScreen {...screenProps} />); });
+    await open();
+    await act(() => input('newTask.folder').props.onChangeText('/srv/manual/'));
+    expect(input('herd.labelOptional').props.value).toBe('manual');
+    await next();
+    await act(() => button('Claude Code').props.onPress());
+    await next();
+    await act(() => input('newTask.model').props.onChangeText('my-claude'));
+    await act(() => button('medium').props.onPress());
+    await next();
+    expect(screenProps.onCreateWorkspace).toHaveBeenLastCalledWith('host-1', 'manual', '/srv/manual/', {
+      type: 'agent', kind: 'claude', args: ['--model', 'my-claude', '--effort', 'medium'],
+    });
+    await open();
+    await act(() => button('/srv/manual/').props.onPress());
+    await next();
+    await act(() => button('Codex').props.onPress());
+    await next();
+    expect(input('newTask.model').props.value).toBe('');
+    await act(() => input('newTask.model').props.onChangeText('my-codex'));
+    await act(() => button('xhigh').props.onPress());
+    await next();
+    await open();
+    await act(() => button('/srv/manual/').props.onPress());
+    await next();
+    await next();
+    expect(input('newTask.model').props.value).toBe('my-claude');
+    expect(button('medium').props.variant).toBe('default');
+    await cancel();
+    await act(() => renderer.update(<HerdScreen {...screenProps} selectedHostId="host-2"
+      queues={[{ ...screenProps.queues[0], id: 'host-2' }]} />));
+    await open();
+    expect(renderer.root.findAll(node => String(node.type) === 'Button' && node.props.accessibilityLabel === '/srv/manual/')).toHaveLength(0);
+    await act(() => input('newTask.folder').props.onChangeText('/other'));
+    await next();
+    await act(() => button('Codex').props.onPress());
+    await next();
+    expect(input('newTask.model').props.value).toBe('');
+    await cancel();
+    await act(() => renderer.update(<HerdScreen {...screenProps} />));
+    await open();
+    await act(() => button('/srv/manual/').props.onPress());
+    await next();
+    await act(() => button('Codex').props.onPress());
+    await next();
+    expect(input('newTask.model').props.value).toBe('my-codex');
+    expect(button('xhigh').props.variant).toBe('default');
+  });
+
+  test('shell tasks skip model selection and rename still uses the existing editor', async () => {
+    const screenProps = props({ preferenceHostIds: { 'host-1': 'shell-task-host' } });
+    screenProps.onCreateWorkspace.mockResolvedValue(workspace('new-shell'));
+    await act(() => { renderer = create(<HerdScreen {...screenProps} />); });
+    await act(async () => findHost(renderer.root, 'WorkspaceRail').props.onNew());
+    await act(() => renderer.root.find(node => String(node.type) === 'Input' && node.props.accessibilityLabel === 'newTask.folder').props.onChangeText('/srv/shell'));
+    const sheet = () => renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'newTask.title');
+    await act(async () => sheet().props.onSave());
+    await act(() => renderer.root.find(node => String(node.type) === 'Button' && node.props.accessibilityLabel === 'newTask.shell').props.onPress());
+    await act(async () => sheet().props.onSave());
+    expect(screenProps.onCreateWorkspace).toHaveBeenCalledWith('host-1', 'shell', '/srv/shell', { type: 'shell' });
+    await act(() => findHost(renderer.root, 'WorkspaceRail').props.onRename(workspace('space-a')));
+    const rename = renderer.root.find(node => String(node.type) === 'ResourceEditorSheet' && node.props.title === 'herd.renameSpace');
+    await act(() => rename.find(node => String(node.type) === 'Input').props.onChangeText('Renamed'));
+    await act(async () => rename.props.onSave());
+    expect(screenProps.onRenameWorkspace).toHaveBeenCalledWith('host-1', 'space-a', 'Renamed');
+  });
+
   test('a ready single host keeps its rail hidden and space actions available during refreshes', async () => {
     const screenProps = props({
       sessions: [{

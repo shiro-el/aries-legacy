@@ -486,6 +486,9 @@ function createMockWhipSshModule() {
         shell.client.closeShell();
       },
       hasSshShell(terminalId) { return sshShells.has(terminalId); },
+      createWorkspaceWithLaunch(label, cwd, launch) {
+        return runtime.controlClient.createWorkspaceWithLaunch(label, cwd, launch);
+      },
       createTabWithLaunch(workspaceId, label, launch) {
         return runtime.controlClient.createTabWithLaunch(workspaceId, label, launch);
       },
@@ -592,7 +595,13 @@ function createMockWhipSshModule() {
     return runtime;
   });
 
+  const appData = new Map();
   return {
+    appDataMigrationComplete: jest.fn(async () => true),
+    readAppData: jest.fn(async keys => keys.map(key => ({ key, value: appData.get(key) }))),
+    writeAppData: jest.fn(async entries => { for (const entry of entries) {
+      if (entry.value === undefined) appData.delete(entry.key); else appData.set(entry.key, entry.value);
+    } }),
     __esModule: true,
     createSecureId: jest.fn(prefix => {
       nextUuid += 1;

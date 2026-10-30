@@ -1,6 +1,6 @@
 # Remote notifications and optional encryption
 
-Remote notifications are optional for each mobile device and saved Herdr session. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. V1 and the visible fallback use a generic preview with E2EE on. V2 data pushes are decrypted on the device and rendered as local notifications, including for preview-enabled registrations. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
+Remote notifications are optional for each mobile device and saved Herdr session. Aries now defaults to [main-agent approval hooks](#automatic-hook-policy-aries); explicit calls and approvals always omit plaintext previews. The preview settings below apply to legacy status notifications. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. V1 and the visible fallback use a generic preview with E2EE on. V2 data pushes are decrypted on the device and rendered as local notifications, including for preview-enabled registrations. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
 
 ## Components and delivery
 
@@ -84,7 +84,7 @@ Host details shows installation progress from Rust: checking the host, checking 
 
 1. In Whip's **Hosts** tab, open the saved host's **⋯** detail screen and find **Server-side push notification**. Connect to that host and tap **Install on host**. Relay configuration, device registration and plugin controls apply only to that saved host; general local alert preferences remain in **More → Settings → Notifications**. Whip uses that host's existing authenticated Rust SSH transport and its configured Herdr executable/session. Installation does not register a device or enable push. The host needs Herdr **0.9.5+**, Git, curl and either `sha256sum` or `shasum`. **Rust is not required.** Prebuilt releases support arm64/x86_64 Linux (static musl) and Apple Silicon macOS. Whip checks the host architecture and release availability before invoking Herdr, with a fifteen-second network probe. Unsupported hosts and unavailable releases return an error immediately after that check. Installation has a three-minute timeout and is never retried automatically; failures clear the Installing state so the user can retry. A disconnected host or unavailable plugin API is shown explicitly.
 
-   Whip invokes Herdr's native GitHub installer at the `whip-notify-install-v<VERSION>` tag matching its compiled notification package. While connected, the detail screen shows a copyable install command for the saved host's configured Herdr executable and session, plus a [plugin source link on GitHub](https://github.com/kosumic/whip/tree/main/whip-notify). Whip runs the command over SSH and then enables the host plugin; users can also copy it to run on the host themselves. The installer tag is a separate, parentless commit containing only the plugin manifest and download scripts; Herdr fetches a few kilobytes instead of the app's source and media. The manifest's standalone `sh build.sh` downloads the matching executable and its checksum from the `whip-notify-v<VERSION>` release over HTTPS, checks the expected filename and SHA-256 digest, sets private permissions and atomically installs the executable before Herdr registers the plugin. Each download is size-limited. Checksum fetches allow fifteen seconds and binary transfers ninety seconds, without retries. Transfers below 1 KiB/s for twenty seconds fail early. Failed downloads or checksums leave any previous binary intact. There is no automatic compilation fallback. No marketplace listing is required. The equivalent manual command for the current release is:
+   Whip invokes Herdr's native GitHub installer at the `whip-notify-install-v<VERSION>` tag matching its compiled notification package. While connected, the detail screen shows a copyable install command for the saved host's configured Herdr executable and session, plus a [plugin source link on GitHub](https://github.com/kosumic/whip/tree/main/whip-notify). Whip runs the command over SSH and then enables the host plugin; users can also copy it to run on the host themselves. The installer tag is a separate, parentless commit containing only the plugin manifest, download/skill lifecycle scripts and shared `call-human/SKILL.md`; Herdr fetches a few kilobytes instead of the app's source and media. The manifest's standalone `sh build.sh` downloads the matching executable and its checksum from the `whip-notify-v<VERSION>` release over HTTPS, checks the expected filename and SHA-256 digest, sets private permissions and atomically installs the executable before Herdr registers the plugin. The build hook also installs identical `call-human` skills for Claude Code (`~/.claude/skills`) and Codex (`~/.agents/skills`). Each download is size-limited. Checksum fetches allow fifteen seconds and binary transfers ninety seconds, without retries. Transfers below 1 KiB/s for twenty seconds fail early. Failed downloads or checksums leave any previous binary intact. There is no automatic compilation fallback. No marketplace listing is required. The equivalent manual command for the current release is:
 
    ```sh
    herdr plugin install --yes --ref whip-notify-install-v0.1.4 kosumic/whip/whip-notify
@@ -107,7 +107,7 @@ Host details shows installation progress from Rust: checking the host, checking 
    WHIP_NOTIFY_BINARY="$PWD/whip-notify/target/release/whip-notify" sh whip-notify/install.sh
    ```
 
-   A standalone checkout of `whip-notify/` can use `sh build.sh && sh install.sh` to download and install without Rust. The local installer copies only the binary and manifest to `~/.local/share/whip-notify` and runs `herdr plugin link`. The binary must be beside its manifest, since commands use `./whip-notify`. Locally linked plugins can be enabled/uninstalled from Whip; Herdr refuses to overwrite a linked plugin with a GitHub installation until it is unlinked.
+   A standalone checkout of `whip-notify/` can use `sh build.sh && sh install.sh` to download and install without Rust. The local installer installs the shared skills for both agents, copies the binary and manifest to `~/.local/share/whip-notify` and runs `herdr plugin link`. The binary must be beside its manifest, since commands use `./whip-notify`. Locally linked plugins can be enabled/uninstalled from Whip; Herdr refuses to overwrite a linked plugin with a GitHub installation until it is unlinked.
 
 2. Whip uses `https://whip-notify.kosumi.dev` automatically. Users do not configure provider credentials or an enrollment code. Administrators deploy using the authenticated **cf CLI**. `notify-relay/cloudflare.config.ts` selects the production account, database and custom domain; `wrangler.jsonc` retains matching settings for existing type and packaging checks. Verify `cf auth whoami` before deploying. From this checkout, install the standalone relay's dependencies with `nix develop -c npm ci --prefix notify-relay`, then:
 
@@ -142,9 +142,9 @@ Host details shows installation progress from Rust: checking the host, checking 
 
 5. **Unregister** stops push for this device, revokes the relay route, unregisters the device on the host and removes local keys after relay revocation. If SSH is offline, cleanup is retained and applied on the next connection. If the relay is offline, Whip immediately stops accepting old ciphertext/renewing leases and keeps the management capability for a retry; retry Unregister to finish revocation. Only necessary pending host cleanup is retained. To rotate device keys, finish Unregister, then Enable again. Other devices are unaffected. Remove a registration before deleting its saved host.
 
-6. **Unregister** affects this device's registration on the selected host. **Uninstall from host** first unregisters this device, then invokes Herdr's `plugin.unlink` API for that SSH account, stopping future hooks across its sessions and devices. If relay revocation fails, Whip still uninstalls the host plugin, disables local acceptance/leases, and retains management credentials for an explicit Unregister retry. Other hosts are unaffected. Uninstall preserves the host identity and other device registrations, matching Herdr's lifecycle; a reinstall can resume their delivery. GitHub-managed installation files are reclaimed by Herdr when no running server needs them; locally linked installation files remain user-owned.
+6. **Unregister** affects this device's registration on the selected host. **Uninstall from host** first unregisters this device, removes unchanged plugin-owned `call-human` skills over SSH (preserving custom/edited skills and other user files), then invokes Herdr's `plugin.unlink` API for that SSH account, stopping future hooks across its sessions and devices. If relay revocation fails, Whip still uninstalls the host plugin, disables local acceptance/leases, and retains management credentials for an explicit Unregister retry. Other hosts are unaffected. Uninstall preserves the host identity and other device registrations, matching Herdr's lifecycle; a reinstall can resume their delivery. GitHub-managed installation files are reclaimed by Herdr when no running server needs them; locally linked installation files remain user-owned.
 
-   The manual equivalent is `herdr plugin uninstall dev.whip.notify`. For permanent data removal, administrators can explicitly run `whip-notify --dirs <config-dir> <state-dir> uninstall` after unlinking, then remove a local installation directory. Deleting the host identity requires every device to pair again; never silently repin a changed identity.
+   For manual removal, run `sh skills.sh uninstall` from the plugin source before `herdr plugin uninstall dev.whip.notify`; raw Herdr unlink has no skill cleanup hook. See [`whip-notify/README.md`](../whip-notify/README.md#calling-the-human-from-an-agent) for skill usage and ownership handling. For permanent data removal, administrators can explicitly run `whip-notify --dirs <config-dir> <state-dir> uninstall` after unlinking, then remove a local installation directory. Deleting the host identity requires every device to pair again; never silently repin a changed identity.
 
    Marketplace discovery is optional: after merging the manifest onto the public repository's default branch, add the GitHub topic `herdr-plugin`. Herdr indexes the repository and its `whip-notify/` subdirectory automatically; this is discovery, not a security review. See [Herdr marketplace publishing](https://herdr.dev/docs/marketplace/).
 
@@ -236,8 +236,8 @@ must be updated to accept v2 before a new host binary is used. No deployment
 occurs as part of this code change.
 
 Explicit calls always omit readable previews, regardless of a legacy host
-preview preference. Approval detection, reply buttons and the log viewer are
-owned by the other phone-first tickets.
+preview preference. Reply buttons and the log viewer are owned by the other
+phone-first tickets.
 
 ## V2 data pushes and local urgency alerts
 
@@ -293,3 +293,37 @@ permissions, alarm volume and OS background execution policy still apply; this
 ticket reuses the existing alarm implementation without changing those policies.
 These device checks and relay deployment were prohibited by the implementer
 brief and remain outstanding.
+
+### Automatic hook policy (Aries)
+
+The default hook policy is `main-approval`: only `blocked` on the main agent
+(the first pane in the workspace's lowest-numbered tab) creates an `urgent`
+`approval` event. The host verifies topology through `session.snapshot`; focus
+and `HERDR_PANE_ID` do not decide which pane is main. Unknown panes, shell panes,
+unavailable topology, main `done`, and other panes' status changes stay quiet.
+This uses Herdr's `blocked` signal; it does not inspect terminal text to classify
+individual prompts. Explicit `call` requests are unaffected by this setting.
+
+To inspect or change the persistent **host** setting, run the installed binary
+with the config/state paths returned by its `paths` action:
+
+```sh
+whip-notify --dirs "$config" "$state" policy
+whip-notify --dirs "$config" "$state" policy all-panes
+whip-notify --dirs "$config" "$state" policy main-approval
+```
+
+Inside a plugin environment, omit `--dirs` to use `HERDR_PLUGIN_CONFIG_DIR` and
+`HERDR_PLUGIN_STATE_DIR`. `all-panes` restores upstream notifications for every
+pane's `blocked` and `done`, including its existing preview preference behavior.
+The private `hook-policy.json` setting applies to all sessions using that plugin
+installation. A missing file selects `main-approval`; malformed or unsafe files
+fail the operation without sending a push. The setting survives reinstall.
+
+Default-policy approval events are written to `calls.jsonl` before lease or relay
+handling, using the same retention and privacy rules as explicit calls. They
+carry `kind: "approval"`, `urgency: "urgent"`, a call ID, and no option buttons.
+They always omit plaintext previews. Tapping uses the existing authenticated
+host/session/pane navigation, refreshes topology, and opens the pane with its
+in-app controls; approval is performed there. Legacy status events retain their
+previous shape and do not become call-log entries.

@@ -81,6 +81,13 @@ pub enum HerdrTabLaunchResult {
     },
 }
 
+/// Workspace creation always includes its server-created first tab and pane.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct HerdrWorkspaceLaunchResult {
+    pub workspace: HerdrWorkspaceInfo,
+    pub launch: HerdrTabLaunchResult,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, uniffi::Record)]
 pub struct HerdrIntegrationInstallResult {
     pub kind: HerdrAgentKind,

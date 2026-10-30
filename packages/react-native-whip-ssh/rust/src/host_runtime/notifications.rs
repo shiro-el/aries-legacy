@@ -11,6 +11,11 @@ use std::time::{Duration, Instant};
 const PLUGIN: &str = "dev.whip.notify";
 const PLUGIN_SOURCE: &str = "kosumic/whip/whip-notify";
 const INSTALL_TIMEOUT: Duration = Duration::from_mins(3);
+const SKILLS_SCRIPT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../whip-notify/skills.sh"
+));
+
 const RELEASE_PLATFORM_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../whip-notify/platform.sh"
@@ -536,6 +541,14 @@ impl HostRuntime {
             "plugin-status" => return Ok(self.notify_plugin_status().await?.to_string()),
             "plugin-install" => return self.notify_install().await,
             "plugin-uninstall" => {
+                // Remove only unchanged skills owned by this plugin, before
+                // Herdr reclaims its managed checkout. No config/identity deletion.
+                let ssh = current_ssh(&self.inner)?;
+                let cleanup = super::herdr_setup::login_shell_command(&format!(
+                    "notify_skill_action=uninstall\n{SKILLS_SCRIPT}"
+                ));
+                let output = ssh.execute(&cleanup).await.map_err(|_| failure())?;
+                check_installation_output(&output)?;
                 // Herdr unregisters globally for this SSH user. Its managed
                 // checkout cleanup protects in-flight hooks; config is retained.
                 self.notify_rpc("plugin.unlink", json!({"plugin_id":PLUGIN}))
