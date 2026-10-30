@@ -3182,6 +3182,7 @@ export type AgentCatalogEntry = {
   description: string;
   argumentHint: string;
   terminalOnly: boolean;
+  source?: string;
 };
 
 /**
@@ -3210,6 +3211,7 @@ const FfiConverterTypeAgentCatalogEntry = (() => {
         description: FfiConverterString.read(from),
         argumentHint: FfiConverterString.read(from),
         terminalOnly: FfiConverterBool.read(from),
+        source: FfiConverterOptionalString.read(from),
       };
     }
     write(value: TypeName, into: RustBuffer): void {
@@ -3217,13 +3219,15 @@ const FfiConverterTypeAgentCatalogEntry = (() => {
       FfiConverterString.write(value.description, into);
       FfiConverterString.write(value.argumentHint, into);
       FfiConverterBool.write(value.terminalOnly, into);
+      FfiConverterOptionalString.write(value.source, into);
     }
     allocationSize(value: TypeName): number {
       return (
         FfiConverterString.allocationSize(value.name) +
         FfiConverterString.allocationSize(value.description) +
         FfiConverterString.allocationSize(value.argumentHint) +
-        FfiConverterBool.allocationSize(value.terminalOnly)
+        FfiConverterBool.allocationSize(value.terminalOnly) +
+        FfiConverterOptionalString.allocationSize(value.source)
       );
     }
   }
@@ -34465,13 +34469,13 @@ const uniffiCallbackInterfaceWhipSshEventSink: {
   },
 };
 
+// FfiConverter for string | undefined
+const FfiConverterOptionalString = new FfiConverterOptional(FfiConverterString);
+
 // FfiConverter for Array<AgentCatalogEntry>
 const FfiConverterSequenceTypeAgentCatalogEntry = new FfiConverterArray(
   FfiConverterTypeAgentCatalogEntry,
 );
-
-// FfiConverter for string | undefined
-const FfiConverterOptionalString = new FfiConverterOptional(FfiConverterString);
 
 // FfiConverter for bigint | undefined
 const FfiConverterOptionalUInt64 = new FfiConverterOptional(FfiConverterUInt64);

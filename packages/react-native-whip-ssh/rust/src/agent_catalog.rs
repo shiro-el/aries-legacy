@@ -18,6 +18,7 @@ pub struct AgentCatalogEntry {
     pub description: String,
     pub argument_hint: String,
     pub terminal_only: bool,
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -33,6 +34,8 @@ pub(crate) struct CatalogFile {
     pub content: String,
     #[serde(default)]
     pub skill: bool,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 fn entry(
@@ -46,6 +49,7 @@ fn entry(
         description: description.to_owned(),
         argument_hint: argument_hint.to_owned(),
         terminal_only,
+        source: None,
     }
 }
 
@@ -86,6 +90,11 @@ fn claude_terminal() -> Vec<AgentCatalogEntry> {
 
 fn frontmatter(file: &CatalogFile) -> AgentCatalogEntry {
     let mut result = entry(&file.name, "Custom command", "", false);
+    result.source = file
+        .source
+        .as_deref()
+        .filter(|s| ["user", "project", "plugin"].contains(s))
+        .map(str::to_owned);
     let mut lines = file.content.lines();
     if lines.next() != Some("---") {
         return result;
@@ -292,15 +301,19 @@ pub(crate) fn parse_codex(
             .filter(|v| v["enabled"].as_bool().unwrap_or(true))
         {
             if let Some(name) = skill["name"].as_str() {
-                skills.insert(
-                    name.to_owned(),
-                    entry(
-                        name,
-                        skill["description"].as_str().unwrap_or("Agent skill"),
-                        "",
-                        false,
-                    ),
+                let mut discovered = entry(
+                    name,
+                    skill["description"].as_str().unwrap_or("Agent skill"),
+                    "",
+                    false,
                 );
+                discovered.source = match skill["scope"].as_str() {
+                    Some("user") => Some("user".into()),
+                    Some("repo" | "project") => Some("project".into()),
+                    Some("plugin") => Some("plugin".into()),
+                    _ => None,
+                };
+                skills.insert(name.to_owned(), discovered);
             }
         }
     }
@@ -323,10 +336,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn skill_sources_follow_discovery_metadata_without_guessing() {
+        let files: Vec<CatalogFile> = serde_json::from_value(serde_json::json!([
+            {"name":"guide", "content":"---\nname: guide\ndescription: Local guidance\n---", "skill":true, "source":"project"},
+            {"name":"personal", "content":"", "skill":true, "source":"user"},
+            {"name":"tools:ship", "content":"", "skill":true, "source":"plugin"}
+        ])).unwrap();
+        let output = r#"{"type":"system","subtype":"init","claude_code_version":"2","skills":["guide","personal","tools:ship","synced"]}"#;
+        let catalog = parse_claude("host", "/project", output, &files).unwrap();
+        assert_eq!(
+            catalog
+                .skills
+                .iter()
+                .map(|s| (s.name.as_str(), s.source.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("guide", Some("project")),
+                ("personal", Some("user")),
+                ("synced", None),
+                ("tools:ship", Some("plugin"))
+            ]
+        );
+        let output = r#"{"id":2,"result":{"data":[{"cwd":"/project","skills":[{"name":"local","scope":"repo"},{"name":"personal","scope":"user"},{"name":"tools:ship","scope":"plugin"},{"name":"future","scope":"new"}]}]}}"#;
+        let catalog = parse_codex("host", "/project", "0.165.0", output, &[]).unwrap();
+        assert_eq!(
+            catalog
+                .skills
+                .iter()
+                .map(|s| (s.name.as_str(), s.source.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("future", None),
+                ("local", Some("project")),
+                ("personal", Some("user")),
+                ("tools:ship", Some("plugin"))
+            ]
+        );
+    }
+
+    #[test]
     fn frontmatter_enriches_namespaced_commands_and_skills_override_builtins() {
         let files = [
-            CatalogFile { name: "plugin:ship".into(), content: "---\ndescription: >\n  Ship the\n  change safely\nargument-hint: '[branch]'\n---".into(), skill: false },
-            CatalogFile { name: "plugin:guide".into(), content: "---\nname: guide\ndescription: Project guidance\nargument-hint: <topic>\n---".into(), skill: true },
+            CatalogFile { name: "plugin:ship".into(), content: "---\ndescription: >\n  Ship the\n  change safely\nargument-hint: '[branch]'\n---".into(), skill: false, source: None },
+            CatalogFile { name: "plugin:guide".into(), content: "---\nname: guide\ndescription: Project guidance\nargument-hint: <topic>\n---".into(), skill: true, source: None },
         ];
         let output = r#"{"type":"system","subtype":"init","claude_code_version":"2.1.312","slash_commands":["plugin:ship","plugin:guide","permissions"],"skills":["plugin:guide","permissions"]}"#;
         let catalog = parse_claude("host", "/project", output, &files).unwrap();
@@ -358,6 +410,7 @@ mod tests {
             name: "prompts:ship".into(),
             content: "---\ndescription: Ship a change\nargument-hint: <branch>\n---\nDo it".into(),
             skill: false,
+            source: None,
         }];
         let catalog = parse_codex(
             "host-a",

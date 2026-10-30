@@ -22,25 +22,49 @@ export function useAgentCatalog(
   const [result, setResult] = useState<{
     context: string;
     catalog?: AgentCatalog;
-  }>({ context: '' });
+    status: 'loading' | 'ready' | 'unavailable' | 'failed';
+  }>({ context: '', status: 'unavailable' });
   useEffect(() => {
     let current = true;
     if (!visible || !paneId || !client || status !== 'connected') return;
     try {
       const native = client.native;
-      setResult({ context, catalog: native.cachedAgentCatalog(paneId) });
+      const cached = native.cachedAgentCatalog(paneId);
+      setResult({
+        context,
+        catalog: cached,
+        status: cached ? 'ready' : 'loading',
+      });
       reportBackgroundFailure(
-        native.refreshAgentCatalog(paneId).then(catalog => {
-          if (current) setResult({ context, catalog });
-        }),
+        native
+          .refreshAgentCatalog(paneId)
+          .then(catalog => {
+            if (current)
+              setResult({
+                context,
+                catalog,
+                status: catalog ? 'ready' : 'unavailable',
+              });
+          })
+          .catch(error => {
+            if (current)
+              setResult(previous => ({
+                ...previous,
+                context,
+                status: 'failed',
+              }));
+            throw error;
+          }),
         'agent-catalog-refresh',
       );
     } catch {
-      /* A disconnected runtime leaves the composer usable. */
+      setResult({ context, status: 'unavailable' });
     }
     return () => {
       current = false;
     };
   }, [client, context, paneId, status, visible]);
-  return result.context === context ? result.catalog : undefined;
+  return result.context === context
+    ? result
+    : { catalog: undefined, status: 'unavailable' as const };
 }

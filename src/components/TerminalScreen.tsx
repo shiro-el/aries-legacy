@@ -1,3 +1,4 @@
+import { AgentSkillSheet } from './AgentSkillSheet';
 import { useAgentCatalog } from '../hooks/useAgentCatalog';
 import { ChatSearchBar } from './ChatSearchBar';
 import { EMPTY_TERMINAL_SEARCH } from '../lib/terminalSearch';
@@ -165,6 +166,7 @@ const VOICE_CONTEXT_CHARACTERS = 12_000;
 
 interface Props {
   catalogPaneContext?: string;
+  composerAgent?: 'claude' | 'codex';
   onResidencyEnd?: TerminalResidencyEnd;
   activeTarget: TerminalRenderTarget | null;
   targets: readonly TerminalRenderTarget[];
@@ -405,6 +407,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
     {
       activeTarget,
       catalogPaneContext,
+      composerAgent,
       onResidencyEnd,
       targets,
       visible,
@@ -501,7 +504,12 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       composerStore.subscribe,
       () => composerStore.snapshot(activeTarget?.key || ''),
     );
-    const catalog = useAgentCatalog(activeTarget, visible, catalogPaneContext);
+    const { catalog, status: catalogStatus } = useAgentCatalog(activeTarget, visible, catalogPaneContext);
+    const [skillSheetContext, setSkillSheetContext] = useState<string | null>(null);
+    const skillContext = JSON.stringify([activeTarget?.key, catalogPaneContext, composerAgent, visible, composer.composeOpen, composer.composeExpanded]);
+    useEffect(() => setSkillSheetContext(null), [skillContext]);
+    const skillSheetOpen = Boolean(visible && composer.composeOpen && composerAgent && skillSheetContext === skillContext);
+    const openSkills = composerAgent ? () => setSkillSheetContext(skillContext) : undefined;
     const [composerSelection, setComposerSelection] = useState<{ key: string; start: number; end: number } | null>(null);
     const terminalCommandSentRef = useRef<(target: TerminalRenderTarget, text: string) => void>(() => {});
     terminalCommandSentRef.current = (target, text) => {
@@ -1039,12 +1047,12 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
     }, [linkScanRequest, ready, visible]);
 
     // Only programmatic edits touch native text; IME edits stay uncontrolled.
-    const replaceComposeText = useCallback((targetKey: string, text: string) => {
+    const replaceComposeText = useCallback((targetKey: string, text: string, caret = text.length) => {
       composerStore.setText(targetKey, text);
-      setComposerSelection({ key: targetKey, start: text.length, end: text.length });
+      setComposerSelection({ key: targetKey, start: caret, end: caret });
       if (activeTargetRef.current?.key !== targetKey) return;
       composeInputRef.current?.setNativeProps({ text });
-      composeInputRef.current?.setSelection(text.length, text.length);
+      composeInputRef.current?.setSelection(caret, caret);
     }, [composerStore]);
 
     const addToComposer = useCallback((text: string, targetKey = activeTargetRef.current?.key) => {
@@ -1928,6 +1936,30 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       </>
     );
 
+    const skillSheet = skillSheetOpen && (
+      <AgentSkillSheet
+        catalog={catalog}
+        status={catalogStatus}
+        onClose={() => {
+          setSkillSheetContext(null);
+          composeInputRef.current?.focus();
+        }}
+        onSelect={name => {
+          if (!activeTarget || !catalog || !composerAgent) return;
+          const start = Math.min(cursorStart, composer.text.length);
+          const end = Math.min(cursorEnd, composer.text.length);
+          const token = `${composerAgent === 'codex' ? '$' : '/'}${name} `;
+          replaceComposeText(
+            activeTarget.key,
+            composer.text.slice(0, start) + token + composer.text.slice(end),
+            start + token.length,
+          );
+          setSkillSheetContext(null);
+          composeInputRef.current?.focus();
+        }}
+      />
+    );
+
     return (
       <View
         ref={keyboardViewportRef}
@@ -2211,6 +2243,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
             </View>
           </View>
         )}
+        {!composeExpanded && skillSheet}
         {visible && composeOpen && !composeExpanded && (
           <GlassPortal name={`terminal-composer-${terminalId}`}>
             <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -2244,6 +2277,8 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
                     actionClassName: 'bg-terminal-surface',
                     actionColor: colors.text,
                     attachLabel: t('terminal.attach'),
+                    skillsLabel: t('terminal.skills'),
+                    onSkills: openSkills,
                     voiceLabel,
                     voicePhase: speechInput.phase,
                     voiceDisabled: speechInput.disabled,
@@ -2312,6 +2347,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
             visible
           >
             <GlassOverlayHost blurTarget={expandedComposerBlurTarget}>
+              {skillSheet}
               <Animated.View
                 className="flex-1 bg-terminal-canvas"
                 style={expandedComposerStyle}
@@ -2369,6 +2405,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
                   >
                     <Paperclip size={19} color={colors.text} />
                   </Button>
+                  {openSkills && <Button accessibilityLabel={t('terminal.skills')} variant="ghost" onPress={openSkills}><Text>{t('terminal.skills')}</Text></Button>}
                   <ComposerVoiceButton
                     accessibilityLabel={voiceLabel}
                     className="size-10 rounded-full px-0"

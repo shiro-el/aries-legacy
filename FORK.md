@@ -263,3 +263,23 @@ fork keeps the herding theme with the ram that leads the flock.
   frontmatter, interactive labels and version keys. Jest screen tests cover
   filtering, caret position, insertion without sending, shell panes, failed/late
   discovery, and successful versus failed terminal-only delivery.
+
+### 11. Separate composer skill sheet
+
+- **What:** Claude Code and Codex composers have a Skills button in both compact
+  and expanded layouts. The sheet searches skill names and descriptions, shows
+  user/project/plugin provenance, and inserts `/name ` or `$name ` at the caret.
+- **Why:** Skills need a discoverable entry separate from command completion,
+  without sending a message before the user has finished editing it.
+- **How:** The sheet consumes ticket 09's Rust-owned catalog, with optional source
+  metadata from Claude file roots and Codex skill scopes. Unreported sources stay
+  explicitly unknown. Insertion replaces the selected text and restores the
+  caret after the token through the existing uncontrolled composer edit path.
+  Shell composers have no skill action. Loading, unavailable, failed and empty
+  catalogs have visible states; cached skills remain usable on refresh failure.
+  Pane/context changes dismiss the sheet; ordinary typing and sending remain
+  available when discovery fails. No existing feature code was removed.
+- **Validation:** Jest screen tests over mockWhipSsh cover both invocation syntaxes,
+  search, sources, compact/expanded insertion, selection replacement, shell panes,
+  failures and pane changes. Rust parser tests cover known and unknown sources.
+  Native bindings are regenerated for the optional source field.

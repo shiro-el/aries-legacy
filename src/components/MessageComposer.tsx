@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type ReactNode, type Ref } from 'react';
-import { Maximize2, Mic, Paperclip, Send, Square } from 'lucide-react-native';
+import { BookOpen, Maximize2, Mic, Paperclip, Send, Square } from 'lucide-react-native';
 import type { ComposerDictationPhase } from 'react-native-whip-ssh/src/composerDictation';
 import {
   ActivityIndicator,
@@ -136,6 +136,8 @@ interface MessageComposerProps extends ComposerInputProps {
     actionClassName?: string;
     actionColor: ColorValue;
     attachLabel: string;
+    skillsLabel?: string;
+    onSkills?: () => void;
     voiceLabel: string;
     voicePhase: ComposerDictationPhase;
     voiceDisabled?: boolean;
@@ -191,6 +193,9 @@ export function MessageComposer({
   return (
     <View className={cn('min-w-0 flex-row items-end gap-2', className)}>
       <View className="gap-1.5">
+        {actions.onSkills && <Button accessibilityLabel={actions.skillsLabel}
+          className={cn('size-10 rounded-full px-0', glass ? cn('border', APP_GLASS_FLOATING_CONTROL_CLASS) : actions.actionClassName)}
+          style={actionStyle} variant={glass ? 'ghost' : 'secondary'} onPress={actions.onSkills}><BookOpen size={18} color={actionColor} /></Button>}
         <Button
           accessibilityLabel={actions.attachLabel}
           className={cn(

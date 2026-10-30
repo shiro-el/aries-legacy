@@ -1819,6 +1819,7 @@ export function SessionScreen({
           <TerminalScreen
             onResidencyEnd={onTerminalResidencyEnd}
             activeTarget={activeTarget}
+            composerAgent={activeChatControl?.agent === 'claude' || activeChatControl?.agent === 'codex' ? activeChatControl.agent : undefined}
             catalogPaneContext={JSON.stringify([activePane?.agent, activePane?.foreground_cwd, activePane?.cwd])}
             targets={terminalTargets}
             compact

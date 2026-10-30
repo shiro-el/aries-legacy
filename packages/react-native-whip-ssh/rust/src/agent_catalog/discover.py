@@ -87,7 +87,7 @@ files = []
 remaining = 1024 * 1024
 
 
-def add(path, name, skill=False):
+def add(path, name, skill=False, origin=None):
     global remaining
     if len(files) >= 512 or remaining <= 0:
         return
@@ -95,12 +95,12 @@ def add(path, name, skill=False):
         with path.open('rb') as source:
             data = source.read(min(16384, remaining))
         remaining -= len(data)
-        files.append({'name': name, 'skill': skill, 'content': data.decode('utf-8', errors='replace')})
+        files.append({'name': name, 'skill': skill, 'source': origin, 'content': data.decode('utf-8', errors='replace')})
     except (OSError, ValueError):
         pass
 
 
-def scan(root, skill=False, namespace=""):
+def scan(root, skill=False, namespace="", origin=None):
     # os.walk does not follow directory symlinks, and the node budget bounds
     # discovery even in accidentally huge command/skill folders.
     visited = 0
@@ -115,9 +115,9 @@ def scan(root, skill=False, namespace=""):
                 return
             path = Path(directory) / name
             if skill and name == 'SKILL.md':
-                add(path, namespace + path.parent.name, True)
+                add(path, namespace + path.parent.name, True, origin)
             elif not skill and name.endswith('.md'):
-                add(path, namespace + str(path.relative_to(root).with_suffix('')).replace(os.sep, ':'))
+                add(path, namespace + str(path.relative_to(root).with_suffix('')).replace(os.sep, ':'), origin=origin)
 
 
 if agent == 'claude':
@@ -126,8 +126,9 @@ if agent == 'claude':
     config = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude')))
     roots = [config] + [p / '.claude' for p in reversed([Path(cwd), *Path(cwd).parents])]
     for root in roots:
-        scan(root / 'commands')
-        scan(root / 'skills', True)
+        origin = 'user' if root == config else 'project'
+        scan(root / 'commands', origin=origin)
+        scan(root / 'skills', True, origin=origin)
     # Installation records give versioned plugin roots. Discovery still decides
     # availability; Rust only enriches names already returned by system/init.
     try:
@@ -138,8 +139,8 @@ if agent == 'claude':
             for record in records[:8]:
                 path = record.get('installPath')
                 if path:
-                    scan(Path(path) / 'commands', namespace=namespace)
-                    scan(Path(path) / 'skills', True, namespace)
+                    scan(Path(path) / 'commands', namespace=namespace, origin='plugin')
+                    scan(Path(path) / 'skills', True, namespace, origin='plugin')
     except (OSError, ValueError, TypeError, AttributeError):
         pass
 else:

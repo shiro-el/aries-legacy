@@ -1394,3 +1394,93 @@ test('a rejected terminal-only command stays in Chat for retry', async () => {
   expect(onPress).not.toHaveBeenCalled();
   expect(ui('MessageComposer')).toBeDefined();
 });
+
+test.each(['claude', 'codex'] as const)('skill sheet inserts %s syntax at the caret without sending', async agent => {
+  const agentTarget = commandCatalogTarget();
+  const catalog = getMockWhipSshControl().agentCatalogs.get('catalog-pane')!;
+  catalog.key.agent = agent;
+  catalog.skills = [
+    { name: 'plugin:review', description: 'Inspect a change', argumentHint: '', terminalOnly: false, source: 'plugin' },
+    { name: 'deploy', description: 'Publish project', argumentHint: '', terminalOnly: false, source: 'project' },
+  ];
+  mount({ activeTarget: agentTarget, targets: [agentTarget], composerAgent: agent });
+  await act(async () => {});
+  await press('compose');
+  await act(() => ui('MessageComposer').props.onChangeText('Please check this'));
+  await act(() => ui('MessageComposer').props.onSelectionChange({ nativeEvent: { selection: { start: 7, end: 7 } } }));
+  await act(async () => ui('MessageComposer').props.actions.onSkills());
+  expect(renderer.root.findAllByProps({ accessibilityLabel: '/permissions' })).toHaveLength(0);
+  await act(() => ui('Input').props.onChangeText('INSPECT'));
+  expect(renderer.root.findAllByProps({ accessibilityLabel: 'deploy' })).toHaveLength(0);
+  const skill = renderer.root.findByProps({ accessibilityLabel: 'plugin:review' });
+  expect(skill.findAllByType('Text' as never).map(node => node.props.children).flat()).toContain('terminal.skillSource.plugin');
+  await act(() => skill.props.onPress());
+  expect(mockComposerHandle.setNativeProps).toHaveBeenLastCalledWith({ text: agent === 'claude' ? 'Please /plugin:review check this' : 'Please $plugin:review check this' });
+  expect(mockComposerHandle.setSelection).toHaveBeenLastCalledWith(22, 22);
+  expect(terminalHandle.submitPastes).not.toHaveBeenCalled();
+});
+
+test('skills are absent for shells and an unavailable catalog leaves agent drafts usable', async () => {
+  mount();
+  await press('compose');
+  expect(ui('MessageComposer').props.actions.onSkills).toBeUndefined();
+  await act(() => renderer.unmount());
+  props.composerStore = new TerminalComposerStore();
+  const agentTarget = commandCatalogTarget();
+  getMockWhipSshControl().agentCatalogs.delete('catalog-pane');
+  getMockWhipSshControl().refreshAgentCatalog.mockRejectedValueOnce(new Error('Unavailable'));
+  mount({ activeTarget: agentTarget, targets: [agentTarget], composerAgent: 'claude' });
+  await act(async () => {});
+  await press('compose');
+  await act(() => ui('MessageComposer').props.onChangeText('Keep this draft'));
+  await act(() => ui('MessageComposer').props.actions.onSkills());
+  expect(renderer.root.findAllByType('Text' as never).some(node => node.props.children === 'terminal.skillsStatus.failed')).toBe(true);
+  await act(() => renderer.root.find(node => String(node.type) === 'Modal' && node.props.visible === true).props.onRequestClose());
+  await act(async () => ui('MessageComposer').props.actions.onSend());
+  expect(terminalHandle.submitPastes).toHaveBeenCalledWith(agentTarget, ['Keep this draft'], true);
+});
+
+test('expanded composer replaces selected text with a skill and closes on pane changes', async () => {
+  const agentTarget = commandCatalogTarget();
+  getMockWhipSshControl().agentCatalogs.get('catalog-pane')!.skills = [
+    { name: 'guide', description: 'Project guide', argumentHint: '', terminalOnly: false, source: 'user' },
+  ];
+  mount({ activeTarget: agentTarget, targets: [agentTarget], composerAgent: 'claude' });
+  await act(async () => {});
+  await press('compose');
+  await act(async () => ui('MessageComposer').props.actions.onExpand());
+  await act(() => ui('ComposerInput').props.onChangeText('Use old now'));
+  await act(() => ui('ComposerInput').props.onSelectionChange({ nativeEvent: { selection: { start: 4, end: 8 } } }));
+  await press('skills');
+  await act(() => renderer.root.findByProps({ accessibilityLabel: 'guide' }).props.onPress());
+  await press('collapseComposer');
+  expect(ui('MessageComposer').props.initialValue).toBe('Use /guide now');
+  expect(terminalHandle.submitPastes).not.toHaveBeenCalled();
+  await act(async () => ui('MessageComposer').props.actions.onSkills());
+  const shell = { ...agentTarget, key: 'shell', session: { ...agentTarget.session, paneId: 'shell' } };
+  await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={shell} targets={[shell]} />));
+  expect(renderer.root.findAllByProps({ accessibilityLabel: 'guide' })).toHaveLength(0);
+  await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} composerAgent="claude" />));
+  expect(renderer.root.findAllByProps({ accessibilityLabel: 'guide' })).toHaveLength(0);
+});
+
+test('skill sheet distinguishes loading, unavailable, empty and no search matches', async () => {
+  const agentTarget = commandCatalogTarget();
+  const catalog = getMockWhipSshControl().agentCatalogs.get('catalog-pane')!;
+  getMockWhipSshControl().agentCatalogs.delete('catalog-pane');
+  let receive!: (value: unknown) => void;
+  getMockWhipSshControl().refreshAgentCatalog.mockImplementationOnce(() => new Promise(resolve => { receive = resolve; }));
+  mount({ activeTarget: agentTarget, targets: [agentTarget], composerAgent: 'claude' });
+  await press('compose');
+  await act(() => ui('MessageComposer').props.actions.onSkills());
+  const hasText = (text: string) => renderer.root.findAllByType('Text' as never).some(node => node.props.children === text);
+  expect(hasText('terminal.skillsStatus.loading')).toBe(true);
+  await act(async () => receive(undefined));
+  expect(hasText('terminal.skillsStatus.unavailable')).toBe(true);
+  getMockWhipSshControl().agentCatalogs.set('catalog-pane', catalog);
+  await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} composerAgent="claude" catalogPaneContext="refresh" />));
+  await act(() => ui('MessageComposer').props.actions.onSkills());
+  expect(hasText('terminal.skillsEmpty')).toBe(true);
+  await act(() => ui('Input').props.onChangeText('missing'));
+  expect(hasText('terminal.skillsNoMatches')).toBe(true);
+});
