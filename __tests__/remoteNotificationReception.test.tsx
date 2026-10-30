@@ -116,3 +116,23 @@ test('rejects remote plaintext that imitates a trusted local notification', asyn
   expect(alertAgent).not.toHaveBeenCalled();
   await act(() => root.unmount());
 });
+
+test.each(['running', 'terminated'])('an authenticated local data-push alert opens its pane after %s-app receipt without replaying decryption', async initial => {
+  const local = response();
+  local.notification.request.trigger = { type: 'unknown' };
+  local.notification.request.content.data = {
+    hostId: 'authenticated-host', paneId: 'w1:p2', remoteDeviceId: 'authenticated-device',
+    agentAlertLevel: 'brief',
+  };
+  if (initial === 'terminated')
+    (Notifications.getLastNotificationResponseAsync as jest.Mock).mockResolvedValue(local);
+  let root!: renderer.ReactTestRenderer;
+  await act(async () => { root = renderer.create(<Harness />); });
+  if (initial === 'running') await act(async () => { mockReceive(local); });
+  expect(notifications.response?.notification.request.content.data).toMatchObject({
+    hostId: 'authenticated-host', paneId: 'w1:p2', remoteDeviceId: 'authenticated-device',
+  });
+  expect(remoteNotificationTarget).not.toHaveBeenCalled();
+  expect(alertAgent).not.toHaveBeenCalled();
+  await act(() => root.unmount());
+});

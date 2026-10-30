@@ -508,15 +508,26 @@ test('unregister is idempotent after an interrupted enrollment', async () => {
   expect(provider).not.toHaveBeenCalled();
 });
 
-test('routes v2 padded envelopes over the visible push path while keeping v1 readable', async () => {
+test.each([false, true])('routes v2 envelopes as high-priority data without disclosing content (preview: %s)', async readable => {
   await enroll();
   const call = { ...payload(), header: { ...payload().header, version: 2 }, ciphertext: 'b'.repeat(2752) };
-  expect((await handleRequest(request('/v1/push', 'POST', ROUTE, call), env)).status).toBe(202);
+  expect((await handleRequest(request('/v1/push', 'POST', ROUTE, { ...call, ...(readable ? { preview: { title: 'Private title', body: 'Private body' } } : {}) }), env)).status).toBe(202);
   const sent = JSON.parse(provider.mock.calls[0][1].body);
   expect(sent.data).toEqual({ whip_notify: call });
-  expect(sent.title).toBeTruthy();
-  expect(sent.body).toBeTruthy();
+  expect(sent).toEqual({ to: EXPO, priority: 'high', ttl: expect.any(Number), data: { whip_notify: call } });
   expect((await handleRequest(request('/v1/push', 'POST', ROUTE, {
     ...call, header: { ...call.header, event_id: 'invalid-size'.repeat(3) }, ciphertext: 'b'.repeat(1387),
   }), env)).status).toBe(400);
+});
+
+test('the relay can retain visible v2 delivery as an explicit rollback until device validation', async () => {
+  await enroll();
+  env.VISIBLE_PUSH_FALLBACK = 'true';
+  const call = { ...payload(), header: { ...payload().header, version: 2 }, ciphertext: 'b'.repeat(2752) };
+  expect((await handleRequest(request('/v1/push', 'POST', ROUTE, call), env)).status).toBe(202);
+  expect(JSON.parse(provider.mock.calls[0][1].body)).toMatchObject({
+    title: 'Whip', body: 'An agent has an update. Open Whip to view it.',
+    channelId: 'agent-state-regular-v1', sound: 'default', priority: 'high',
+    data: { whip_notify: call },
+  });
 });

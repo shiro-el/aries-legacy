@@ -535,44 +535,65 @@ export function refreshRemotePushTokens(): Promise<void> {
   });
 }
 
+export interface RemoteNotificationEvent {
+  pane_id: string;
+  workspace_id: string;
+  session: string;
+  status: string;
+  title?: string | null;
+  kind?: string;
+  urgency?: string;
+  body?: string | null;
+  options?: string[];
+  call_id?: string;
+}
+
+/** Authenticate and commit receipt before allowing any device-side effect. */
+async function openRemoteNotification(data: Record<string, unknown>) {
+  const payload = data[REMOTE_FIELD];
+  if (!payload) return null;
+  const envelope = payload as { header?: { device_id?: string } };
+  const registration = (await load()).find(
+    r => r.enabled && r.deviceId === envelope.header?.device_id,
+  );
+  if (!registration)
+    throw new Error('Notification registration is unavailable or revoked');
+  const opened = JSON.parse(
+    notificationOpen(
+      JSON.stringify(registration.keys),
+      registration.hostKey,
+      registration.deviceId,
+      JSON.stringify(payload),
+      (await appStorage.getItem(REPLAYS + registration.deviceId)) || '{}',
+    ),
+  ) as { event: RemoteNotificationEvent; ledger: Record<string, number> };
+  if (opened.event.session !== registration.session)
+    throw new Error('Notification session mismatch');
+  await appStorage.setItem(
+    REPLAYS + registration.deviceId,
+    JSON.stringify(opened.ledger),
+  );
+  return {
+    event: opened.event,
+    target: {
+      hostId: registration.hostId,
+      paneId: opened.event.pane_id,
+      remoteDeviceId: registration.deviceId,
+    },
+  };
+}
+
+export function receiveRemoteNotification(data: Record<string, unknown>) {
+  return serial(() => openRemoteNotification(data));
+}
+
 export function remoteNotificationTarget(
   data: Record<string, unknown>,
   notificationId: string,
 ): Promise<AgentNotificationTarget | null> {
   return serial(async () => {
-    const payload = data[REMOTE_FIELD];
-    if (!payload) return null;
-    const envelope = payload as { header?: { device_id?: string } };
-    const registration = (await load()).find(
-      r => r.enabled && r.deviceId === envelope.header?.device_id,
-    );
-    if (!registration)
-      throw new Error('Notification registration is unavailable or revoked');
-    const opened = JSON.parse(
-      notificationOpen(
-        JSON.stringify(registration.keys),
-        registration.hostKey,
-        registration.deviceId,
-        JSON.stringify(payload),
-        (await appStorage.getItem(REPLAYS + registration.deviceId)) || '{}',
-      ),
-    ) as {
-      event: { pane_id: string; session: string };
-      ledger: Record<string, number>;
-    };
-    if (opened.event.session !== registration.session)
-      throw new Error('Notification session mismatch');
-    // Durable replay receipt before reconnecting or navigating, including cold starts.
-    await appStorage.setItem(
-      REPLAYS + registration.deviceId,
-      JSON.stringify(opened.ledger),
-    );
-    return {
-      notificationId,
-      hostId: registration.hostId,
-      paneId: opened.event.pane_id,
-      remoteDeviceId: registration.deviceId,
-    };
+    const opened = await openRemoteNotification(data);
+    return opened ? { notificationId, ...opened.target } : null;
   });
 }
 export function isRemoteNotification(

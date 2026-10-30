@@ -1,6 +1,6 @@
 # Remote notifications and optional encryption
 
-Remote notifications are optional for each mobile device and saved Herdr session. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. With E2EE on, the preview is generic and only this device can read agent details. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
+Remote notifications are optional for each mobile device and saved Herdr session. **End-to-end encryption (E2EE) is configurable per saved host on this device and defaults off for new registrations.** Existing registrations retain encryption until explicitly changed. With E2EE off, previews show the tab and agent name, whether the agent needs you or finished, and its task title when the hook supplies one; otherwise the body shows status, workspace and pane IDs. V1 and the visible fallback use a generic preview with E2EE on. V2 data pushes are decrypted on the device and rendered as local notifications, including for preview-enabled registrations. Delivery uses Expo with **Firebase Cloud Messaging (FCM) on Android** and **Apple Push Notification service (APNs) on iOS**. Local notifications need neither the plugin nor a relay. Existing regular/persistent notifications, vibration, speech, dismissal and pane navigation still use the existing local alert pipeline.
 
 ## Components and delivery
 
@@ -12,8 +12,9 @@ flowchart LR
   E --> P[Add readable preview only with E2EE off]
   P --> R[Cloudflare Worker / D1 routing]
   R --> X[Expo / APNs / FCM]
-  X --> G[Agent details or generic encrypted preview]
-  G --> D[Open Whip: authenticate, decrypt, reconnect, refresh, navigate]
+  X --> G[V2 background task: authenticate, decrypt, commit replay ledger]
+  G --> N[Local notification on urgency channel]
+  N --> D[Open Whip: reconnect, verify host, refresh, navigate]
   A -->|SSH heartbeat every 3s| L
 ```
 
@@ -51,7 +52,7 @@ A heartbeat requires all of:
 - A connected Rust runtime, fresh Herdr projection, active event subscription and event sink.
 - iOS: foreground execution. Android: foreground execution, or the existing foreground monitoring service **and an executing JS timer**. The native service flag alone is insufficient; Rust also verifies runtime health.
 
-JS runs one shared heartbeat timer only while registrations exist. Expensive cryptography, SSH, event processing and lease validation remain in Rust. No background JS task is needed for remote notification display. Android timer suspension or iOS backgrounding stops renewal; process termination necessarily stops it. Unmount, disabled alerts, permission loss, disconnection and event stream failure also stop renewals. An in-flight renewal may finish as the consumer stops.
+JS runs one shared heartbeat timer only while registrations exist. Expensive cryptography, SSH, event processing and lease validation remain in Rust. V2 remote notification display runs in an Expo background notification task; v1 and the visible fallback are displayed by the OS. Android timer suspension or iOS backgrounding stops renewal; process termination necessarily stops it. Unmount, disabled alerts, permission loss, disconnection and event stream failure also stop renewals. An in-flight renewal may finish as the consumer stops.
 
 **Crash window:** a renewal immediately before a crash can suppress remote push for the remaining lease lifetime, up to ten seconds (plus in-flight transport timing). A lease does not acknowledge delivery. Selection races can also cause local/remote duplicates. This is best effort, without an exactly-once or distributed acknowledgment protocol. Local monitoring settings do not revoke an opted-in remote registration; use its Unregister control to stop remote delivery.
 
@@ -65,9 +66,9 @@ Each device/session registration generates an independent notification X25519 ke
 
 The host has a distinct notification identity in its private configuration directory. Whip pins its public key through the authenticated SSH/Herdr connection. The relay never supplies or changes that pin. Device public keys are registered over that same SSH connection. Host identity is a SHA-256 fingerprint of its notification public key.
 
-The versioned envelope contains an authenticated header (`version`, opaque `host_id`, `device_id`, recipient `key_id`, random `event_id`, `issued_at`), encapsulated key and ciphertext. Domain-separated HPKE info and ordered-tuple AAD bind every header field to the ciphertext and host identity. The event contains session/socket identity, pane/workspace ID, status and an optional bounded title. The routing event is always padded to 1024 bytes and encrypted so that tap authentication, replay protection and reconnect behavior work in either mode.
+The versioned envelope contains an authenticated header (`version`, opaque `host_id`, `device_id`, recipient `key_id`, random `event_id`, `issued_at`), encapsulated key and ciphertext. Domain-separated HPKE info and ordered-tuple AAD bind every header field to the ciphertext and host identity. The event contains session/socket identity, pane/workspace ID, status and an optional bounded title. The routing event is padded to 1024 bytes in v1 or 2048 bytes in v2 and encrypted so that tap authentication, replay protection and reconnect behavior work in either mode.
 
-When E2EE is off, the host also sends a plaintext `preview` alongside that envelope. Its title follows the local notification pattern (`<tab> · <agent> needs you` or `finished`), using the hook's pane-matched context. UTF-8 titles and bodies are bounded to 160 and 320 bytes and exclude control characters. The relay forwards only those two validated strings into the system notification; it reconstructs a strict encrypted envelope for notification data and discards other caller-controlled fields. The preview is readable by the relay, Expo and APNs/FCM, and is not authenticated by the encrypted envelope. Tapping still requires successful envelope authentication. With E2EE on, the host omits the preview entirely; the relay sends `Whip` / `An agent has an update. Open Whip to view it.`
+When E2EE is off, the host also sends a plaintext `preview` alongside that envelope. Its title follows the local notification pattern (`<tab> · <agent> needs you` or `finished`), using the hook's pane-matched context. UTF-8 titles and bodies are bounded to 160 and 320 bytes and exclude control characters. For v1 and the visible fallback, the relay forwards only those two validated strings into the system notification; it reconstructs a strict encrypted envelope for notification data and discards other caller-controlled fields. The preview is readable by the relay, Expo and APNs/FCM, and is not authenticated by the encrypted envelope. Tapping still requires successful envelope authentication. With E2EE on, the host omits the preview entirely; v1 and the visible fallback send `Whip` / `An agent has an update. Open Whip to view it.`
 
 The device verifies the pinned host, recipient identity, key identity, AEAD authentication, session identity and event validity before navigation. It durably commits a replay ledger in Rust-owned app storage before returning a target. Authenticated event IDs remain recorded through the message's acceptance window; live IDs are never evicted to make room. A full ledger fails closed. Events expire after 24 hours and tolerate at most five minutes of future clock skew. This freshness check assumes reasonably correct wall clocks; **leases do not require clock synchronization**. Replay protection survives ordinary app restarts. Restoring an old application database on a compromised device is outside this trust boundary.
 
@@ -75,7 +76,7 @@ With E2EE on, the relay holds only Expo routing tokens, hashed per-device manage
 
 Verification pushes carry only random registration metadata and generic setup text. Whip suppresses their banner/sound while open and never treats them as agent events. If the app is backgrounded before delivery, the OS may show a generic setup notification; it cannot activate registration. The relay enforces global D1 fixed-window registration budgets of six verification pushes per Expo token and sixty per IP per minute, in addition to the existing Worker request/device limits. IPs are stored only as digests; expired proofs and budget rows are removed by the scheduled cleanup. This proves push-token possession, not app attestation or a user's real-world identity. Public endpoint abuse still needs operational monitoring and potentially additional WAF/attestation controls as traffic grows.
 
-A malicious relay/provider can drop/delay notifications, observe timing/routing metadata, replay generic system alerts or display arbitrary generic alerts. It cannot produce an authenticated event or learn the encrypted content; it can read and alter the disclosed preview when E2EE is off. HPKE Auth is designated-recipient authentication, not a public signature/non-repudiation protocol. A compromised host can originate events; a compromised recipient can read its own notifications. Native decryption for rich previews while E2EE is on is deferred; v1 remains suitable for a future iOS notification service extension or Android native reader.
+A malicious relay/provider can drop/delay notifications, observe timing/routing metadata, replay generic system alerts or display arbitrary generic alerts. It cannot produce an authenticated event or learn the encrypted content; it can read and alter the disclosed preview when E2EE is off. HPKE Auth is designated-recipient authentication, not a public signature/non-repudiation protocol. A compromised host can originate events; a compromised recipient can read its own notifications. V2 rich previews are decrypted by the app background task; v1 remains suitable for a future iOS notification service extension or Android native reader.
 
 ## Installation and pairing
 
@@ -235,7 +236,60 @@ must be updated to accept v2 before a new host binary is used. No deployment
 occurs as part of this code change.
 
 Explicit calls always omit readable previews, regardless of a legacy host
-preview preference. The current relay still sends a generic visible push whose
-body tap authenticates the envelope and opens the originating host/pane. The
-composer default, approval detection, urgency-specific local alerts, reply
-buttons and log viewer are implemented by the other phone-first tickets.
+preview preference. Approval detection, reply buttons and the log viewer are
+owned by the other phone-first tickets.
+
+## V2 data pushes and local urgency alerts
+
+The relay forwards v2 envelopes as high-priority Expo data messages with no
+title, body, sound, channel, or plaintext urgency. A supplied legacy preview is
+validated but not forwarded for v2; even preview-enabled registrations use this
+same device-local notification path. V1 keeps the existing visible push path.
+
+`index.js` loads `remoteNotificationBackground.ts` before mounting React. The
+Android Expo task handles headless messages in foreground, background and cold
+JS launches. It accepts Expo's Android `dataString` wrapper and raw data objects,
+opens the envelope with the pinned host/device keys, checks the registered
+session, and commits the replay ledger before scheduling any local alert.
+Receipt handling shares the registration/replay operation queue with tap
+handling and registration changes. Invalid/replayed events and storage failures
+produce no alert. The raw foreground data push stays silent. The background task
+never requests permissions; users grant those through the existing setup flow.
+For emergency receipt the native alarm promise settles only when playback stops
+(shake, dismissal, replacement or timeout). The task awaits it so Expo does not
+destroy a cold React runtime and stop its alarm two seconds after arming.
+
+| Urgency | Device delivery |
+| --- | --- |
+| `emergency` | `agent-state-v3`, high importance and `bypassDnd`, existing native alarm loop, shake to stop, 30-second timeout |
+| `urgent` | `agent-state-brief-v1`, high importance, default sound and short vibration; watch mirroring follows Android/watch settings |
+| `check` | `agent-state-regular-v1`, normal importance |
+| `record` | Receipt only if unexpectedly delivered; no channel setup or notification |
+
+Missing/unknown urgency uses the regular channel for compatibility. Local
+notification data contains the authenticated host/pane/device target, so a tap
+uses existing reconnect, host verification and navigation without opening the
+already-consumed envelope again. Agent panes inherit Chat + composer defaults.
+Visible fallback taps still authenticate the original envelope on opening.
+
+The old visible path remains selectable by setting the relay environment
+variable `VISIBLE_PUSH_FALLBACK=true`. It applies to v2 as well as v1 and retains
+legacy readable previews. The background task skips visible pushes so the
+fallback does not produce duplicate local alerts or consume their tap receipt.
+The switch is intended for rollout/rollback; changing it requires an authorized
+relay deployment. No relay deployment was performed for this ticket.
+
+The new `expo-task-manager` dependency requires rebuilding the Android app;
+updating JS alone cannot enable background receipt. Android's task registration
+requires no iOS background mode change (iOS data receipt remains out of scope).
+Implementation follows the installed Expo 58 task payload/native serializer and
+[Expo background notification documentation](https://docs.expo.dev/versions/v58.0.0/sdk/notifications/#registertaskasynctaskname).
+
+Before choosing the data path for real use, validate a signed Samsung build
+with the app terminated and in Doze, emergency alerting in silent/DND modes,
+shake cancellation, timeout, watch mirroring, and cold tap navigation. Android
+force-stop deliberately blocks receipt until manual launch. User channel/DND
+permissions, alarm volume and OS background execution policy still apply; this
+ticket reuses the existing alarm implementation without changing those policies.
+These device checks and relay deployment were prohibited by the implementer
+brief and remain outstanding.

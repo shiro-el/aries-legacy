@@ -115,3 +115,35 @@ fork keeps the herding theme with the ram that leads the flock.
     are separate work. Legacy preview preferences remain available.
   - App taps reuse authenticated host/pane routing and fresh target resolution.
     See `docs/remote-notifications.md` for the command and log contract.
+
+### 5. Device-local v2 push alerts by urgency
+
+- **What:** V2 envelopes travel as high-priority data pushes and become local
+  Android notifications after authentication and durable replay receipt.
+- **Why:** Calls and approval requests need different levels of attention while
+  keeping their content and urgency inside the encrypted envelope.
+- **How:** An Expo notification task loaded from the app entry point handles
+  foreground, background and cold JS receipt. It shares the pinned-key,
+  registration and replay queue with legacy tap handling. Local alerts carry
+  only their authenticated navigation target, so tapping does not decrypt an
+  already-received envelope again.
+  - Emergency uses the existing persistent/DND channel and native alarm path
+    (shake cancellation and 30-second timeout). Urgent uses the high-importance
+    brief sound/vibration channel; check uses regular; record stays silent.
+    The native arm promise now settles on stop, keeping a cold Expo task/runtime
+    alive through the alarm instead of destroying it two seconds after arming.
+    Existing foreground alerts still arm without blocking their caller.
+  - V2 preview-enabled registrations use the same local rendering path. The
+    relay discards v2 readable previews and never receives plaintext urgency.
+    V1 and registration verification pushes keep their visible behavior.
+  - The existing visible delivery code remains available for v2 with relay
+    `VISIBLE_PUSH_FALLBACK=true`. The app skips background rendering of visible
+    pushes. No existing feature code was removed.
+  - `expo-task-manager` requires a new Android native build. Relay deployment,
+    Samsung terminated/Doze receipt, silent/DND emergency behavior and watch
+    mirroring remain unverified: this run prohibited deployment and real-device
+    use. See `docs/remote-notifications.md` for rollout and fallback details.
+- **Validation:** Relay SQLite and Workers runtime tests cover opaque v2 data,
+  v1 compatibility and visible rollback. App tests cover urgency channels,
+  native alarm arming, replay/concurrent/cold receipt, failure suppression,
+  foreground silence and local tap navigation.
