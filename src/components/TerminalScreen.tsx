@@ -1907,7 +1907,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
               <Pressable key={command.name} accessibilityRole="button" accessibilityLabel={`/${command.name}`}
                 className="px-4 py-2"
                 onPress={() => { if (activeTarget) { replaceComposeText(activeTarget.key, `/${command.name} `); composeInputRef.current?.focus(); } }}>
-                <Text className="text-sm text-terminal-foreground">/{command.name} {command.argumentHint}</Text>
+                <Text className="text-sm text-terminal-text">/{command.name} {command.argumentHint}</Text>
                 <Text className="text-xs text-terminal-muted">{command.description}{command.terminalOnly ? ` · ${t('terminal.commandTerminalOnly')}` : ''}</Text>
               </Pressable>
             ))}

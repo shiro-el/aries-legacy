@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { reportBackgroundFailure } from '../services/backgroundOperations';
 import type { AgentCatalog } from 'react-native-whip-ssh';
 import type { TerminalRenderTarget } from '../lib/terminalRenderer';
 
@@ -28,14 +29,12 @@ export function useAgentCatalog(
     try {
       const native = client.native;
       setResult({ context, catalog: native.cachedAgentCatalog(paneId) });
-      void native
-        .refreshAgentCatalog(paneId)
-        .then(catalog => {
+      reportBackgroundFailure(
+        native.refreshAgentCatalog(paneId).then(catalog => {
           if (current) setResult({ context, catalog });
-        })
-        .catch(() => {
-          /* Discovery is optional; keep a cached result if present. */
-        });
+        }),
+        'agent-catalog-refresh',
+      );
     } catch {
       /* A disconnected runtime leaves the composer usable. */
     }
