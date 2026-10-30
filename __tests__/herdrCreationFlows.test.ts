@@ -1,6 +1,7 @@
 import {
   CommandLaunchPartialFailure,
   createWorkspaceAndSelect,
+  createWorkspaceAndOpenPane,
   launchTabAndOpenCreatedTab,
   type TabCreationResult,
 } from '../src/lib/herdrCreationFlows';
@@ -107,4 +108,28 @@ test('a synchronous in-flight guard rejects duplicate save presses', async () =>
   expect(create).toHaveBeenCalledTimes(1);
   finish();
   await expect(first).resolves.toBe(true);
+});
+
+test('new task opens the server-created pane and returns its workspace', async () => {
+  const runtime = { createWorkspaceWithLaunch: jest.fn(async () => ({ ...created, workspace, type: 'workspace_created' as const })) };
+  const open = jest.fn();
+  await expect(createWorkspaceAndOpenPane(runtime, 'Project', '/srv/project', { type: 'shell' }, open))
+    .resolves.toBe(workspace);
+  expect(open).toHaveBeenCalledWith(created.root_pane, false);
+  expect(runtime.createWorkspaceWithLaunch).toHaveBeenCalledWith('Project', '/srv/project', { type: 'shell' });
+});
+
+test('new task launch failure opens the initial pane and reports the error without recreating', async () => {
+  const failure = Object.assign(new Error('agent not installed'), {
+    code: 'TAB_LAUNCH_FAILED', created, workspace, launchType: 'agent',
+  });
+  const runtime = { createWorkspaceWithLaunch: jest.fn(async () => { throw failure; }) };
+  const open = jest.fn();
+  const report = jest.fn();
+  await expect(createWorkspaceAndOpenPane(runtime, 'Project', '/srv/project', {
+    type: 'agent', kind: 'claude', args: ['--model', 'sonnet', '--effort', 'high'],
+  }, open, report)).resolves.toBe(workspace);
+  expect(open).toHaveBeenCalledWith(created.root_pane, false);
+  expect(report).toHaveBeenCalledWith(failure);
+  expect(runtime.createWorkspaceWithLaunch).toHaveBeenCalledTimes(1);
 });

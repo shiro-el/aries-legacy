@@ -10460,6 +10460,261 @@ const FfiConverterTypeHerdrSetup = (() => {
   return new FFIConverter();
 })();
 
+export enum HerdrTabLaunchStage {
+  AgentStart,
+  CommandInput,
+}
+
+const FfiConverterTypeHerdrTabLaunchStage = (() => {
+  const ordinalConverter = FfiConverterInt32;
+  type TypeName = HerdrTabLaunchStage;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      switch (ordinalConverter.read(from)) {
+        case 1:
+          return HerdrTabLaunchStage.AgentStart;
+        case 2:
+          return HerdrTabLaunchStage.CommandInput;
+        default:
+          throw new UniffiInternalError.UnexpectedEnumCase();
+      }
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      switch (value) {
+        case HerdrTabLaunchStage.AgentStart:
+          return ordinalConverter.write(1, into);
+        case HerdrTabLaunchStage.CommandInput:
+          return ordinalConverter.write(2, into);
+      }
+    }
+    allocationSize(value: TypeName): number {
+      return ordinalConverter.allocationSize(0);
+    }
+  }
+  return new FFIConverter();
+})();
+
+// Enum: HerdrTabLaunchResult
+export enum HerdrTabLaunchResult_Tags {
+  Created = 'Created',
+  LaunchFailed = 'LaunchFailed',
+}
+export const HerdrTabLaunchResult = (() => {
+  type Created__interface = {
+    tag: HerdrTabLaunchResult_Tags.Created;
+    inner: Readonly<{ tab: HerdrTabInfo; rootPane: HerdrPaneInfo }>;
+  };
+  class Created_ extends UniffiEnum implements Created__interface {
+    /**
+     * @private
+     * This field is private and should not be used, use `tag` instead.
+     */
+    readonly [uniffiTypeNameSymbol] = 'HerdrTabLaunchResult';
+    readonly tag = HerdrTabLaunchResult_Tags.Created;
+    readonly inner: Readonly<{ tab: HerdrTabInfo; rootPane: HerdrPaneInfo }>;
+    constructor(inner: { tab: HerdrTabInfo; rootPane: HerdrPaneInfo }) {
+      super('HerdrTabLaunchResult', 'Created');
+
+      this.inner = Object.freeze(inner);
+    }
+    static new(inner: {
+      tab: HerdrTabInfo;
+      rootPane: HerdrPaneInfo;
+    }): Created_ {
+      return new Created_(inner);
+    }
+
+    static instanceOf(obj: any): obj is Created_ {
+      return obj.tag === HerdrTabLaunchResult_Tags.Created;
+    }
+  }
+
+  type LaunchFailed__interface = {
+    tag: HerdrTabLaunchResult_Tags.LaunchFailed;
+    inner: Readonly<{
+      tab: HerdrTabInfo;
+      rootPane: HerdrPaneInfo;
+      stage: HerdrTabLaunchStage;
+      failure: HerdrControlFailure;
+    }>;
+  };
+  class LaunchFailed_ extends UniffiEnum implements LaunchFailed__interface {
+    /**
+     * @private
+     * This field is private and should not be used, use `tag` instead.
+     */
+    readonly [uniffiTypeNameSymbol] = 'HerdrTabLaunchResult';
+    readonly tag = HerdrTabLaunchResult_Tags.LaunchFailed;
+    readonly inner: Readonly<{
+      tab: HerdrTabInfo;
+      rootPane: HerdrPaneInfo;
+      stage: HerdrTabLaunchStage;
+      failure: HerdrControlFailure;
+    }>;
+    constructor(inner: {
+      tab: HerdrTabInfo;
+      rootPane: HerdrPaneInfo;
+      stage: HerdrTabLaunchStage;
+      failure: HerdrControlFailure;
+    }) {
+      super('HerdrTabLaunchResult', 'LaunchFailed');
+
+      this.inner = Object.freeze(inner);
+    }
+    static new(inner: {
+      tab: HerdrTabInfo;
+      rootPane: HerdrPaneInfo;
+      stage: HerdrTabLaunchStage;
+      failure: HerdrControlFailure;
+    }): LaunchFailed_ {
+      return new LaunchFailed_(inner);
+    }
+
+    static instanceOf(obj: any): obj is LaunchFailed_ {
+      return obj.tag === HerdrTabLaunchResult_Tags.LaunchFailed;
+    }
+  }
+
+  function instanceOf(obj: any): obj is HerdrTabLaunchResult {
+    return obj[uniffiTypeNameSymbol] === 'HerdrTabLaunchResult';
+  }
+
+  return Object.freeze({
+    instanceOf,
+    Created: Created_,
+    LaunchFailed: LaunchFailed_,
+  });
+})();
+export type HerdrTabLaunchResult = InstanceType<
+  (typeof HerdrTabLaunchResult)['Created' | 'LaunchFailed']
+>;
+
+// FfiConverter for enum HerdrTabLaunchResult
+const FfiConverterTypeHerdrTabLaunchResult = (() => {
+  const ordinalConverter = FfiConverterInt32;
+  type TypeName = HerdrTabLaunchResult;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      switch (ordinalConverter.read(from)) {
+        case 1:
+          return new HerdrTabLaunchResult.Created({
+            tab: FfiConverterTypeHerdrTabInfo.read(from),
+            rootPane: FfiConverterTypeHerdrPaneInfo.read(from),
+          });
+        case 2:
+          return new HerdrTabLaunchResult.LaunchFailed({
+            tab: FfiConverterTypeHerdrTabInfo.read(from),
+            rootPane: FfiConverterTypeHerdrPaneInfo.read(from),
+            stage: FfiConverterTypeHerdrTabLaunchStage.read(from),
+            failure: FfiConverterTypeHerdrControlFailure.read(from),
+          });
+        default:
+          throw new UniffiInternalError.UnexpectedEnumCase();
+      }
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      switch (value.tag) {
+        case HerdrTabLaunchResult_Tags.Created: {
+          ordinalConverter.write(1, into);
+          const inner = value.inner;
+          FfiConverterTypeHerdrTabInfo.write(inner.tab, into);
+          FfiConverterTypeHerdrPaneInfo.write(inner.rootPane, into);
+          return;
+        }
+        case HerdrTabLaunchResult_Tags.LaunchFailed: {
+          ordinalConverter.write(2, into);
+          const inner = value.inner;
+          FfiConverterTypeHerdrTabInfo.write(inner.tab, into);
+          FfiConverterTypeHerdrPaneInfo.write(inner.rootPane, into);
+          FfiConverterTypeHerdrTabLaunchStage.write(inner.stage, into);
+          FfiConverterTypeHerdrControlFailure.write(inner.failure, into);
+          return;
+        }
+        default:
+          // Throwing from here means that HerdrTabLaunchResult_Tags hasn't matched an ordinal.
+          throw new UniffiInternalError.UnexpectedEnumCase();
+      }
+    }
+    allocationSize(value: TypeName): number {
+      switch (value.tag) {
+        case HerdrTabLaunchResult_Tags.Created: {
+          const inner = value.inner;
+          let size = ordinalConverter.allocationSize(1);
+          size += FfiConverterTypeHerdrTabInfo.allocationSize(inner.tab);
+          size += FfiConverterTypeHerdrPaneInfo.allocationSize(inner.rootPane);
+          return size;
+        }
+        case HerdrTabLaunchResult_Tags.LaunchFailed: {
+          const inner = value.inner;
+          let size = ordinalConverter.allocationSize(2);
+          size += FfiConverterTypeHerdrTabInfo.allocationSize(inner.tab);
+          size += FfiConverterTypeHerdrPaneInfo.allocationSize(inner.rootPane);
+          size += FfiConverterTypeHerdrTabLaunchStage.allocationSize(
+            inner.stage,
+          );
+          size += FfiConverterTypeHerdrControlFailure.allocationSize(
+            inner.failure,
+          );
+          return size;
+        }
+        default:
+          throw new UniffiInternalError.UnexpectedEnumCase();
+      }
+    }
+  }
+  return new FFIConverter();
+})();
+
+/**
+ * Workspace creation always includes its server-created first tab and pane.
+ */
+export type HerdrWorkspaceLaunchResult = {
+  workspace: HerdrWorkspaceInfo;
+  launch: HerdrTabLaunchResult;
+};
+
+/**
+ * Generated factory for {@link HerdrWorkspaceLaunchResult} record objects.
+ */
+export const HerdrWorkspaceLaunchResult = (() => {
+  const defaults = () => ({});
+  const create = (() => {
+    return uniffiCreateRecord<
+      HerdrWorkspaceLaunchResult,
+      ReturnType<typeof defaults>
+    >(defaults);
+  })();
+  return Object.freeze({
+    create,
+    new: create,
+    defaults: () =>
+      Object.freeze(defaults()) as Partial<HerdrWorkspaceLaunchResult>,
+  });
+})();
+
+const FfiConverterTypeHerdrWorkspaceLaunchResult = (() => {
+  type TypeName = HerdrWorkspaceLaunchResult;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      return {
+        workspace: FfiConverterTypeHerdrWorkspaceInfo.read(from),
+        launch: FfiConverterTypeHerdrTabLaunchResult.read(from),
+      };
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      FfiConverterTypeHerdrWorkspaceInfo.write(value.workspace, into);
+      FfiConverterTypeHerdrTabLaunchResult.write(value.launch, into);
+    }
+    allocationSize(value: TypeName): number {
+      return (
+        FfiConverterTypeHerdrWorkspaceInfo.allocationSize(value.workspace) +
+        FfiConverterTypeHerdrTabLaunchResult.allocationSize(value.launch)
+      );
+    }
+  }
+  return new FFIConverter();
+})();
+
 export type HerdrWorktreeInfo = {
   branch?: string;
   isBare: boolean;
@@ -19685,211 +19940,6 @@ const FfiConverterTypeHerdrTabLaunch = (() => {
   return new FFIConverter();
 })();
 
-export enum HerdrTabLaunchStage {
-  AgentStart,
-  CommandInput,
-}
-
-const FfiConverterTypeHerdrTabLaunchStage = (() => {
-  const ordinalConverter = FfiConverterInt32;
-  type TypeName = HerdrTabLaunchStage;
-  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
-    read(from: RustBuffer): TypeName {
-      switch (ordinalConverter.read(from)) {
-        case 1:
-          return HerdrTabLaunchStage.AgentStart;
-        case 2:
-          return HerdrTabLaunchStage.CommandInput;
-        default:
-          throw new UniffiInternalError.UnexpectedEnumCase();
-      }
-    }
-    write(value: TypeName, into: RustBuffer): void {
-      switch (value) {
-        case HerdrTabLaunchStage.AgentStart:
-          return ordinalConverter.write(1, into);
-        case HerdrTabLaunchStage.CommandInput:
-          return ordinalConverter.write(2, into);
-      }
-    }
-    allocationSize(value: TypeName): number {
-      return ordinalConverter.allocationSize(0);
-    }
-  }
-  return new FFIConverter();
-})();
-
-// Enum: HerdrTabLaunchResult
-export enum HerdrTabLaunchResult_Tags {
-  Created = 'Created',
-  LaunchFailed = 'LaunchFailed',
-}
-export const HerdrTabLaunchResult = (() => {
-  type Created__interface = {
-    tag: HerdrTabLaunchResult_Tags.Created;
-    inner: Readonly<{ tab: HerdrTabInfo; rootPane: HerdrPaneInfo }>;
-  };
-  class Created_ extends UniffiEnum implements Created__interface {
-    /**
-     * @private
-     * This field is private and should not be used, use `tag` instead.
-     */
-    readonly [uniffiTypeNameSymbol] = 'HerdrTabLaunchResult';
-    readonly tag = HerdrTabLaunchResult_Tags.Created;
-    readonly inner: Readonly<{ tab: HerdrTabInfo; rootPane: HerdrPaneInfo }>;
-    constructor(inner: { tab: HerdrTabInfo; rootPane: HerdrPaneInfo }) {
-      super('HerdrTabLaunchResult', 'Created');
-
-      this.inner = Object.freeze(inner);
-    }
-    static new(inner: {
-      tab: HerdrTabInfo;
-      rootPane: HerdrPaneInfo;
-    }): Created_ {
-      return new Created_(inner);
-    }
-
-    static instanceOf(obj: any): obj is Created_ {
-      return obj.tag === HerdrTabLaunchResult_Tags.Created;
-    }
-  }
-
-  type LaunchFailed__interface = {
-    tag: HerdrTabLaunchResult_Tags.LaunchFailed;
-    inner: Readonly<{
-      tab: HerdrTabInfo;
-      rootPane: HerdrPaneInfo;
-      stage: HerdrTabLaunchStage;
-      failure: HerdrControlFailure;
-    }>;
-  };
-  class LaunchFailed_ extends UniffiEnum implements LaunchFailed__interface {
-    /**
-     * @private
-     * This field is private and should not be used, use `tag` instead.
-     */
-    readonly [uniffiTypeNameSymbol] = 'HerdrTabLaunchResult';
-    readonly tag = HerdrTabLaunchResult_Tags.LaunchFailed;
-    readonly inner: Readonly<{
-      tab: HerdrTabInfo;
-      rootPane: HerdrPaneInfo;
-      stage: HerdrTabLaunchStage;
-      failure: HerdrControlFailure;
-    }>;
-    constructor(inner: {
-      tab: HerdrTabInfo;
-      rootPane: HerdrPaneInfo;
-      stage: HerdrTabLaunchStage;
-      failure: HerdrControlFailure;
-    }) {
-      super('HerdrTabLaunchResult', 'LaunchFailed');
-
-      this.inner = Object.freeze(inner);
-    }
-    static new(inner: {
-      tab: HerdrTabInfo;
-      rootPane: HerdrPaneInfo;
-      stage: HerdrTabLaunchStage;
-      failure: HerdrControlFailure;
-    }): LaunchFailed_ {
-      return new LaunchFailed_(inner);
-    }
-
-    static instanceOf(obj: any): obj is LaunchFailed_ {
-      return obj.tag === HerdrTabLaunchResult_Tags.LaunchFailed;
-    }
-  }
-
-  function instanceOf(obj: any): obj is HerdrTabLaunchResult {
-    return obj[uniffiTypeNameSymbol] === 'HerdrTabLaunchResult';
-  }
-
-  return Object.freeze({
-    instanceOf,
-    Created: Created_,
-    LaunchFailed: LaunchFailed_,
-  });
-})();
-export type HerdrTabLaunchResult = InstanceType<
-  (typeof HerdrTabLaunchResult)['Created' | 'LaunchFailed']
->;
-
-// FfiConverter for enum HerdrTabLaunchResult
-const FfiConverterTypeHerdrTabLaunchResult = (() => {
-  const ordinalConverter = FfiConverterInt32;
-  type TypeName = HerdrTabLaunchResult;
-  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
-    read(from: RustBuffer): TypeName {
-      switch (ordinalConverter.read(from)) {
-        case 1:
-          return new HerdrTabLaunchResult.Created({
-            tab: FfiConverterTypeHerdrTabInfo.read(from),
-            rootPane: FfiConverterTypeHerdrPaneInfo.read(from),
-          });
-        case 2:
-          return new HerdrTabLaunchResult.LaunchFailed({
-            tab: FfiConverterTypeHerdrTabInfo.read(from),
-            rootPane: FfiConverterTypeHerdrPaneInfo.read(from),
-            stage: FfiConverterTypeHerdrTabLaunchStage.read(from),
-            failure: FfiConverterTypeHerdrControlFailure.read(from),
-          });
-        default:
-          throw new UniffiInternalError.UnexpectedEnumCase();
-      }
-    }
-    write(value: TypeName, into: RustBuffer): void {
-      switch (value.tag) {
-        case HerdrTabLaunchResult_Tags.Created: {
-          ordinalConverter.write(1, into);
-          const inner = value.inner;
-          FfiConverterTypeHerdrTabInfo.write(inner.tab, into);
-          FfiConverterTypeHerdrPaneInfo.write(inner.rootPane, into);
-          return;
-        }
-        case HerdrTabLaunchResult_Tags.LaunchFailed: {
-          ordinalConverter.write(2, into);
-          const inner = value.inner;
-          FfiConverterTypeHerdrTabInfo.write(inner.tab, into);
-          FfiConverterTypeHerdrPaneInfo.write(inner.rootPane, into);
-          FfiConverterTypeHerdrTabLaunchStage.write(inner.stage, into);
-          FfiConverterTypeHerdrControlFailure.write(inner.failure, into);
-          return;
-        }
-        default:
-          // Throwing from here means that HerdrTabLaunchResult_Tags hasn't matched an ordinal.
-          throw new UniffiInternalError.UnexpectedEnumCase();
-      }
-    }
-    allocationSize(value: TypeName): number {
-      switch (value.tag) {
-        case HerdrTabLaunchResult_Tags.Created: {
-          const inner = value.inner;
-          let size = ordinalConverter.allocationSize(1);
-          size += FfiConverterTypeHerdrTabInfo.allocationSize(inner.tab);
-          size += FfiConverterTypeHerdrPaneInfo.allocationSize(inner.rootPane);
-          return size;
-        }
-        case HerdrTabLaunchResult_Tags.LaunchFailed: {
-          const inner = value.inner;
-          let size = ordinalConverter.allocationSize(2);
-          size += FfiConverterTypeHerdrTabInfo.allocationSize(inner.tab);
-          size += FfiConverterTypeHerdrPaneInfo.allocationSize(inner.rootPane);
-          size += FfiConverterTypeHerdrTabLaunchStage.allocationSize(
-            inner.stage,
-          );
-          size += FfiConverterTypeHerdrControlFailure.allocationSize(
-            inner.failure,
-          );
-          return size;
-        }
-        default:
-          throw new UniffiInternalError.UnexpectedEnumCase();
-      }
-    }
-  }
-  return new FFIConverter();
-})();
-
 /**
  * The terminal-attach variant moved from bincode discriminant 1 to 2 when
  * protocol 20 inserted `AppDirectGraphics` into Herdr's `ClientLaunchMode`.
@@ -26591,6 +26641,15 @@ export interface HostRuntimeLike {
     asyncOpts_?: { signal: AbortSignal },
   ) /*throws*/ : Promise<HerdrTabLaunchResult>;
   /**
+   * Create one workspace and launch in the pane returned by workspace.create.
+   */
+  createWorkspaceWithLaunch(
+    label: string,
+    cwd: string,
+    launch: HerdrTabLaunch,
+    asyncOpts_?: { signal: AbortSignal },
+  ) /*throws*/ : Promise<HerdrWorkspaceLaunchResult>;
+  /**
    * Return the current Rust-owned binding without creating or reopening it.
    * Presentation reconciliation must use this projection rather than the
    * explicit `open_agent_chat` operation.
@@ -27602,6 +27661,64 @@ export class HostRuntime
         /*liftFunc:*/ (__rb: Uint8Array) => {
           try {
             return FfiConverterTypeHerdrTabLaunchResult.lift(__rb);
+          } finally {
+            nativeModule().rustbuffer_free(__rb);
+          }
+        },
+        /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+        /*asyncOpts:*/ asyncOpts_,
+        /*errorHandler:*/ FfiConverterTypeHerdrControlError.lift.bind(
+          FfiConverterTypeHerdrControlError,
+        ),
+      );
+    } catch (__error: any) {
+      if (uniffiIsDebug && __error instanceof Error) {
+        __error.stack = __stack;
+      }
+      throw __error;
+    }
+  }
+
+  /**
+   * Create one workspace and launch in the pane returned by workspace.create.
+   */
+  async createWorkspaceWithLaunch(
+    label: string,
+    cwd: string,
+    launch: HerdrTabLaunch,
+    asyncOpts_?: { signal: AbortSignal },
+  ): Promise<HerdrWorkspaceLaunchResult> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+      return await uniffiRustCallAsync(
+        /*rustCaller:*/ uniffiCaller,
+        /*rustFutureFunc:*/ () => {
+          return nativeModule().ubrn_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
+            uniffiTypeHostRuntimeObjectFactory.clonePointer(this),
+            FfiConverterString.lower(label, nativeModule().rustbuffer_alloc),
+            FfiConverterString.lower(cwd, nativeModule().rustbuffer_alloc),
+            FfiConverterTypeHerdrTabLaunch.lower(
+              launch,
+              nativeModule().rustbuffer_alloc,
+            ),
+          );
+        },
+        /*pollFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_poll_rust_buffer,
+        /*cancelFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_cancel_rust_buffer,
+        /*completeFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_complete_rust_buffer,
+        /*freeFunc:*/ nativeModule()
+          .ubrn_ffi_whip_ssh_rust_future_free_rust_buffer,
+        // Async returns always go through the JS-side converter: the
+        // FFI symbol returns the future handle (u64), and the user-level
+        // RustBuffer comes back via the shared `rust_future_complete_*`
+        // export. The bytes the runtime hands back must be deserialized
+        // here using the per-callable return-type converter.
+        /*liftFunc:*/ (__rb: Uint8Array) => {
+          try {
+            return FfiConverterTypeHerdrWorkspaceLaunchResult.lift(__rb);
           } finally {
             nativeModule().rustbuffer_free(__rb);
           }
@@ -36184,6 +36301,14 @@ function uniffiEnsureInitialized() {
     );
   }
   if (
+    nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch() !==
+    16360
+  ) {
+    throw new UniffiInternalError.ApiChecksumMismatch(
+      'uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch',
+    );
+  }
+  if (
     nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_current_agent_chat() !==
     44603
   ) {
@@ -37004,6 +37129,7 @@ export default Object.freeze({
     FfiConverterTypeHerdrTerminalEventSink,
     FfiConverterTypeHerdrTerminalNotificationKind,
     FfiConverterTypeHerdrWorkspaceInfo,
+    FfiConverterTypeHerdrWorkspaceLaunchResult,
     FfiConverterTypeHerdrWorkspaceWorktreeInfo,
     FfiConverterTypeHerdrWorktreeInfo,
     FfiConverterTypeHostAuthMode,

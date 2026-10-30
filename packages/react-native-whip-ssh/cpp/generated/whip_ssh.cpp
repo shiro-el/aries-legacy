@@ -5,11 +5,11 @@
 #include "whip_ssh.hpp"
 
 #include "UniffiJsiTypes.h"
-#include <iostream>
-#include <map>
 #include <stdexcept>
-#include <thread>
+#include <map>
 #include <utility>
+#include <iostream>
+#include <thread>
 
 namespace react = facebook::react;
 namespace jsi = facebook::jsi;
@@ -499,6 +499,11 @@ uniffi_whip_ssh_fn_method_hostruntime_create_tab_with_launch(
 /*handle*/ uint64_t
 uniffi_whip_ssh_fn_method_hostruntime_create_tab_with_reverse_control(
     /*handle*/ uint64_t ptr, RustBuffer workspace_id, RustBuffer label,
+    RustBuffer launch);
+    /*handle*/ uint64_t uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
+        /*handle*/ uint64_t ptr,
+        RustBuffer label,
+        RustBuffer cwd,
     RustBuffer launch);
 RustBuffer uniffi_whip_ssh_fn_method_hostruntime_current_agent_chat(
     /*handle*/ uint64_t ptr, RustBuffer terminal_id,
@@ -1307,6 +1312,7 @@ uint16_t uniffi_whip_ssh_checksum_method_hostruntime_agent_transcript_search();
 uint16_t uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_launch();
 uint16_t
 uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_reverse_control();
+uint16_t uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch();
 uint16_t uniffi_whip_ssh_checksum_method_hostruntime_current_agent_chat();
 uint16_t uniffi_whip_ssh_checksum_method_hostruntime_detach_agent_chat();
 uint16_t
@@ -8007,6 +8013,17 @@ NativeWhipSsh::NativeWhipSsh(
             ->cpp_uniffi_whip_ssh_fn_method_hostruntime_create_tab_with_reverse_control(
                 rt, thisVal, args, count);
       });
+  props["ubrn_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch"] =
+      jsi::Function::createFromHostFunction(
+          rt,
+          jsi::PropNameID::forAscii(
+              rt, "ubrn_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch"),
+          4,
+          [this](jsi::Runtime &rt, const jsi::Value &thisVal,
+                 const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
+                rt, thisVal, args, count);
+      });
   props["ubrn_uniffi_whip_ssh_fn_method_hostruntime_current_agent_chat"] =
       jsi::Function::createFromHostFunction(
           rt,
@@ -13273,6 +13290,17 @@ NativeWhipSsh::NativeWhipSsh(
             ->cpp_uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_reverse_control(
                 rt, thisVal, args, count);
       });
+  props["ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch"] =
+      jsi::Function::createFromHostFunction(
+          rt,
+          jsi::PropNameID::forAscii(
+              rt, "ubrn_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch"),
+          0,
+          [this](jsi::Runtime &rt, const jsi::Value &thisVal,
+                 const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch(
+                rt, thisVal, args, count);
+      });
   props["ubrn_uniffi_whip_ssh_checksum_method_hostruntime_current_agent_chat"] =
       jsi::Function::createFromHostFunction(
           rt,
@@ -17091,6 +17119,23 @@ jsi::Value NativeWhipSsh::
         size_t count) {
   auto value =
       uniffi_whip_ssh_fn_method_hostruntime_create_tab_with_reverse_control(
+          uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker,
+                                                            args[0]),
+          uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker,
+                                                         args[1]),
+          uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker,
+                                                         args[2]),
+          uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker,
+                                                         args[3]));
+
+  return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker,
+                                                         value);
+}
+jsi::Value
+NativeWhipSsh::cpp_uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
+    jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args,
+    size_t count) {
+  auto value = uniffi_whip_ssh_fn_method_hostruntime_create_workspace_with_launch(
           uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker,
                                                             args[0]),
           uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker,
@@ -21932,6 +21977,13 @@ jsi::Value NativeWhipSsh::
         size_t count) {
   auto value =
       uniffi_whip_ssh_checksum_method_hostruntime_create_tab_with_reverse_control();
+
+  return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeWhipSsh::cpp_uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch(
+    jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args,
+    size_t count) {
+  auto value = uniffi_whip_ssh_checksum_method_hostruntime_create_workspace_with_launch();
 
   return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }

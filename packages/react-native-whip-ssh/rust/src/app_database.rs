@@ -312,6 +312,7 @@ fn legacy_app_key(key: &str) -> bool {
         "whip.terminal.composers.v1.",
         "aries.terminal.composers.v2.",
         "whip.agent.preferences.v1.",
+        "whip.new-task.v1.",
         "whip.notify.replays.v1.",
         "whip.remote-content-progress.v1:",
     ];
