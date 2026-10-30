@@ -136,6 +136,7 @@ import {
 } from './generated-entry';
 import { NativeAgentInteractionKind, type NativeAgentInteractionPrompt } from './agentInteraction';
 import { NATIVE_GIT_DIFF_ROW_KIND, runtimeGitReview } from './gitDiff';
+export type { AgentCatalog, AgentCatalogKey, AgentCatalogEntry } from './generated-entry';
 export { prepareChatDiff } from './chatDiff';
 export {
   appDataMigrationComplete,
@@ -2923,6 +2924,14 @@ export class NativeHostRuntime {
 
   agentPreferencesJson(): string {
     return this.runtime.agentPreferencesJson();
+  }
+
+  cachedAgentCatalog(paneId: string) {
+    return this.runtime.cachedAgentCatalog(paneId);
+  }
+
+  refreshAgentCatalog(paneId: string) {
+    return this.runtime.refreshAgentCatalog(paneId);
   }
 
   agentControlViews(): AgentControlView[] {

@@ -369,3 +369,22 @@ They always omit plaintext previews. Tapping uses the existing authenticated
 host/session/pane navigation, refreshes topology, and opens the pane with its
 in-app controls; approval is performed there. Legacy status events retain their
 previous shape and do not become call-log entries.
+
+### Call history and foreground banners (Aries)
+
+Open **More → Call log**, select a saved host, and connect it if needed. The
+screen reads that host's retained `calls.jsonl` over authenticated SSH, including
+calls and approval events recorded while the app was closed. Rows show newest
+first with urgency, local time, pane, title/body and recorded reply text. Filter
+by effective urgency; downgraded calls appear under `record`, with their
+requested urgency and `자격 없음` reason. Opening a row refreshes topology before
+opening its pane. A removed pane leaves the log open with an error.
+
+While foreground, each connected Herdr host has one Rust-owned `tail -F` SSH
+stream. New calls and approvals show an in-app banner with Open and Dismiss,
+even when leases suppress push delivery. Initial history and `record` entries
+stay silent. The stream replays the file after atomic replacement; call IDs
+prevent duplicate banners. Stream failures retry and catch up foreground calls.
+Moving to the background or disconnecting closes the stream; returning loads
+history again without replaying past banners. Viewing history does not require
+push registration or alter the host log.

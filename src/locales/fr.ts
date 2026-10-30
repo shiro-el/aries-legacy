@@ -802,6 +802,8 @@ export const fr = {
   'terminal.collapseComposer': 'Réduire l’éditeur de saisie',
   'terminal.expandedComposerTitle': 'Éditeur de texte long',
   'terminal.composeCharacterCount': '{{count}} caractères',
+  'terminal.commandCatalog': 'Commandes de l’agent',
+  'terminal.commandTerminalOnly': 'Terminal uniquement',
   'terminal.composePlaceholder': 'Modifiez une commande ou un message avant l’envoi…',
   'terminal.sendBufferedInput': 'Envoyer au terminal',
   'terminal.closeCompose': 'Fermer l’éditeur de saisie',

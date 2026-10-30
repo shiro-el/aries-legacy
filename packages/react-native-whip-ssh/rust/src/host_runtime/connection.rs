@@ -1293,6 +1293,8 @@ impl HostRuntime {
                 inner.terminal_settled.notify_waiters();
                 inner.reverse_control.shutdown();
                 inner.agents.disconnected(true, "Host runtime disconnected");
+                let call_log = inner.state.lock().call_log.take();
+                drop(call_log);
                 close_herdr_event_subscription(inner.id.clone());
                 agent_view::stop(&inner);
                 clear_latency_transport(&inner).await;

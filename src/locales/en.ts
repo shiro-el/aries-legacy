@@ -799,6 +799,8 @@ export const en = {
   'terminal.collapseComposer': 'Collapse input composer',
   'terminal.expandedComposerTitle': 'Long text editor',
   'terminal.composeCharacterCount': '{{count}} characters',
+  'terminal.commandCatalog': 'Agent commands',
+  'terminal.commandTerminalOnly': 'Terminal only',
   'terminal.composePlaceholder': 'Edit a command or message before sending…',
   'terminal.sendBufferedInput': 'Send to terminal',
   'terminal.closeCompose': 'Close input composer',

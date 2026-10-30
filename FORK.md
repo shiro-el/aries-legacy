@@ -213,7 +213,58 @@ fork keeps the herding theme with the ram that leads the flock.
   native alarm arming, replay/concurrent/cold receipt, failure suppression,
   foreground silence and local tap navigation.
 
-### 9. Background answers from call notification buttons
+### 9. Host call history and foreground calls
+
+- **What:** More → Call log shows each host's retained calls and approvals,
+  newest first, with effective urgency, time, pane, title/body, ineligibility and
+  reply text. Urgency filters and rows open the recorded pane through fresh host
+  state. Connected hosts surface new calls in an in-app banner while foreground.
+- **Why:** Lease-suppressed calls and calls received while the phone was offline
+  must remain visible without depending on push delivery.
+- **How:** The existing authenticated notification runtime discovers the plugin
+  state directory. Rust reads a bounded `calls.jsonl` snapshot and owns a
+  generation-guarded `tail -n +1 -F` SSH stream, frames JSONL bytes and validates
+  records before exposing them through notification commands. Snapshot replay
+  closes the subscription gap; call IDs deduplicate rotation/reconnect replay.
+  The foreground consumer drains the native buffer each second, pauses in the
+  background, cleans up on detach, and retries after failures. Initial history
+  stays silent; `record` entries never show banners. No remote log is deleted.
+- **Validation:** Jest screens over mockWhipSsh cover history, approval/reply
+  display, urgency filtering, host/pane navigation, ineligible records,
+  foreground deduplication, background cleanup and reconnect catch-up.
+
+### 10. Agent command catalog and composer autocomplete
+
+- **What:** Agent composers offer command-only `/` completion with descriptions,
+  argument hints and a terminal-only label. Choosing a command inserts `/name `;
+  sending a terminal-only command opens Terminal after successful delivery.
+- **Why:** Phone users can discover commands without mixing them with skills or
+  losing access to CLI menus. Shell input and ordinary composer messages retain
+  their existing behavior when discovery is unavailable.
+- **How:** Rust owns a bounded, per-host cache keyed by cwd, agent and version,
+  with typed command and skill projections. Opening a pane reads its cached
+  catalog and refreshes it in the background. Discovery uses a separate SSH exec
+  channel and an optional Python 3 helper, never the interactive pane channel.
+  - Claude uses the read-only `/status` print-mode `system/init` with session
+    persistence disabled. Its skills are removed from commands, including skill
+    overrides of known builtins. User, ancestor-project and installed-plugin
+    frontmatter enriches discovered entries; known interactive commands fill
+    omissions in print-mode discovery.
+  - Codex uses app-server initialization and `skills/list`, direct user prompt
+    files, and a curated command registry for verified version 0.165.0. Other
+    versions expose discovered prompts and skills while their builtin commands
+    stay hidden until a version-specific registry is verified. The `/skills`
+    menu stays hidden from command completion for the separate skill entry.
+  - Discovery processes have time, output and file-scan limits and are killed
+    after metadata arrives. Missing Python or CLI discovery failures disable
+    completion without blocking typing, sending or queued retries. Cache entries
+    live only in the owning Rust runtime; no host catalog contents are persisted.
+- **Validation:** Rust fixtures cover command/skill separation, namespace-aware
+  frontmatter, interactive labels and version keys. Jest screen tests cover
+  filtering, caret position, insertion without sending, shell panes, failed/late
+  discovery, and successful versus failed terminal-only delivery.
+
+### 11. Background answers from call notification buttons
 
 - **What:** Android call alerts expose their one to three choices as background
   buttons. The same notification reports delivery or failure and keeps pane

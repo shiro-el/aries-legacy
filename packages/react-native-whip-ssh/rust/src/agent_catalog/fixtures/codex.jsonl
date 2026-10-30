@@ -1,0 +1,2 @@
+{"id":1,"result":{"userAgent":"codex/0.165.0"}}
+{"id":2,"result":{"data":[{"cwd":"/project","skills":[{"name":"review-helper","description":"Review a change","enabled":true},{"name":"disabled","description":"Disabled skill","enabled":false}],"errors":[]}]}}

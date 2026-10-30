@@ -5,6 +5,7 @@ mod agent_controls;
 pub use agent_controls::AgentControlView;
 mod agent_view;
 mod agents;
+mod catalog;
 mod chat_identity;
 mod connection;
 pub use connection::herdr_protocol_label;
@@ -21,6 +22,7 @@ mod host_latency;
 pub use herdr_setup::{HerdrInstallOutcome, HerdrInstallationStatus, HerdrSetup};
 mod interaction;
 pub use interaction::{AgentInteractionChoice, AgentInteractionKind, AgentInteractionPrompt};
+mod call_log;
 mod monitoring;
 mod notifications;
 mod remote_files;
@@ -448,6 +450,7 @@ struct RuntimeState {
     host_state: HostState,
     agent_order: Option<Vec<String>>,
     notification_install: Option<notifications::PluginInstallation>,
+    call_log: Option<call_log::CallLogStream>,
 }
 
 impl RuntimeState {
@@ -471,6 +474,7 @@ impl RuntimeState {
             host_state: HostState::default(),
             agent_order: None,
             notification_install: None,
+            call_log: None,
         }
     }
 
@@ -587,6 +591,8 @@ impl RuntimeState {
 }
 
 struct RuntimeInner {
+    catalog_cache: Mutex<catalog::CatalogCache>,
+    catalog_operation: AsyncMutex<()>,
     interaction_response: AsyncMutex<HashMap<String, String>>,
     id: String,
     incarnation: u64,
@@ -909,6 +915,8 @@ pub fn create_host_runtime(
         config.herdr_enabled,
     );
     let inner = Arc::new(RuntimeInner {
+        catalog_cache: Mutex::new(catalog::CatalogCache::default()),
+        catalog_operation: AsyncMutex::new(()),
         interaction_response: AsyncMutex::new(HashMap::new()),
         id: id.clone(),
         incarnation,

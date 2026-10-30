@@ -784,6 +784,8 @@ export const ja = {
   'terminal.collapseComposer': '入力エディターを折りたたむ',
   'terminal.expandedComposerTitle': '長文エディター',
   'terminal.composeCharacterCount': '{{count}} 文字',
+  'terminal.commandCatalog': 'エージェントコマンド',
+  'terminal.commandTerminalOnly': 'ターミナル専用',
   'terminal.composePlaceholder': '送信する前にコマンドまたはメッセージを編集してください…',
   'terminal.sendBufferedInput': '端末に送信',
   'terminal.closeCompose': '入力コンポーザーを閉じる',

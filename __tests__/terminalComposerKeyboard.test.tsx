@@ -8,6 +8,10 @@ import {
   Platform,
 } from 'react-native';
 
+import { createHostRuntime } from 'react-native-whip-ssh';
+import { getMockWhipSshControl } from './mockWhipSsh';
+jest.mock('react-native-whip-ssh', () => require('./mockWhipSsh').createMockWhipSshModule());
+
 import { TerminalScreen } from '../src/components/TerminalScreen';
 import { AgentChatView } from '../src/components/AgentChatView';
 jest.mock('../src/hooks/useNativeChatRows', () => ({
@@ -1271,4 +1275,122 @@ test('tab switching with an open direct keyboard preserves geometry and hides ch
   expect(Keyboard.dismiss).not.toHaveBeenCalled();
   expect(onControlBarHeightChange).not.toHaveBeenCalled();
   expect(renderer.root.findByProps({ className: 'absolute inset-x-0 bottom-0 z-30' }).props.style.transform[0].translateY).toBe(-keyboardHeight);
+});
+
+
+test('agent command autocomplete filters the first word and inserts without sending', async () => {
+  const native = createHostRuntime({ runtimeId: 'catalog-host' } as Parameters<typeof createHostRuntime>[0]);
+  getMockWhipSshControl().agentCatalogs.set('pane-1', {
+    key: { host: 'catalog-host', cwd: '/project', agent: 'claude', version: '2.1.312' },
+    commands: [
+      { name: 'compact', description: 'Summarize conversation', argumentHint: '[instructions]', terminalOnly: false },
+      { name: 'permissions', description: 'Manage permissions', argumentHint: '', terminalOnly: true },
+    ],
+    skills: [{ name: 'review-helper', description: 'Review a change', argumentHint: '', terminalOnly: false }],
+  });
+  const agentTarget = { ...target, client: { native }, session: { ...target.session, paneId: 'pane-1' } } as Props['targets'][number];
+  mount({ activeTarget: agentTarget, targets: [agentTarget] });
+  await act(async () => {});
+  await press('compose');
+  act(() => { ui('MessageComposer').props.onChangeText('/'); });
+  const command = (name: string) => renderer.root.findAll(node => String(node.type) === 'Pressable' && node.props.accessibilityLabel === `/${name}`);
+  expect(command('compact')).toHaveLength(1);
+  expect(command('permissions')).toHaveLength(1);
+  expect(command('review-helper')).toHaveLength(0);
+  expect(command('compact')[0].findAll(node => String(node.type) === 'Text').map(node => node.props.children).flat()).toContain('[instructions]');
+  act(() => { ui('MessageComposer').props.onChangeText('/co'); });
+  expect(command('permissions')).toHaveLength(0);
+  act(() => { command('compact')[0].props.onPress(); });
+  expect(mockComposerHandle.setNativeProps).toHaveBeenLastCalledWith({ text: '/compact ' });
+  expect(terminalHandle.submitPastes).not.toHaveBeenCalled();
+  expect(command('compact')).toHaveLength(0);
+});
+
+
+function commandCatalogTarget() {
+  const native = createHostRuntime({ runtimeId: 'catalog-host' } as Parameters<typeof createHostRuntime>[0]);
+  getMockWhipSshControl().agentCatalogs.set('catalog-pane', {
+    key: { host: 'catalog-host', cwd: '/project', agent: 'claude', version: '2.1.312' },
+    commands: [{ name: 'permissions', description: 'Manage permissions', argumentHint: '', terminalOnly: true }], skills: [],
+  });
+  return { ...target, client: { native }, session: { ...target.session, paneId: 'catalog-pane' } } as Props['targets'][number];
+}
+
+test('autocomplete hides in message text and arguments, and follows the caret', async () => {
+  const agentTarget = commandCatalogTarget();
+  mount({ activeTarget: agentTarget, targets: [agentTarget] });
+  await act(async () => {});
+  await press('compose');
+  const matches = () => renderer.root.findAll(node => String(node.type) === 'Pressable' && node.props.accessibilityLabel === '/permissions');
+  for (const text of ['look /per', '/permissions args', ' /permissions']) {
+    act(() => { ui('MessageComposer').props.onChangeText(text); });
+    expect(matches()).toHaveLength(0);
+  }
+  act(() => { ui('MessageComposer').props.onChangeText('/permissions args'); });
+  act(() => { ui('MessageComposer').props.onSelectionChange({ nativeEvent: { selection: { start: 4, end: 4 } } }); });
+  expect(matches()).toHaveLength(1);
+  act(() => { ui('MessageComposer').props.onSelectionChange({ nativeEvent: { selection: { start: 0, end: 0 } } }); });
+  expect(matches()).toHaveLength(0);
+});
+
+test('terminal-only commands switch to terminal after delivery and retain the next draft', async () => {
+  const agentTarget = commandCatalogTarget();
+  let finishSend!: () => void;
+  terminalHandle.submitPastes.mockImplementationOnce(() => new Promise<void>(resolve => { finishSend = resolve; }));
+  const onPress = jest.fn();
+  mount({ activeTarget: agentTarget, targets: [agentTarget], chatControl: { active: true, disabled: false, loading: false, accessibilityLabel: 'Terminal', onPress } });
+  await act(async () => {});
+  await press('compose');
+  act(() => { ui('MessageComposer').props.onChangeText('/permissions'); });
+  await act(async () => { ui('MessageComposer').props.actions.onSend(); });
+  expect(onPress).not.toHaveBeenCalled();
+  act(() => { ui('MessageComposer').props.onChangeText('Next message'); });
+  await act(async () => finishSend());
+  expect(terminalHandle.submitPastes).toHaveBeenCalledWith(agentTarget, ['/permissions'], true);
+  expect(onPress).toHaveBeenCalledTimes(1);
+  await press('compose');
+  expect(ui('MessageComposer').props.initialValue).toBe('Next message');
+});
+
+test('late catalog discovery does not follow a switch to a shell pane', async () => {
+  const agentTarget = commandCatalogTarget();
+  let receive!: (value: unknown) => void;
+  getMockWhipSshControl().refreshAgentCatalog.mockImplementationOnce(() => new Promise(resolve => { receive = resolve; }));
+  mount({ activeTarget: agentTarget, targets: [agentTarget] });
+  await press('compose');
+  const shell = { ...agentTarget, key: 'shell', session: { ...agentTarget.session, paneId: 'shell-pane' } };
+  props.composerStore.setToggles('shell', true);
+  await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={shell} targets={[agentTarget, shell]} />));
+  await act(async () => receive(getMockWhipSshControl().agentCatalogs.get('catalog-pane')));
+  act(() => { ui('MessageComposer').props.onChangeText('/permissions'); });
+  expect(renderer.root.findAllByProps({ accessibilityLabel: '/permissions' })).toHaveLength(0);
+  await act(async () => { ui('MessageComposer').props.actions.onSend(); });
+  expect(terminalHandle.submitPastes).toHaveBeenCalledWith(shell, ['/permissions'], true);
+});
+
+
+test('catalog failure leaves composer sending available', async () => {
+  const agentTarget = commandCatalogTarget();
+  getMockWhipSshControl().agentCatalogs.delete('catalog-pane');
+  getMockWhipSshControl().refreshAgentCatalog.mockRejectedValueOnce(new Error('Agent binary unavailable'));
+  mount({ activeTarget: agentTarget, targets: [agentTarget] });
+  await act(async () => {});
+  await press('compose');
+  act(() => { ui('MessageComposer').props.onChangeText('/compact'); });
+  expect(renderer.root.findAllByProps({ accessibilityLabel: '/compact' })).toHaveLength(0);
+  await act(async () => { expect(ui('MessageComposer').props.actions.onSend()).toBe(true); });
+  expect(terminalHandle.submitPastes).toHaveBeenCalledWith(agentTarget, ['/compact'], true);
+});
+
+test('a rejected terminal-only command stays in Chat for retry', async () => {
+  const agentTarget = commandCatalogTarget();
+  const onPress = jest.fn();
+  terminalHandle.submitPastes.mockRejectedValueOnce(new Error('Disconnected'));
+  mount({ activeTarget: agentTarget, targets: [agentTarget], chatControl: { active: true, disabled: false, loading: false, accessibilityLabel: 'Terminal', onPress } });
+  await act(async () => {});
+  await press('compose');
+  act(() => { ui('MessageComposer').props.onChangeText('/permissions'); });
+  await act(async () => { ui('MessageComposer').props.actions.onSend(); });
+  expect(onPress).not.toHaveBeenCalled();
+  expect(ui('MessageComposer')).toBeDefined();
 });

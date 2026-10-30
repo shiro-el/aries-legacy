@@ -1819,6 +1819,7 @@ export function SessionScreen({
           <TerminalScreen
             onResidencyEnd={onTerminalResidencyEnd}
             activeTarget={activeTarget}
+            catalogPaneContext={JSON.stringify([activePane?.agent, activePane?.foreground_cwd, activePane?.cwd])}
             targets={terminalTargets}
             compact
             sessionChromeInset={sessionChromeInset}

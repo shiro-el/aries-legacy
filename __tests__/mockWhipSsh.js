@@ -141,6 +141,8 @@ class MockNativeKnownHostStore {
 
 function createMockWhipSshModule() {
   const api = {
+    agentCatalogs: new Map(),
+    refreshAgentCatalog: jest.fn(async paneId => api.agentCatalogs.get(paneId)),
     connectWithPassword: jest.fn(),
     connectWithPasswordViaJump: jest.fn(),
     connectWithKey: jest.fn(),
@@ -236,6 +238,8 @@ function createMockWhipSshModule() {
 
     const runtime = {
       runtimeId: config.runtimeId,
+      cachedAgentCatalog: paneId => api.agentCatalogs.get(paneId),
+      refreshAgentCatalog: paneId => api.refreshAgentCatalog(paneId),
       herdrEnabled: config.herdrEnabled !== false,
       controlClient: undefined,
       async connect() {
@@ -326,9 +330,6 @@ function createMockWhipSshModule() {
         return hostState;
       },
       resolvedSocketPath() { return resolvedSocket; },
-      notificationCommand(operation, payload) {
-        return runtime.controlClient.notificationCommand(operation, payload);
-      },
       resolveHerdrSocketPath() { return socketPath(); },
       async requestHerdrApi(request) {
         const call = async () => {
@@ -503,6 +504,7 @@ function createMockWhipSshModule() {
       },
       submitPastes(paneId, parts) { return runtime.controlClient.submitPastes(paneId, parts); },
       startHerdrServer() { return runtime.controlClient.startHerdrServer(); },
+      notificationCommand(operation, payload) { return runtime.controlClient.notificationCommand(operation, payload); },
       execute(command) { return runtime.controlClient.execute(command); },
       remoteHome() { return runtime.controlClient.getRemoteHome(); },
       measureHostLatency() { return runtime.controlClient.measureHostLatency(); },

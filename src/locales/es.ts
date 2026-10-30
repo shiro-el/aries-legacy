@@ -784,6 +784,8 @@ export const es = {
   'terminal.collapseComposer': 'Contraer editor de entrada',
   'terminal.expandedComposerTitle': 'Editor de texto largo',
   'terminal.composeCharacterCount': '{{count}} caracteres',
+  'terminal.commandCatalog': 'Comandos del agente',
+  'terminal.commandTerminalOnly': 'Solo terminal',
   'terminal.composePlaceholder': 'Editar un comando o mensaje antes de enviar...',
   'terminal.sendBufferedInput': 'Enviar a terminal',
   'terminal.closeCompose': 'Cerrar el compositor de entrada',
