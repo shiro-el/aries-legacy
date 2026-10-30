@@ -35,6 +35,7 @@ class HerdrBackgroundModule(
   private val mainHandler = Handler(Looper.getMainLooper())
   private var activeAlertIdentifier: String? = null
   private var activeAlertChannelId: String? = null
+  private var activeAlertCompletion: Promise? = null
   private var mediaPlayer: MediaPlayer? = null
   private var shakeListening = false
   private var lastShakeAtMs = 0L
@@ -163,7 +164,10 @@ class HerdrBackgroundModule(
           stopAlertRunnable,
           timeoutMs.toLong().coerceIn(MIN_ALERT_WINDOW_MS, MAX_ALERT_WINDOW_MS),
         )
-        promise.resolve(null)
+        // Keep an Expo headless notification task alive until the native alarm
+        // stops. Finishing immediately lets Expo destroy a cold React runtime
+        // after two seconds, whose invalidate() would otherwise cut off ringing.
+        activeAlertCompletion = promise
       } catch (error: Throwable) {
         stopPersistentAlert()
         promise.reject("E_PERSISTENT_ALERT_ARM", error)
@@ -306,6 +310,9 @@ class HerdrBackgroundModule(
     updateShakeListener()
     releaseMediaPlayer()
     reason?.let { Log.i(TAG, it) }
+    val completion = activeAlertCompletion
+    activeAlertCompletion = null
+    completion?.resolve(null)
   }
 
   /** Persistent alerts keep shake detection after their announcement finishes. */

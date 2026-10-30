@@ -1,5 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
-export type RelayEnv = NotifyEnv & { EXPO_ACCESS_TOKEN?: string };
+export type RelayEnv = NotifyEnv & {
+  EXPO_ACCESS_TOKEN?: string;
+  VISIBLE_PUSH_FALLBACK?: string;
+};
 declare const crypto: import('@cloudflare/workers-types').Crypto;
 
 const ID = /^[a-zA-Z0-9_-]{16,64}$/;
@@ -397,11 +400,15 @@ async function push(request: Request, env: RelayEnv): Promise<Response> {
     await deviceMessageBudget(env, device.expo_token);
     const reply = await expo(env, 'send', {
       to: device.expo_token,
-      title: preview?.title ?? GENERIC_TITLE,
-      body: preview?.body ?? GENERIC_BODY,
-      sound: 'default',
+      // V2 content and urgency are interpreted only on the device. Even a
+      // preview-enabled host uses the same authenticated local notification path.
+      ...(h.version === 1 || env.VISIBLE_PUSH_FALLBACK === 'true' ? {
+        title: preview?.title ?? GENERIC_TITLE,
+        body: preview?.body ?? GENERIC_BODY,
+        sound: 'default',
+        channelId: 'agent-state-regular-v1',
+      } : {}),
       priority: 'high',
-      channelId: 'agent-state-regular-v1',
       ttl: Math.max(
         1,
         Math.min(DAY, h.issued_at + DAY - Math.floor(Date.now() / 1000)),

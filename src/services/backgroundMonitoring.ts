@@ -38,6 +38,7 @@ export async function stopBackgroundMonitoring(): Promise<void> {
   await module.stop();
 }
 
+/** Resolves when the native alert stops (shake, dismissal, replacement or timeout). */
 export async function armPersistentAgentAlert(
   notificationIdentifier: string,
   channelId: string,
