@@ -166,6 +166,7 @@ pub fn record(store: &Store, call: &CallRecord) -> Result<()> {
 fn record_locked(store: &Store, call: &CallRecord) -> Result<()> {
     let path = store.state.join("calls.jsonl");
     let mut lines = Vec::new();
+    let mut original_size = None;
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_secs();
@@ -178,17 +179,38 @@ fn record_locked(store: &Store, call: &CallRecord) -> Result<()> {
         if bytes.len() > CALL_LOG_BYTES {
             return Err("call log too large".into());
         }
+        original_size = Some(bytes.len());
         for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
-            let entry: CallRecord = serde_json::from_slice(line)?;
-            if entry.created_at >= now.saturating_sub(CALL_LOG_MAX_AGE) {
+            // Retain newer schema records without interpreting event fields.
+            // Malformed or undated lines cannot participate in bounded history.
+            let Ok(entry) = serde_json::from_slice::<Value>(line) else {
+                continue;
+            };
+            if entry["created_at"]
+                .as_u64()
+                .is_some_and(|created_at| created_at >= now.saturating_sub(CALL_LOG_MAX_AGE))
+            {
                 lines.push(line.to_vec());
             }
         }
     }
-    lines.push(serde_json::to_vec(call)?);
+    let next = serde_json::to_vec(call)?;
+    let retained_size: usize = lines.iter().map(|line| line.len() + 1).sum();
+    if original_size == Some(retained_size) && retained_size + next.len() + 1 <= CALL_LOG_BYTES {
+        let mut line = next;
+        line.push(b'\n');
+        return crate::host::append_private(&path, &line);
+    }
+    lines.push(next);
     let mut size: usize = lines.iter().map(|line| line.len() + 1).sum();
     let mut skip = 0;
-    while size > CALL_LOG_BYTES {
+    // Leave headroom after rotation so a full log does not rotate on every call.
+    let budget = if size > CALL_LOG_BYTES {
+        CALL_LOG_BYTES * 3 / 4
+    } else {
+        CALL_LOG_BYTES
+    };
+    while size > budget {
         size -= lines[skip].len() + 1;
         skip += 1;
     }
@@ -223,9 +245,13 @@ pub fn reply(
     }
     let mut original = None;
     for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
-        let entry: CallRecord = serde_json::from_slice(line)?;
-        if entry.event.call_id.as_deref() == Some(id) {
-            original = Some(entry);
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if value["call_id"].as_str() == Some(id) {
+            // Do not fall back to an older unclaimed record if a newer schema
+            // carries an answer we cannot understand. Other calls are irrelevant.
+            original = Some(serde_json::from_value::<CallRecord>(value)?);
         }
     }
     let mut call = original.ok_or("call unavailable")?;
@@ -249,7 +275,9 @@ pub fn reply(
     if text.is_empty() || text.len() > OPTION_BYTES || text.chars().any(char::is_control) {
         return Err("invalid choice".into());
     }
-    if let Some(previous) = &call.reply {
+    if let Some(previous) = &call.reply
+        && call.reply_status.as_deref() != Some("failed")
+    {
         if previous != &text {
             return Err("call already answered".into());
         }

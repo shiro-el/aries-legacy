@@ -40,6 +40,7 @@ fn registration(id: &str, key: &KeyPair) -> Registration {
         route_token: "x".repeat(64),
         session: event().session,
         end_to_end_encrypted: true,
+        envelope_version: 2,
     }
 }
 
@@ -492,4 +493,128 @@ fn call_delivery_reuses_the_logged_call_id_and_never_pushes_records() {
         deliver(&store, &call, &|_, _| panic!("record must never push")).unwrap(),
         0
     );
+}
+
+#[test]
+fn registrations_negotiate_legacy_and_v2_envelopes_for_the_same_call() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = store(temp.path());
+    let device = generate_key().unwrap();
+    let legacy_id = uuid::Uuid::new_v4().to_string();
+    let modern_id = uuid::Uuid::new_v4().to_string();
+    let mut legacy = serde_json::to_value(registration(&legacy_id, &device)).unwrap();
+    legacy.as_object_mut().unwrap().remove("envelope_version");
+    let mut modern = serde_json::to_value(registration(&modern_id, &device)).unwrap();
+    modern["envelope_version"] = serde_json::json!(2);
+    // Exercise the registration CLI used by mobile clients, including old payloads.
+    for value in [legacy, modern] {
+        use std::io::Write;
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_whip-notify"))
+            .arg("--dirs")
+            .arg(&store.config)
+            .arg(&store.state)
+            .arg("register")
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(value.to_string().as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+    let call = NotificationEvent {
+        kind: Some("call".into()),
+        urgency: Some("urgent".into()),
+        call_id: Some("call-id-0000000000000001".into()),
+        body: Some("Ready for review".into()),
+        options: vec!["Accept".into()],
+        ..event()
+    };
+    let host = store.identity().unwrap();
+    assert_eq!(
+        deliver(&store, &call, &|registration, envelope| {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let opened = decrypt(
+                &device,
+                &host.public_key,
+                &registration.device_id,
+                envelope,
+                now,
+            )
+            .unwrap();
+            if registration.device_id == legacy_id {
+                assert_eq!(envelope.header.version, 1);
+                assert_eq!(envelope.ciphertext.len(), 1387);
+                assert_eq!(opened.pane_id, call.pane_id);
+                assert_eq!(opened.title, call.title);
+                assert!(opened.kind.is_none());
+                assert!(opened.body.is_none());
+                assert!(opened.options.is_empty());
+                assert_eq!(
+                    serde_json::to_value(opened)
+                        .unwrap()
+                        .as_object()
+                        .unwrap()
+                        .len(),
+                    5
+                );
+            } else {
+                assert_eq!(envelope.header.version, 2);
+                assert_eq!(opened, call);
+            }
+            Ok(())
+        })
+        .unwrap(),
+        2
+    );
+    // Oversized legacy routing cannot be truncated safely, and must not block
+    // compatible devices in the same delivery batch.
+    let mut long_call = call;
+    long_call.session = format!("/{}", "\\".repeat(511));
+    for mut registration in store.registrations().unwrap() {
+        registration.session = long_call.session.clone();
+        store.register(registration).unwrap();
+    }
+    assert_eq!(
+        deliver(&store, &long_call, &|registration, envelope| {
+            assert_eq!(registration.device_id, modern_id);
+            assert_eq!(envelope.header.version, 2);
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn plain_hook_envelopes_include_the_existing_alert_wording_and_body() {
+    for (status, title) in [("done", "codex finished"), ("blocked", "codex needs you")] {
+        let hook = serde_json::json!({"event":"pane_agent_status_changed","data":{
+            "pane_id":"w1:p2","workspace_id":"w1","agent_status":status,"agent":"codex","title":"Review command"
+        }}).to_string();
+        let event = parse_event(&hook, "{}", "/tmp/herdr-test.sock")
+            .unwrap()
+            .unwrap();
+        let host = generate_key().unwrap();
+        let device = generate_key().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let envelope = encrypt(
+            &host,
+            &device.public_key,
+            header(&host, &device, &id),
+            &event,
+        )
+        .unwrap();
+        let opened = decrypt(&device, &host.public_key, &id, &envelope, 1000).unwrap();
+        assert!(opened.kind.is_none());
+        assert_eq!(opened.title.as_deref(), Some(title));
+        assert_eq!(opened.body.as_deref(), Some("Review command"));
+    }
 }

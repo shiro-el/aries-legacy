@@ -312,3 +312,45 @@ fork keeps the herding theme with the ram that leads the flock.
   search, sources, compact/expanded insertion, selection replacement, shell panes,
   failures and pane changes. Rust parser tests cover known and unknown sources.
   Native bindings are regenerated for the optional source field.
+
+### 13. Recoverable phone-first workflow behavior
+
+- **What:** Preserve manual composer toggles across resume, migrate legacy drafts
+  without old visibility, and reuse command/skill catalogs for five minutes.
+  Repair failed-reply retries, installer recovery, device-version compatibility,
+  plain hook wording, call-log following and notification-category cleanup.
+- **Why:** Lane review found state resets, abandoned installer locks, blocked
+  delivery/retries, incompatible pushes and repeated history/category growth.
+- **How:**
+  - Apply pane defaults only when the effective mode changes. Commit draft-only
+    migration into the v2 key before removing obsolete per-host composer keys;
+    existing v2 drafts and preferences take precedence.
+  - Share pending catalog discoveries and retain fresh cached catalogs for five
+    minutes per runtime/identity. The Claude discovery comment now acknowledges
+    ephemeral sessions and possible user SessionStart hooks.
+  - Retry only known failed replies; delivered and uncertain claims remain
+    at-most-once. Skip corrupt log rows, retain dated newer JSON, and warn without
+    blocking new push delivery if history cannot be written. Reply claims still
+    require durable recording and unreadable matching history fails closed.
+  - Recover dead-PID/empty legacy skill locks, preserve live installers, and warn
+    and skip custom/edited/symlinked skill destinations independently.
+  - Advertise host v2 capability and register device envelope support only when
+    understood by the host. Unversioned registrations receive strict v1 event
+    projections with authenticated routing and no unsupported choices. Drop the
+    title if necessary to fit v1; skip only legacy recipients whose routing alone
+    exceeds v1 padding. Keep modern-device delivery and plaintext-preview policy.
+    Plain hook events carry their existing alert wording/body inside encryption.
+  - Append ordinary log writes; compact atomically for repair/age/size, leaving
+    25% size headroom. Native following deduplicates opening/rotation snapshots
+    and counts only new records toward its unread budget, with bounded call-revision memory.
+  - Serialize category creation/scheduling and prune categories unused by any
+    presented notification on receipts, answers, dismissal and alert setup. This
+    also reconciles OS dismissals while JavaScript was stopped.
+  - Advance the host plugin to 0.1.7 for the changed binary/installer. No existing
+    feature was removed; no release, push, deployment or device run occurred.
+- **Validation:** Regression tests cover resume toggles, draft migration/failure,
+  catalog TTL, failed-choice retries and uncertain/delivered deduplication,
+  malformed/unsafe history, incremental tail output, stale locks and custom
+  skills, mixed envelope versions/oversized legacy routes, encrypted hook wording,
+  and unused versus active notification categories. Rebuilt native app/host
+  plugin and physical Android background-delivery checks remain required.

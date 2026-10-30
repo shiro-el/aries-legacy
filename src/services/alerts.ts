@@ -1,3 +1,4 @@
+import { pruneCallNotificationCategories, scheduleRemoteNotification } from './notificationCategories';
 import { setNotificationDeliveryAvailable } from './notificationPipelineHealth';
 import { notificationRegistrationProof } from '../lib/notificationRegistration';
 import * as Notifications from 'expo-notifications';
@@ -107,6 +108,7 @@ export async function prepareAlertChannels(): Promise<void> {
 
 export async function prepareAlerts(): Promise<void> {
   await prepareAlertChannels();
+  await pruneCallNotificationCategories();
   try {
     await Notifications.requestPermissionsAsync();
     setNotificationDeliveryAvailable(true);
@@ -227,12 +229,7 @@ export async function alertRemoteNotification(
   const choices = event.kind === 'call' && event.call_id && event.options?.length
     && event.options.length <= 3 ? event.options : undefined;
   const categoryIdentifier = choices ? `whip-call-${event.call_id}` : undefined;
-  if (choices && categoryIdentifier) {
-    await Notifications.setNotificationCategoryAsync(categoryIdentifier, choices.map((buttonTitle, index) => ({
-      identifier: `whip-choice-${index}`, buttonTitle, options: { opensAppToForeground: false },
-    })));
-  }
-  const identifier = await Notifications.scheduleNotificationAsync({
+  const identifier = await scheduleRemoteNotification({
     content: {
       title: event.title || 'Aries',
       body: event.body || '',
@@ -243,7 +240,7 @@ export async function alertRemoteNotification(
       data: { ...target, [ALERT_LEVEL_DATA_KEY]: delivery, ...(choices ? { callId: event.call_id } : {}) },
     },
     trigger: { channelId },
-  });
+  }, choices);
   activeAgentNotifications.set(identifier, {
     paneTargetKey: agentAlertTargetKey(target.hostId, target.paneId),
     persistent,
@@ -359,6 +356,7 @@ async function speakBeforeAlert(title: string, wasDismissed: () => boolean): Pro
 async function dismissScheduledNotification(identifier: string, stage: string): Promise<void> {
   try {
     await Notifications.dismissNotificationAsync(identifier);
+    await pruneCallNotificationCategories();
   } catch (error) {
     if (isExpectedDismissalRace(error)) return;
     recordNotificationFailure('warn', 'notification-dismiss-failed', error, { stage });

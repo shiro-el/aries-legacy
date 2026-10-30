@@ -1316,6 +1316,24 @@ function commandCatalogTarget() {
   return { ...target, client: { native }, session: { ...target.session, paneId: 'catalog-pane' } } as Props['targets'][number];
 }
 
+test('cached catalogs survive visibility and status changes, then refresh after five minutes', async () => {
+  const agentTarget = commandCatalogTarget();
+  const clock = jest.spyOn(Date, 'now').mockReturnValue(1000);
+  try {
+    mount({ activeTarget: agentTarget, targets: [agentTarget] });
+    await act(async () => {});
+    expect(getMockWhipSshControl().refreshAgentCatalog).not.toHaveBeenCalled();
+    await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} visible={false} />));
+    await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} />));
+    expect(getMockWhipSshControl().refreshAgentCatalog).not.toHaveBeenCalled();
+    clock.mockReturnValue(301001);
+    await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} catalogPaneContext="later" />));
+    expect(getMockWhipSshControl().refreshAgentCatalog).toHaveBeenCalledTimes(1);
+    await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={agentTarget} targets={[agentTarget]} catalogPaneContext="again" />));
+    expect(getMockWhipSshControl().refreshAgentCatalog).toHaveBeenCalledTimes(1);
+  } finally { clock.mockRestore(); }
+});
+
 test('autocomplete hides in message text and arguments, and follows the caret', async () => {
   const agentTarget = commandCatalogTarget();
   mount({ activeTarget: agentTarget, targets: [agentTarget] });
@@ -1354,6 +1372,8 @@ test('terminal-only commands switch to terminal after delivery and retain the ne
 
 test('late catalog discovery does not follow a switch to a shell pane', async () => {
   const agentTarget = commandCatalogTarget();
+  const discovered = getMockWhipSshControl().agentCatalogs.get('catalog-pane');
+  getMockWhipSshControl().agentCatalogs.delete('catalog-pane');
   let receive!: (value: unknown) => void;
   getMockWhipSshControl().refreshAgentCatalog.mockImplementationOnce(() => new Promise(resolve => { receive = resolve; }));
   mount({ activeTarget: agentTarget, targets: [agentTarget] });
@@ -1361,7 +1381,7 @@ test('late catalog discovery does not follow a switch to a shell pane', async ()
   const shell = { ...agentTarget, key: 'shell', session: { ...agentTarget.session, paneId: 'shell-pane' } };
   props.composerStore.setToggles('shell', true);
   await act(async () => renderer.update(<TerminalScreen {...props} activeTarget={shell} targets={[agentTarget, shell]} />));
-  await act(async () => receive(getMockWhipSshControl().agentCatalogs.get('catalog-pane')));
+  await act(async () => receive(discovered));
   act(() => { ui('MessageComposer').props.onChangeText('/permissions'); });
   expect(renderer.root.findAllByProps({ accessibilityLabel: '/permissions' })).toHaveLength(0);
   await act(async () => { ui('MessageComposer').props.actions.onSend(); });

@@ -227,11 +227,26 @@ test('an explicit empty Terminal preference survives a restart and stays local t
   expect(restarted.store.snapshot(terminalRendererKey('new-runtime', 'other')).inputMode).toBeUndefined();
 });
 
-test('upstream composer records cannot override the new pane defaults', async () => {
-  disk.set('whip.terminal.composers.v1.host', JSON.stringify({ term: { ...defaults, text: 'legacy draft' } }));
+test('upstream drafts migrate without open state, then old keys are removed', async () => {
+  const legacyKey = 'whip.terminal.composers.v1.host';
+  disk.set(legacyKey, JSON.stringify({ term: saved, other: { ...saved, text: 'older draft' } }));
+  disk.set(STORAGE_KEY, JSON.stringify({ other: { ...defaults, text: 'new draft', inputMode: 'terminal' } }));
   const { store, persistence } = setup();
   await persistence.bind('runtime', 'host');
-  expect(store.snapshot(key)).toMatchObject(defaults);
+  expect(store.snapshot(key)).toMatchObject({ ...defaults, text: saved.text });
   expect(store.snapshot(key).inputMode).toBeUndefined();
-  expect(appStorage.getItem).not.toHaveBeenCalledWith('whip.terminal.composers.v1.host');
+  expect(store.snapshot(otherKey)).toMatchObject({ text: 'new draft', inputMode: 'terminal' });
+  expect(disk.has(legacyKey)).toBe(false);
+  const restarted = setup();
+  await restarted.persistence.bind('runtime', 'host');
+  expect(restarted.store.snapshot(key).text).toBe(saved.text);
+});
+
+test('a failed migration write keeps legacy drafts for retry', async () => {
+  const legacyKey = 'whip.terminal.composers.v1.host';
+  disk.set(legacyKey, JSON.stringify({ term: saved }));
+  jest.mocked(appStorage.setItem).mockRejectedValueOnce(new Error('disk unavailable'));
+  const { persistence } = setup();
+  await expect(persistence.bind('runtime', 'host')).rejects.toThrow('disk unavailable');
+  expect(disk.has(legacyKey)).toBe(true);
 });

@@ -62,6 +62,21 @@ pub(crate) fn open_private(path: &Path) -> Result<File> {
     Ok(file)
 }
 
+/// Append without replacing the inode watched by foreground readers.
+pub(crate) fn append_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.mode() & 0o077 != 0 {
+        return Err("unsafe private file".into());
+    }
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 fn read_private_file(file: File) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     file.take(65_537).read_to_end(&mut bytes)?;
@@ -119,6 +134,11 @@ pub struct Registration {
     // Registrations written before preview support remain encrypted.
     #[serde(default = "encrypted_by_default")]
     pub end_to_end_encrypted: bool,
+    #[serde(default = "legacy_envelope_version")]
+    pub envelope_version: u8,
+}
+fn legacy_envelope_version() -> u8 {
+    1
 }
 fn encrypted_by_default() -> bool {
     true
@@ -172,6 +192,12 @@ pub fn notification_preview(
     json: &str,
     context: &str,
 ) -> Result<NotificationPreview> {
+    if let (Some(title), Some(body)) = (&event.title, &event.body) {
+        return Ok(NotificationPreview {
+            title: title.clone(),
+            body: body.clone(),
+        });
+    }
     let hook: Hook = serde_json::from_str(json)?;
     let context: serde_json::Value = serde_json::from_str(context)?;
     let pane_context = context["focused_pane_id"].as_str() == Some(&event.pane_id);
@@ -231,6 +257,9 @@ pub fn notification_preview(
 }
 impl Registration {
     pub fn validate(&self) -> Result<()> {
+        if !matches!(self.envelope_version, 1 | VERSION) {
+            return Err("unsupported envelope version".into());
+        }
         if !valid_id(&self.device_id)
             || !valid_id(&self.route_token)
             || self.session.is_empty()
@@ -418,14 +447,18 @@ pub fn parse_event(json: &str, context: &str, session: &str) -> Result<Option<No
     {
         return Err("invalid event context".into());
     }
-    Ok(Some(NotificationEvent {
+    let mut event = NotificationEvent {
         pane_id: hook.data.pane_id,
         workspace_id: hook.data.workspace_id,
         session: session.to_owned(),
         status: hook.data.agent_status,
         title: hook.data.title.map(|s| s.chars().take(80).collect()),
         ..Default::default()
-    }))
+    };
+    let preview = notification_preview(&event, json, context)?;
+    event.title = Some(preview.title);
+    event.body = Some(preview.body);
+    Ok(Some(event))
 }
 
 /// Encrypt before networking; four parallel requests, one 4-second total budget.
@@ -450,16 +483,41 @@ pub fn deliver(
         .filter(|d| {
             d.session == event.session && !lease_valid(&store.state, &d.device_id, SystemTime::now)
         })
-        .map(|d| {
+        .filter_map(|d| {
             let header = Header {
-                version: VERSION,
+                version: d.envelope_version,
                 host_id: key_id(&host.public_key),
                 device_id: d.device_id.clone(),
                 key_id: key_id(&d.public_key),
                 event_id: event_id.clone(),
                 issued_at: timestamp,
             };
-            encrypt(&host, &d.public_key, header, event).map(|e| (d, e))
+            // Old apps strictly decode the original five event fields. Preserve
+            // authenticated navigation and attention without unsupported actions.
+            let mut legacy = NotificationEvent {
+                pane_id: event.pane_id.clone(),
+                workspace_id: event.workspace_id.clone(),
+                session: event.session.clone(),
+                status: event.status.clone(),
+                title: event.title.clone(),
+                ..Default::default()
+            };
+            if d.envelope_version == 1
+                && serde_json::to_vec(&legacy).ok()?.len() > crate::LEGACY_PADDED_BYTES - 2
+            {
+                legacy.title = None;
+                if serde_json::to_vec(&legacy).ok()?.len() > crate::LEGACY_PADDED_BYTES - 2 {
+                    // Never truncate authenticated routing to fit an old app.
+                    // An incompatible device must not block capable recipients.
+                    return None;
+                }
+            }
+            let compatible = if d.envelope_version == 1 {
+                &legacy
+            } else {
+                event
+            };
+            Some(encrypt(&host, &d.public_key, header, compatible).map(|e| (d, e)))
         })
         .collect::<Result<Vec<_>>>()?;
     let count = pending.len();

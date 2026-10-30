@@ -1,4 +1,5 @@
-# Read-only host discovery. No turns, sessions, or model requests are created.
+# Metadata discovery stops after init, before a model turn. Claude -p may
+# create an ephemeral session and run user SessionStart hooks.
 # Python is optional: hosts without it simply retain the ordinary composer.
 import json
 import os

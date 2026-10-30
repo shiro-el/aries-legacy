@@ -1,3 +1,4 @@
+import { pruneCallNotificationCategories } from './notificationCategories';
 import * as Notifications from 'expo-notifications';
 import { dismissPersistentAgentAlertForNotification } from './backgroundMonitoring';
 import { RemoteCallDeliveryUnconfirmedError, replyToRemoteCall } from './remoteNotifications';
@@ -35,5 +36,6 @@ export async function handleNotificationChoice(response: Notifications.Notificat
     } },
     trigger: { channelId: 'agent-state-regular-v1' },
   });
+  await pruneCallNotificationCategories();
   return true;
 }

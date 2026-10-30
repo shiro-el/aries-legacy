@@ -97,7 +97,7 @@ beforeEach(() => {
     Promise.resolve(
       operation === 'discover'
         ? JSON.stringify({
-            paths: { config: '/config', state: '/state', binary: '/notify', notification_previews: true },
+            paths: { config: '/config', state: '/state', binary: '/notify', notification_previews: true, notification_envelope_version: 2 },
             identity: {
               public_key: 'pinned-host-key',
               host_id: 'opaque-host',
@@ -179,6 +179,7 @@ test('encryption defaults off per host and survives a restart before registratio
   await service.enableRemoteNotifications('saved-host', 'https://notify.example');
   const registration = JSON.parse(command.mock.calls.find(([op]) => op === 'register')![1]).registration;
   expect(registration.end_to_end_encrypted).toBe(true);
+  expect(registration.envelope_version).toBe(2);
 });
 
 test('changing encryption updates only the selected host without rotating its identity', async () => {

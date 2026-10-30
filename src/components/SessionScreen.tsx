@@ -1522,10 +1522,16 @@ export function SessionScreen({
 
   // Default requests never become a user preference. A later agent start/exit
   // can therefore change an untouched pane's presentation.
+  const appliedPaneModes = useRef(new Map<string, string>());
   const applyPaneInputMode = useEffectEvent(() => {
     if (!activeTarget || !visible || !appActive || activeTarget.session.kind === 'ssh') return;
-    if (composerState.composeOpen !== (paneInputMode === 'chat')) {
-      composerStore.setToggles(activeTarget.key, paneInputMode === 'chat');
+    if (appliedPaneModes.current.get(activeTarget.key) !== paneInputMode) {
+      appliedPaneModes.current.set(activeTarget.key, paneInputMode);
+      // Explicit mode changes already set their toggles in the store. Defaults
+      // run only for a new pane/kind, never on visibility or connection changes.
+      if (!composerState.inputMode) {
+        composerStore.setToggles(activeTarget.key, paneInputMode === 'chat');
+      }
     }
     if (composerState.inputMode === 'chat' && composerState.restoration === 0) return;
     if (paneInputMode === 'chat') {

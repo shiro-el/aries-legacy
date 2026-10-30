@@ -378,6 +378,29 @@ test('untouched panes follow agent start and exit, while an explicit mode wins',
   expect(host.props.composerStore.snapshot('target')).toMatchObject({ composeOpen: true, text: 'Keep this draft' });
 });
 
+test.each([false, true])('manual composer toggles survive backgrounding and pane revisits (agent=%s)', async agent => {
+  const host = setup('codex', true);
+  if (!agent) Object.assign(host.pane, { agent: undefined, display_agent: undefined, agent_session: undefined });
+  else {
+    const binding = bindChat(host, 'codex');
+    binding.state = { ...binding.state, status: 'live', revision: 1 };
+    host.native.startAgentChat.mockReturnValue({ type: 'started', state: binding.state });
+  }
+  await act(async () => { renderer = create(<SessionScreen {...host.props} />); });
+  if (agent) revealChat();
+  act(() => { host.props.composerStore.setToggles('target', true, true); });
+  for (const state of ['background', 'active']) {
+    await act(async () => { for (const listener of mockAppStateListeners) listener(state); });
+  }
+  await act(async () => { renderer.update(<SessionScreen {...host.props} visible={false} />); });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(host.props.composerStore.snapshot('target')).toMatchObject({ composeOpen: true, composeExpanded: true });
+  act(() => { host.props.composerStore.setToggles('target', false); });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} visible={false} />); });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(false);
+});
+
 test('a late restored Terminal preference overrides an agent default without losing its draft', async () => {
   const host = setup('claude', true);
   const binding = bindChat(host, 'claude');

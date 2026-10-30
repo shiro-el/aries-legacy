@@ -26,6 +26,9 @@ jest.mock('expo-notifications', () => ({
   setNotificationChannelAsync: jest.fn().mockResolvedValue(null),
   scheduleNotificationAsync: jest.fn().mockResolvedValue('local-call'),
   setNotificationCategoryAsync: jest.fn().mockResolvedValue(null),
+  getNotificationCategoriesAsync: jest.fn().mockResolvedValue([]),
+  getPresentedNotificationsAsync: jest.fn().mockResolvedValue([]),
+  deleteNotificationCategoryAsync: jest.fn().mockResolvedValue(true),
   dismissNotificationAsync: jest.fn(),
   requestPermissionsAsync: jest.fn(),
 }));
@@ -167,6 +170,20 @@ test.each([1, 2, 3])('%i call choices become background actions on the authentic
   }));
 });
 
+test('new receipts reclaim dismissed call categories and retain categories still in use', async () => {
+  jest.mocked(Notifications.getNotificationCategoriesAsync).mockResolvedValueOnce([
+    { identifier: 'whip-call-dismissed', actions: [] },
+    { identifier: 'whip-call-active', actions: [] },
+    { identifier: 'another-feature', actions: [] },
+  ]);
+  jest.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValueOnce([
+    { request: { content: { categoryIdentifier: 'whip-call-active' } } } as Notifications.Notification,
+  ]);
+  await mockTask({ data: headless() });
+  expect(Notifications.deleteNotificationCategoryAsync).toHaveBeenCalledTimes(1);
+  expect(Notifications.deleteNotificationCategoryAsync).toHaveBeenCalledWith('whip-call-dismissed');
+});
+
 test('approval alerts never offer reply buttons even if their payload contains choices', async () => {
   jest.mocked(notificationOpen).mockReturnValueOnce(JSON.stringify({
     event: { pane_id: 'w1:p1', session: '/tmp/herdr.sock', kind: 'approval', urgency: 'urgent',
@@ -198,6 +215,9 @@ test.each([false, true])('a cold background choice connects, verifies, submits a
     type: 'session_snapshot', snapshot: { panes: [] },
   })) };
   require('./mockWhipSsh').getMockWhipSshControl().connectWithPassword.mockResolvedValueOnce(ssh);
+  jest.mocked(Notifications.getNotificationCategoriesAsync).mockResolvedValueOnce([
+    { identifier: 'whip-call-call-123', actions: [] },
+  ]);
   const action = { actionIdentifier: 'whip-choice-1', notification: { date: 1, request: {
     identifier: 'local-call', trigger: null, content: { title: 'Choose', body: 'Which plan?',
       categoryIdentifier: 'whip-call-call-123', data: {
@@ -216,6 +236,7 @@ test.each([false, true])('a cold background choice connects, verifies, submits a
   expect(ssh.disconnect).toHaveBeenCalled();
   expect(NativeModules.HerdrBackground.dismissPersistentAlertForNotification).toHaveBeenCalledWith('local-call');
   expect(NativeModules.HerdrBackground.dismissPersistentAlert).not.toHaveBeenCalled();
+  expect(Notifications.deleteNotificationCategoryAsync).toHaveBeenCalledWith('whip-call-call-123');
   expect(notificationOpen).not.toHaveBeenCalled();
 });
 

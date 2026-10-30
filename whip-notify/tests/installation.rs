@@ -219,6 +219,49 @@ fn build_installs_the_same_call_human_skill_for_both_agents() {
 }
 
 #[test]
+fn installation_recovers_a_lock_left_by_a_dead_or_legacy_installer() {
+    for owner in [Some("2147483647"), None] {
+        let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
+        let lock = installer.root.path().join(".whip-notify-skills.lock");
+        fs::create_dir(&lock).unwrap();
+        if let Some(pid) = owner {
+            fs::create_dir(lock.join(pid)).unwrap();
+        }
+        let output = installer.run();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!lock.exists());
+        assert!(
+            installer
+                .root
+                .path()
+                .join(".agents/skills/call-human/SKILL.md")
+                .exists()
+        );
+    }
+}
+
+#[test]
+fn installation_never_reclaims_a_live_owners_lock() {
+    let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
+    let lock = installer.root.path().join(".whip-notify-skills.lock");
+    let owner = lock.join(std::process::id().to_string());
+    fs::create_dir_all(&owner).unwrap();
+    assert!(!installer.run().status.success());
+    assert!(owner.exists());
+    assert!(
+        !installer
+            .root
+            .path()
+            .join(".agents/skills/call-human")
+            .exists()
+    );
+}
+
+#[test]
 fn skills_can_be_reinstalled_and_removed_without_removing_other_user_files() {
     let installer = Installer::new("Linux", "aarch64", Some("sha256sum"));
     assert!(installer.run().status.success());
@@ -269,7 +312,20 @@ fn installation_and_uninstall_preserve_custom_edited_and_symlinked_skills() {
                 symlink(installer.root.path().join("original"), &skill).unwrap();
             }
         }
-        assert!(!installer.run().status.success());
+        let output = installer.run();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stderr.is_empty(), "skipped user skills must warn");
+        assert!(
+            installer
+                .root
+                .path()
+                .join(".claude/skills/call-human/SKILL.md")
+                .exists()
+        );
         assert!(
             installer
                 .command("skills.sh")

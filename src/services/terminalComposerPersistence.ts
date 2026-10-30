@@ -5,6 +5,7 @@ import { reportBackgroundFailure } from './backgroundOperations';
 import { recordStorageDiagnostic, storageErrorDetails, storageParseErrorDetails } from './storageDiagnostics';
 
 const STORAGE_PREFIX = 'aries.terminal.composers.v2.';
+const LEGACY_STORAGE_PREFIX = 'whip.terminal.composers.v1.';
 export const COMPOSER_SAVE_DEBOUNCE_MS = 300;
 const EMPTY_STATE: PersistedComposerState = { text: '', composeOpen: false, composeExpanded: false };
 
@@ -125,6 +126,17 @@ export class TerminalComposerPersistence {
       throw error;
     }
     const values = parse(value, storageKey);
+    const legacyKey = LEGACY_STORAGE_PREFIX + hostId;
+    const legacy = await appStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      for (const [id, state] of parse(legacy, legacyKey)) {
+        if (!values.has(id) && state.text) values.set(id, { ...EMPTY_STATE, text: state.text });
+      }
+      // Commit drafts before deleting the obsolete key. Old visibility/mode
+      // never crosses this boundary, and current v2 records always win.
+      await appStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(values)));
+      await appStorage.removeItem(legacyKey);
+    }
     for (const [id, edit] of host.edits) {
       const state = { ...(values.get(id) ?? EMPTY_STATE), ...edit };
       values.set(id, { ...state, composeExpanded: state.composeOpen && state.composeExpanded });

@@ -35,7 +35,7 @@ fn run() -> Result<()> {
     match command.as_str() {
         "paths" => println!(
             "{}",
-            serde_json::json!({"config":store.config,"state":store.state,"binary":std::env::current_exe()?,"protocol":1,"notification_previews":true})
+            serde_json::json!({"config":store.config,"state":store.state,"binary":std::env::current_exe()?,"protocol":1,"notification_previews":true,"notification_envelope_version":2})
         ),
         "identity" => {
             let key = store.identity()?;
@@ -69,7 +69,7 @@ fn run() -> Result<()> {
                 &std::env::var("HERDR_PANE_ID")?,
                 &std::env::var("HERDR_SOCKET_PATH")?,
             )?;
-            whip_notify::calls::record(&store, &call)?;
+            record_call(&store, &call);
             if call.event.urgency.as_deref() != Some("record") {
                 push(
                     &store,
@@ -129,7 +129,7 @@ fn run() -> Result<()> {
                 event.title = Some(preview.title.clone());
                 event.body = Some(preview.body.clone());
                 event.call_id = Some(uuid::Uuid::new_v4().to_string());
-                whip_notify::calls::record(
+                record_call(
                     &store,
                     &whip_notify::calls::CallRecord {
                         event: event.clone(),
@@ -141,7 +141,7 @@ fn run() -> Result<()> {
                         reply: None,
                         reply_status: None,
                     },
-                )?;
+                );
                 push(&store, &event, &preview)?;
             }
         }
@@ -158,6 +158,14 @@ fn run() -> Result<()> {
         _ => return Err("unknown command".into()),
     }
     Ok(())
+}
+
+// History is best effort for new events. Reply claims still require durable
+// recording before any input can be sent, to preserve at-most-once delivery.
+fn record_call(store: &Store, call: &whip_notify::calls::CallRecord) {
+    if whip_notify::calls::record(store, call).is_err() {
+        eprintln!("whip-notify: could not record call history");
+    }
 }
 
 fn push(

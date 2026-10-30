@@ -35,6 +35,7 @@ interface Paths {
   state: string;
   binary: string;
   notification_previews?: boolean;
+  notification_envelope_version?: number;
 }
 interface Keys {
   private_key: string;
@@ -245,6 +246,7 @@ async function registerHost(registration: Registration, runtime: NotificationRun
       relay_url: registration.relayUrl,
       route_token: registration.routeToken,
       session: registration.session,
+      ...(registration.paths.notification_envelope_version === 2 ? { envelope_version: 2 } : {}),
       ...(registration.paths.notification_previews ? { end_to_end_encrypted: encrypted } : {}),
     },
   }));

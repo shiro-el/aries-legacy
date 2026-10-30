@@ -71,6 +71,7 @@ fn setup(root: &Path) -> (Store, String, TcpListener) {
             route_token: "x".repeat(64),
             session: root.join("herdr.sock").to_str().unwrap().into(),
             end_to_end_encrypted: false,
+            envelope_version: 2,
         })
         .unwrap();
     (store, id, relay)

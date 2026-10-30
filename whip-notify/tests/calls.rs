@@ -93,6 +93,14 @@ fn choice_reply_uses_original_text_and_enter_and_records_the_answer_without_rese
         .as_str()
         .unwrap()
         .to_owned();
+    // A missing snapshot means no input was sent. Both the same choice and
+    // another choice remain available for an explicit retry.
+    for index in ["0", "1"] {
+        let failed = reply(root.path(), &id, index, "main");
+        assert!(failed.status.success());
+        let result: Value = serde_json::from_slice(&failed.stdout).unwrap();
+        assert_eq!(result["reply_status"], "failed");
+    }
     let listener = UnixListener::bind(root.path().join("herdr.sock")).unwrap();
     listener.set_nonblocking(true).unwrap();
     let server = thread::spawn(move || {
@@ -290,6 +298,19 @@ fn missing_expired_approval_or_mismatched_calls_cannot_submit() {
         assert_eq!(records(root.path()).len(), 1);
         assert!(records(root.path())[0].get("reply").is_none());
     }
+    let mut newer = original.clone();
+    newer["reply"] = json!("Wait");
+    newer["reply_status"] = json!({"newer_schema": true});
+    newer["future_field"] = json!(true);
+    fs::write(
+        root.path().join("state/calls.jsonl"),
+        format!("{original}\n{newer}\n"),
+    )
+    .unwrap();
+    assert!(
+        !reply(root.path(), id, "0", "main").status.success(),
+        "unknown matching history must fail closed, not fall back to an unclaimed call"
+    );
 }
 #[test]
 fn record_call_keeps_sanitized_content_and_origin_without_sending_push() {
@@ -355,8 +376,17 @@ fn urgent_call_attempts_delivery_and_remains_logged_when_relay_is_unavailable() 
             route_token: "x".repeat(64),
             session: root.path().join("herdr.sock").to_str().unwrap().into(),
             end_to_end_encrypted: true,
+            envelope_version: 2,
         })
         .unwrap();
+    fs::create_dir_all(root.path().join("state")).unwrap();
+    fs::write(root.path().join("state/calls.jsonl"), "broken JSON\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(
+        root.path().join("state/calls.jsonl"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
     let output = call(
         root.path(),
         "main",
@@ -373,11 +403,57 @@ fn urgent_call_attempts_delivery_and_remains_logged_when_relay_is_unavailable() 
         !output.status.success(),
         "an unavailable relay must report delivery failure"
     );
-    assert_eq!(records(root.path())[0]["urgency"], "urgent");
     assert!(
         relay.accept().is_ok(),
         "non-record calls must attempt push delivery"
     );
+    assert_eq!(records(root.path())[0]["urgency"], "urgent");
+    let path = root.path().join("state/calls.jsonl");
+    let original = fs::read_to_string(&path).unwrap();
+    let mut future = records(root.path())[0].clone();
+    future["future_field"] = json!(true);
+    fs::write(&path, format!("{future}\n{original}")).unwrap();
+    assert!(
+        call(
+            root.path(),
+            "main",
+            &[
+                "--urgency",
+                "record",
+                "--title",
+                "Later",
+                "--body",
+                "Review"
+            ]
+        )
+        .status
+        .success()
+    );
+    assert_eq!(records(root.path())[0]["future_field"], true);
+
+    // Logging failure must not prevent a push, nor follow an unsafe log symlink.
+    fs::remove_file(&path).unwrap();
+    let outside = root.path().join("outside");
+    fs::write(&outside, "untouched").unwrap();
+    std::os::unix::fs::symlink(&outside, &path).unwrap();
+    let output = call(
+        root.path(),
+        "main",
+        &[
+            "--urgency",
+            "urgent",
+            "--title",
+            "Review",
+            "--body",
+            "Ready",
+        ],
+    );
+    assert!(!output.status.success(), "relay is unavailable");
+    assert!(
+        relay.accept().is_ok(),
+        "logging failure must not block push"
+    );
+    assert_eq!(fs::read_to_string(outside).unwrap(), "untouched");
 }
 
 #[test]
@@ -424,6 +500,7 @@ fn subagents_are_downgraded_and_leases_suppress_only_push_not_the_log() {
             route_token: "x".repeat(64),
             session: root.path().join("herdr.sock").to_str().unwrap().into(),
             end_to_end_encrypted: true,
+            envelope_version: 2,
         })
         .unwrap();
     let args = [
@@ -584,4 +661,52 @@ fn log_prunes_old_entries_and_oldest_records_at_the_size_bound() {
     );
     assert!(fs::metadata(&path).unwrap().len() <= 1_048_576);
     assert_eq!(log.last().unwrap()["body"], "Review");
+}
+
+#[test]
+fn following_the_log_delivers_only_new_calls_during_ordinary_writes() {
+    use std::{process::Stdio, sync::mpsc, time::Duration};
+    let root = tempfile::tempdir().unwrap();
+    let args = [
+        "--urgency",
+        "record",
+        "--title",
+        "Ready",
+        "--body",
+        "Review",
+    ];
+    assert!(call(root.path(), "main", &args).status.success());
+    let first = records(root.path())[0]["call_id"].clone();
+    let mut tail = Command::new("tail")
+        .args(["-n", "+1", "-F", "-s", "0.05", "--"])
+        .arg(root.path().join("state/calls.jsonl"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = tail.stdout.take().unwrap();
+    let (send, receive) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if send.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let initial = receive.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&initial).unwrap()["call_id"],
+        first
+    );
+    assert!(call(root.path(), "main", &args).status.success());
+    let next = receive.recv_timeout(Duration::from_secs(3));
+    tail.kill().unwrap();
+    tail.wait().unwrap();
+    reader.join().unwrap();
+    let next: Value = serde_json::from_str(&next.unwrap()).unwrap();
+    assert_ne!(
+        next["call_id"], first,
+        "following must not replay the old snapshot"
+    );
+    assert!(receive.try_recv().is_err(), "exactly one new record");
 }
