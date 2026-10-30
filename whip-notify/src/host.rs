@@ -50,7 +50,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     result
 }
 
-fn open_private(path: &Path) -> Result<File> {
+pub(crate) fn open_private(path: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -155,7 +155,7 @@ impl Registration {
     }
 }
 
-fn preview_text(value: &str, max_bytes: usize) -> String {
+pub(crate) fn preview_text(value: &str, max_bytes: usize) -> String {
     let mut text = String::new();
     for c in value.trim().chars().filter(|c| !c.is_control()) {
         if text.len() + c.len_utf8() > max_bytes {
@@ -377,6 +377,7 @@ pub fn parse_event(json: &str, context: &str, session: &str) -> Result<Option<No
         session: session.to_owned(),
         status: hook.data.agent_status,
         title: hook.data.title.map(|s| s.chars().take(80).collect()),
+        ..Default::default()
     }))
 }
 
@@ -386,11 +387,17 @@ pub fn deliver(
     event: &NotificationEvent,
     send: &(impl Fn(&Registration, &Envelope) -> Result<()> + Sync),
 ) -> Result<usize> {
+    if event.urgency.as_deref() == Some("record") {
+        return Ok(0);
+    }
     let host = store.identity()?;
     let devices = store.registrations()?;
     let now = SystemTime::now();
     let timestamp = now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
-    let event_id = uuid::Uuid::new_v4().to_string();
+    let event_id = event
+        .call_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let pending = devices
         .into_iter()
         .filter(|d| {

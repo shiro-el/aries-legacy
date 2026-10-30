@@ -342,7 +342,7 @@ test('enforces rate and body bounds before sending to Expo', async () => {
   expect(
     (
       await handleRequest(
-        request('/v1/push', 'POST', ROUTE, { ciphertext: 'a'.repeat(4000) }),
+        request('/v1/push', 'POST', ROUTE, { ciphertext: 'a'.repeat(5000) }),
         env,
       )
     ).status,
@@ -506,4 +506,17 @@ test('unregister is idempotent after an interrupted enrollment', async () => {
     ).status,
   ).toBe(200);
   expect(provider).not.toHaveBeenCalled();
+});
+
+test('routes v2 padded envelopes over the visible push path while keeping v1 readable', async () => {
+  await enroll();
+  const call = { ...payload(), header: { ...payload().header, version: 2 }, ciphertext: 'b'.repeat(2752) };
+  expect((await handleRequest(request('/v1/push', 'POST', ROUTE, call), env)).status).toBe(202);
+  const sent = JSON.parse(provider.mock.calls[0][1].body);
+  expect(sent.data).toEqual({ whip_notify: call });
+  expect(sent.title).toBeTruthy();
+  expect(sent.body).toBeTruthy();
+  expect((await handleRequest(request('/v1/push', 'POST', ROUTE, {
+    ...call, header: { ...call.header, event_id: 'invalid-size'.repeat(3) }, ciphertext: 'b'.repeat(1387),
+  }), env)).status).toBe(400);
 });

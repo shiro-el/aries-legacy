@@ -183,3 +183,59 @@ The live test used a separate Herdr binary, private configuration/state and one 
 - Built and installed Whip 1.10.0 (234), source `05537a44`, on the connected Pixel 9 Pro using the GitHub channel and upload signing. The APK contained only ARM64 native libraries and the new relay default. Its signing certificate matched the existing installation; Android retained the original installation timestamp and notification permission. The updated process ran without native/JavaScript errors in the inspected launch logs. Physical push delivery and the device settings UI were not exercised in this rollout.
 
 The subsequent host-detail fix shows **Upgrade host plugin** only for an older installed semantic version, and hides it after upgrading or when a current/newer version is discovered. Unknown/disconnected status no longer presents an installation action. Eleven UI tests, three native installer/version tests, TypeScript and strict targeted lint passed. The working-tree build on local `main` was verified for upload signing, ARM64, the relay default and the bundled UI changes, then installed in place on the same phone. After a streamed install returned an empty error, `adb install --no-streaming -r` succeeded.
+
+## Explicit human calls (Aries)
+
+From a Herdr agent pane, call the installed binary with plugin paths available
+in the environment, or supply the discovered paths with `--dirs`:
+
+```sh
+whip-notify --dirs "$config_dir" "$state_dir" call \
+  --urgency check --title 'Review needed' --body 'Tests pass; choose the next step.' \
+  --option 'Accept' --option 'Revise'
+```
+
+`--urgency` is required and is one of `emergency`, `urgent`, `check`, `record`.
+`--title` and `--body` are required; body may be empty. Repeat `--option` zero
+through three times. Title/body/option text is trimmed, stripped of control
+characters and truncated at UTF-8 boundaries to 160/320/64 bytes respectively.
+The total argument content is limited to 64 KiB. Empty sanitized titles or
+choices, duplicate required flags, unknown flags and a fourth choice fail
+without logging or sending. The CLI emits only a generic error on failure.
+
+`HERDR_PANE_ID` identifies the caller; `HERDR_SOCKET_PATH` identifies the API
+socket and registered session. Routing cannot be supplied through call flags.
+The API snapshot selects the lowest numbered tab in the caller's workspace and
+its first layout pane. Only an agent in that pane may push. Subagents, unknown
+panes and unavailable/malformed API responses are recorded as `record` with
+`ineligible_reason: "자격 없음"`, preserving `requested_urgency` for review.
+An unverifiable workspace is stored as an empty workspace ID.
+
+Every accepted call is committed to `$HERDR_PLUGIN_STATE_DIR/calls.jsonl`
+before checking leases or contacting the relay. Each JSON line has the flattened
+notification fields (`pane_id`, `workspace_id`, `session`, legacy `status`,
+`kind`, `urgency`, `title`, `body`, `options`, `call_id`) plus Unix-seconds
+`created_at`, `requested_urgency` and optional `ineligible_reason`. Empty options
+are omitted and mean zero choices. `call_id` is a UUID and is also the envelope's
+`event_id`, shared across receiving devices. `status: "blocked"` is a legacy
+routing compatibility field for calls, not an observed agent status. Files are
+0600 and directories 0700. Atomic writes hold the existing store lock, discard
+entries older than 30 days and remove the oldest entries until at most 1 MiB
+remains. Pruning runs on each accepted call. A valid per-device lease suppresses
+only that device's push; `record` suppresses all pushes. Delivery failures return
+a generic nonzero result while retaining the log; retries create a new call ID.
+
+V2 plaintext adds optional `kind` (`call` or `approval`), `urgency`, `body`,
+`options`, and `call_id`. Approval events cannot contain choices. The HPKE suite
+and context stay the same; the authenticated header includes the version.
+V2 pads to 2048 bytes (2752 base64url ciphertext characters), while v1 keeps
+1024 bytes (1387 characters). The app's shared Rust decoder accepts both,
+including saved v1 envelopes. Relay/native input caps are 4096 bytes. The relay
+must be updated to accept v2 before a new host binary is used. No deployment
+occurs as part of this code change.
+
+Explicit calls always omit readable previews, regardless of a legacy host
+preview preference. The current relay still sends a generic visible push whose
+body tap authenticates the envelope and opens the originating host/pane. The
+composer default, approval detection, urgency-specific local alerts, reply
+buttons and log viewer are implemented by the other phone-first tickets.

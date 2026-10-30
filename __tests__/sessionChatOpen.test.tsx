@@ -161,7 +161,7 @@ type Props = ComponentProps<typeof SessionScreen> & {
 const mockChatFrames: Array<{ visible: boolean; chat: boolean }> = [];
 const mockVolumeKeyListeners = new Set<(key: 'up' | 'down') => void>();
 const mockAppStateListeners = new Set<(state: string) => void>();
-function setup(agent: ChatAgent) {
+function setup(agent: ChatAgent, usePaneDefault = false) {
   const bindings = new Map<string, NativeAgentChatBinding>();
   const availableBindings = new Map<string, NativeAgentChatBinding>();
   const handlers = new Map<string, (event: NativeAgentTranscriptUpdate) => void>();
@@ -291,6 +291,8 @@ function setup(agent: ChatAgent) {
     onInteraction: jest.fn(),
     onExit: jest.fn(),
   };
+  // Lifecycle tests exercise panes whose user already chose Terminal.
+  if (!usePaneDefault) props.composerStore.setInputMode('target', 'terminal');
   return {
     bindings,
     availableBindings,
@@ -327,6 +329,100 @@ beforeEach(() => {
   jest.mocked(Linking.openURL).mockReset().mockResolvedValue(undefined);
   jest.spyOn(console, 'info').mockImplementation(() => {});
   jest.mocked(readSavedAgentTranscript).mockReset().mockResolvedValue(undefined);
+});
+
+test.each(['claude', 'codex'] as const)('detected %s opens Chat and composer without an extra tap', async agent => {
+  const host = setup(agent, true);
+  const binding = bindChat(host, agent);
+  host.native.startAgentChat.mockImplementation(() => {
+    binding.state = { ...binding.state, status: 'live', revision: 1 };
+    return { type: 'started', state: binding.state };
+  });
+  await act(async () => { renderer = create(<SessionScreen {...host.props} />); });
+  expect(host.native.openAgentChat).toHaveBeenCalled();
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(true);
+  expect(control().loading).toBe(true);
+});
+
+test('untouched panes follow agent start and exit, while an explicit mode wins', async () => {
+  const host = setup('codex', true);
+  const agentPane = { ...host.pane };
+  Object.assign(host.pane, { agent: undefined, display_agent: undefined, agent_session: undefined });
+  await act(async () => { renderer = create(<SessionScreen {...host.props} />); });
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(false);
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  Object.assign(host.pane, agentPane);
+  const binding = bindChat(host, 'codex');
+  host.native.startAgentChat.mockImplementation(() => {
+    binding.state = { ...binding.state, status: 'live', revision: 1 };
+    return { type: 'started', state: binding.state };
+  });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(true);
+  revealChat();
+  Object.assign(host.pane, { agent: undefined, display_agent: undefined, agent_session: undefined });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(false);
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  Object.assign(host.pane, agentPane);
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  revealChat();
+  act(() => { host.props.composerStore.setText('target', 'Keep this draft'); control().onPress(); });
+  expect(host.props.composerStore.snapshot('target').composeOpen).toBe(false);
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  await act(async () => { renderer.update(<SessionScreen {...host.props} visible={false} />); });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  await act(async () => { control().onPress(); });
+  revealChat();
+  expect(host.props.composerStore.snapshot('target')).toMatchObject({ composeOpen: true, text: 'Keep this draft' });
+});
+
+test('a late restored Terminal preference overrides an agent default without losing its draft', async () => {
+  const host = setup('claude', true);
+  const binding = bindChat(host, 'claude');
+  binding.state = { ...binding.state, status: 'live', revision: 1 };
+  host.native.startAgentChat.mockReturnValue({ type: 'started', state: binding.state });
+  await act(async () => { renderer = create(<SessionScreen {...host.props} />); });
+  revealChat();
+  act(() => { host.props.composerStore.restore('target', {
+    inputMode: 'terminal', composeOpen: false, composeExpanded: false, text: 'Restored draft',
+  }); });
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  expect(host.props.composerStore.snapshot('target').text).toBe('Restored draft');
+});
+
+test('opening another agent pane keeps the first pane’s Terminal choice and draft local', async () => {
+  const host = setup('codex', true);
+  const first = bindChat(host, 'codex');
+  const second = bindChat(host, 'codex', {
+    terminalId: 'terminal-2', paneId: 'pane-2', bindingToken: 'binding-2', transcriptKey: 'transcript-2', sessionId: 'second-conversation',
+  });
+  second.state = { ...second.state, sessionId: 'second-conversation' };
+  host.native.startAgentChat.mockImplementation(token => {
+    const binding = token === first.bindingToken ? first : second;
+    binding.state = { ...binding.state, status: 'live', revision: 1 };
+    return { type: 'started', state: binding.state };
+  });
+  const terminal = { ...host.props.terminalState.sessions[0], terminalId: 'terminal-2', paneId: 'pane-2' };
+  host.props.terminalState.sessions.push(terminal);
+  host.props.terminalTargets = [...host.props.terminalTargets, { ...host.props.terminalTargets[0], key: 'target-2', session: terminal }];
+  host.props.snapshot.panes.push({ ...host.pane, terminal_id: 'terminal-2', pane_id: 'pane-2', focused: false });
+  await act(async () => { renderer = create(<SessionScreen {...host.props} />); });
+  revealChat();
+  act(() => { host.props.composerStore.setText('target', 'First pane draft'); control().onPress(); });
+  // Herd and notification navigation both select a host's pane terminal here.
+  await act(async () => { renderer.update(<SessionScreen {...host.props} terminalState={{
+    ...host.props.terminalState, activeTerminalId: 'terminal-2',
+  }} />); });
+  const secondViewport = renderer.root.findAll(node => String(node.type) === 'AgentChatView').find(node => node.props.state.sessionId === 'second-conversation');
+  expect(secondViewport).toBeDefined();
+  act(() => { secondViewport!.props.onInitialViewportReady(); });
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(true);
+  expect(host.props.composerStore.snapshot('target-2')).toMatchObject({ composeOpen: true, text: '' });
+  await act(async () => { renderer.update(<SessionScreen {...host.props} />); });
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
+  expect(host.props.composerStore.snapshot('target')).toMatchObject({ composeOpen: false, text: 'First pane draft' });
 });
 
 test('attachment picker keeps the opening composer blur source and clears it for normal attachments', async () => {
@@ -1001,6 +1097,7 @@ function addCachePressure(host: ReturnType<typeof setup>) {
       key: session.terminalId, hostSessionId: host.props.hostSessionId, client: host.client, session,
     })),
   ];
+  for (const terminal of terminals) host.props.composerStore.setInputMode(terminal.terminalId, 'terminal');
   return terminals.map(terminal => () => renderer.update(
     <SessionScreen {...host.props} terminalState={{
       ...host.props.terminalState, activeTerminalId: terminal.terminalId,
@@ -1578,6 +1675,7 @@ describe.each(['codex', 'opencode', 'pi'] as const)('%s SessionScreen', agent =>
     'bottom-tab navigation keeps %s Chat mounted and bound',
     async phase => {
       const host = setup(agent);
+      host.props.composerStore.setInputMode('target-2', 'terminal');
       await openReadyChat(host, agent);
       if (phase === AgentChatPresentationPhase.Visible) revealChat();
       const viewport = ui('AgentChatView');
@@ -1677,6 +1775,7 @@ describe.each(['codex', 'opencode', 'pi'] as const)('%s SessionScreen', agent =>
           session: terminalB,
         },
       ];
+      host.props.composerStore.setInputMode('target-2', 'terminal');
       await openReadyChat(host, agent);
       if (phase === AgentChatPresentationPhase.Visible) revealChat();
       const selectB = () => renderer.update(
@@ -1716,6 +1815,7 @@ describe.each(['codex', 'opencode', 'pi'] as const)('%s SessionScreen', agent =>
     const viewport = ui('AgentChatView');
     const other = setup(agent);
     other.props.hostSessionId = 'host-2';
+    other.props.composerStore.setInputMode('other-host-target', 'terminal');
     const targets = [...host.props.terminalTargets, {
       ...other.props.terminalTargets[0], key: 'other-host-target', hostSessionId: 'host-2',
     }];
@@ -1773,7 +1873,8 @@ describe.each(['codex', 'opencode', 'pi'] as const)('%s SessionScreen', agent =>
     ));
     expect(host.native.detachAgentChat).toHaveBeenCalledWith(binding.terminalId);
     expect(agentTranscriptService.getState(binding.bindingToken)).toBeNull();
-    // Reusing the ID must not resurrect the removed terminal's presentation.
+    // Return to the pane in Terminal mode to check its old Chat was detached.
+    host.props.composerStore.setInputMode('target', 'terminal');
     act(() => renderer.update(<SessionScreen {...host.props} />));
     expect(ui('TerminalScreen').props.chatViewEnabled).toBe(false);
     expect(ui('TerminalScreen').props.renderViewportOverlay).toBeUndefined();

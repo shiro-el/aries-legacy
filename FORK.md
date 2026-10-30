@@ -69,7 +69,54 @@ fork keeps the herding theme with the ram that leads the flock.
 - **Not changed yet:** the relay's generic E2EE notification title is still
   "Whip" (`notify-relay/src/index.ts`).
 
-### 3. Phone-first new task setup
+### 3. Pane-aware Chat and composer defaults
+
+- **What:** Detected agent panes open Chat View with the composer visible. Shell
+  panes open Terminal View. The Chat/Terminal button switches both presentation
+  and input in one tap, preserving the pane's draft.
+- **Why:** Phone conversations should be ready to type into, while shell panes
+  keep direct terminal input. A choice in one pane must not change another pane.
+- **How:** The existing target-specific composer store now records an optional
+  explicit `inputMode`. Without a choice, agent detection determines the mode,
+  including when an agent starts or exits. Existing transcript preload, viewport,
+  reconnect and terminal renderer lifecycles remain in use.
+  - Composer records use `aries.terminal.composers.v2.<host>`; the Rust app-data
+    allowlist accepts this family. Upstream `whip.terminal.composers.v1.<host>`
+    records stay on disk but are not read by composer persistence, so old closed
+    composer values cannot suppress the new default. This also starts fresh
+    drafts under the new key; no old records are deleted or migrated.
+  - Explicit Terminal choices persist even with an empty draft. Automatic
+    defaults never become explicit preferences, so untouched panes follow agent
+    start/exit changes. Notification and Herd navigation share this pane behavior.
+- **Validation:** Jest screen coverage exercises defaults, live agent changes,
+  one-tap switching, drafts, independent panes and late preference restoration;
+  persistence coverage checks restarts and ignoring upstream records.
+
+### 4. Explicit host calls and notification envelope v2
+
+- **What:** `whip-notify call` accepts urgency, title, body and up to three
+  choices, and writes a private host call log. Notifications can carry `call`
+  or `approval` metadata in envelope v2; the app still decrypts v1 envelopes.
+- **Why:** The main agent needs to ask for human attention explicitly, and all
+  calls must remain available even when pushes are suppressed or fail.
+- **How:**
+  - The command reads pane/session identity from Herdr environment variables
+    and verifies the first pane of the workspace's first numbered tab through
+    `session.snapshot`. Other or unverifiable callers become `record` entries
+    marked `자격 없음` (ineligible).
+  - `$HERDR_PLUGIN_STATE_DIR/calls.jsonl` retains the newest 1 MiB and 30 days.
+    Writes use the existing private, atomic, locked storage path. Recording
+    precedes leases and delivery, so a relay error cannot erase a call.
+  - V2 adds kind, urgency, body, options and call ID to authenticated plaintext,
+    retaining the HPKE suite and authenticated version header. Padding grows
+    from 1024 to 2048 bytes; v1 retains its original framing. The relay and
+    native reader accept both versions. Calls always omit plaintext previews
+    and use the existing visible push path; urgency channels and reply buttons
+    are separate work. Legacy preview preferences remain available.
+  - App taps reuse authenticated host/pane routing and fresh target resolution.
+    See `docs/remote-notifications.md` for the command and log contract.
+
+### 5. Phone-first new task setup
 
 - **What:** Herd's new task action chooses a folder, then Claude Code, Codex, or
   a shell. Agent tasks offer model shortcuts, a custom model ID, and effort.

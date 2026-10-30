@@ -310,6 +310,7 @@ fn legacy_app_key(key: &str) -> bool {
         "herdr.terminal.font-sizes.v1.",
         "herdr.host.snapshot.v1.",
         "whip.terminal.composers.v1.",
+        "aries.terminal.composers.v2.",
         "whip.agent.preferences.v1.",
         "whip.new-task.v1.",
         "whip.notify.replays.v1.",

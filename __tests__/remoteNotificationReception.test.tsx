@@ -37,7 +37,7 @@ function Harness() {
   notifications = useAgentNotifications();
   return null;
 }
-function response(): Notifications.NotificationResponse {
+function response(version = 1): Notifications.NotificationResponse {
   return {
     actionIdentifier: 'default',
     notification: {
@@ -53,7 +53,7 @@ function response(): Notifications.NotificationResponse {
           categoryIdentifier: null,
           threadIdentifier: null,
           data: {
-            whip_notify: { ciphertext: 'encrypted' },
+            whip_notify: { header: { version }, ciphertext: 'encrypted' },
             hostId: 'forged-host',
             paneId: 'forged-pane',
           },
@@ -68,20 +68,20 @@ beforeEach(() => {
     Notifications.getLastNotificationResponseAsync as jest.Mock
   ).mockResolvedValue(null);
 });
-test.each(['running', 'terminated'])(
-  'authenticates a %s-app notification tap without scheduling another alert',
-  async initial => {
+test.each([['running', 1], ['terminated', 1], ['running', 2], ['terminated', 2]] as const)(
+  'authenticates a %s-app v%s notification tap without scheduling another alert',
+  async (initial, version) => {
     if (initial === 'terminated')
       (
         Notifications.getLastNotificationResponseAsync as jest.Mock
-      ).mockResolvedValue(response());
+      ).mockResolvedValue(response(version));
     let root!: renderer.ReactTestRenderer;
     await act(async () => {
       root = renderer.create(<Harness />);
     });
     if (initial === 'running')
       await act(async () => {
-        mockReceive(response());
+        mockReceive(response(version));
       });
     expect(remoteNotificationTarget).toHaveBeenCalledWith(
       expect.objectContaining({ whip_notify: expect.anything() }),

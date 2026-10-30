@@ -13,6 +13,7 @@ fn event() -> NotificationEvent {
         session: "/tmp/herdr-test.sock".into(),
         status: "blocked".into(),
         title: Some("Private agent title".into()),
+        ..Default::default()
     }
 }
 fn header(host: &KeyPair, device: &KeyPair, id: &str) -> Header {
@@ -141,7 +142,7 @@ fn authenticated_roundtrip_padding_and_replay_survive_restart() {
         &event(),
     )
     .unwrap();
-    assert_eq!(msg.ciphertext.len(), 1387);
+    assert_eq!(msg.ciphertext.len(), 2752);
     assert_eq!(
         decrypt(&device, &host.public_key, &id, &msg, 1000).unwrap(),
         event()
@@ -423,4 +424,72 @@ fn cli_registration_over_stdin_and_idempotent_revocation() {
         );
     }
     assert!(s.registrations().unwrap().is_empty());
+}
+
+#[test]
+fn v2_calls_keep_full_bounded_content_authenticated_and_padded() {
+    let host = generate_key().unwrap();
+    let device = generate_key().unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let call = NotificationEvent {
+        kind: Some("call".into()),
+        urgency: Some("urgent".into()),
+        title: Some("🦀".repeat(40)),
+        body: Some("body".repeat(80)),
+        options: vec!["a".repeat(64), "b".repeat(64), "c".repeat(64)],
+        call_id: Some(uuid::Uuid::new_v4().to_string()),
+        ..event()
+    };
+    let envelope = encrypt(
+        &host,
+        &device.public_key,
+        header(&host, &device, &id),
+        &call,
+    )
+    .unwrap();
+    assert_eq!(envelope.header.version, 2);
+    assert_eq!(envelope.ciphertext.len(), 2752);
+    assert_eq!(
+        decrypt(&device, &host.public_key, &id, &envelope, 1000).unwrap(),
+        call
+    );
+}
+
+#[test]
+fn call_delivery_reuses_the_logged_call_id_and_never_pushes_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = store(temp.path());
+    let device = generate_key().unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    store.register(registration(&id, &device)).unwrap();
+    let mut call = NotificationEvent {
+        kind: Some("call".into()),
+        urgency: Some("check".into()),
+        call_id: Some("call-id-0000000000000001".into()),
+        body: Some("Ready for review".into()),
+        options: vec!["Accept".into()],
+        ..event()
+    };
+    let host = store.identity().unwrap();
+    assert_eq!(
+        deliver(&store, &call, &|_, envelope| {
+            assert_eq!(envelope.header.event_id, "call-id-0000000000000001");
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            assert_eq!(
+                decrypt(&device, &host.public_key, &id, envelope, now).unwrap(),
+                call
+            );
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+    call.urgency = Some("record".into());
+    assert_eq!(
+        deliver(&store, &call, &|_, _| panic!("record must never push")).unwrap(),
+        0
+    );
 }

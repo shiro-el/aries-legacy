@@ -560,3 +560,20 @@ test('rejects navigation after a saved profile changes host identity or Herdr se
     ),
   ).rejects.toThrow('changed');
 });
+
+
+test('v2 calls route to the authenticated calling pane with rich content present', async () => {
+  await service.enableRemoteNotifications('saved-host', 'https://notify.example');
+  const [{deviceId}] = JSON.parse([...mockSecrets.values()][0]);
+  jest.requireMock('react-native-whip-ssh').notificationOpen.mockReturnValueOnce(JSON.stringify({
+    event: { pane_id: 'w2:p3', session: '/tmp/session.sock', workspace_id: 'w2',
+      kind: 'call', urgency: 'check', title: 'Review', body: 'Ready',
+      options: ['Accept', 'Revise'], call_id: 'call-id-000000000001' },
+    ledger: { accepted: 99999 },
+  }));
+  expect(await service.remoteNotificationTarget({
+    whip_notify: { header: { version: 2, device_id: deviceId }, ciphertext: 'encrypted' },
+    hostId: 'forged-host', paneId: 'forged-pane',
+  }, 'call-push')).toEqual({ notificationId: 'call-push', hostId: 'saved-host',
+    paneId: 'w2:p3', remoteDeviceId: deviceId });
+});
