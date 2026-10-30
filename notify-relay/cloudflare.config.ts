@@ -1,19 +1,19 @@
 import { bindings, defineConfig, triggers } from 'cf/config';
 
 export default defineConfig({
-  accountId: '6347d293a37734d7acd6fabc1a432da4',
+  accountId: 'd47990d8be8da7136b8f22f8ab360194',
   worker: {
-    name: 'whip-notify',
+    name: 'aries-notify',
     compatibilityDate: '2026-10-28',
     compatibilityFlags: ['nodejs_compat'],
     entrypoint: 'src/index.ts',
-    domains: ['whip-notify.kosumi.dev'],
+    domains: ['notify.aries.shiroel.com'],
     observability: { enabled: true, headSamplingRate: 0.1 },
     triggers: [triggers.scheduled({ schedule: '*/15 * * * *' })],
     env: {
       DB: bindings.d1({
-        name: 'whip-notify',
-        id: '1d31450e-7d93-4f05-95d5-ead25c1dff03',
+        name: 'aries-notify',
+        id: '4fa5c576-d2e6-4c73-9006-76505724bf36',
       }),
       LIMITER: bindings.rateLimit({
         namespace: '1001',

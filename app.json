@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Aries",
-    "slug": "herdr-remote",
+    "slug": "aries",
     "icon": "./assets/icon.png",
     "scheme": "whip",
     "orientation": "default",
@@ -97,9 +97,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "abffa698-56c9-41c1-9b61-3312006a895d"
+        "projectId": "266c17f1-3c09-404d-9c96-93aa11d3c33c"
       }
     },
-    "owner": "kant64"
+    "owner": "jae0406"
   }
 }

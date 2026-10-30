@@ -1,12 +1,12 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "whip-notify",
-  "account_id": "6347d293a37734d7acd6fabc1a432da4",
+  "name": "aries-notify",
+  "account_id": "d47990d8be8da7136b8f22f8ab360194",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-28",
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
-    { "pattern": "whip-notify.kosumi.dev", "custom_domain": true },
+    { "pattern": "notify.aries.shiroel.com", "custom_domain": true },
   ],
   "observability": {
     "enabled": true,
@@ -15,8 +15,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "whip-notify",
-      "database_id": "1d31450e-7d93-4f05-95d5-ead25c1dff03",
+      "database_name": "aries-notify",
+      "database_id": "4fa5c576-d2e6-4c73-9006-76505724bf36",
       "migrations_dir": "migrations",
     },
   ],
