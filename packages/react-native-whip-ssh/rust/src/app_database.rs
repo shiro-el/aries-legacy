@@ -304,6 +304,7 @@ fn legacy_app_key(key: &str) -> bool {
         "whip.reverse-control.expanded.v1",
         "whip.terminal.expanded.v1",
         "whip.developer.expanded.v1",
+        "aries.calls.seenAt.v1",
     ];
     const PREFIXES: &[&str] = &[
         "herdr.terminal.sessions.v1.",
