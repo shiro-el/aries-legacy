@@ -143,7 +143,7 @@ esac
             .env(
                 "WHIP_TEST_URL",
                 format!(
-                    "https://github.com/kosumic/whip/releases/download/whip-notify-v{}/{}",
+                    "https://github.com/shiro-el/aries/releases/download/whip-notify-v{}/{}",
                     env!("CARGO_PKG_VERSION"),
                     self.asset()
                 ),

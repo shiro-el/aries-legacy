@@ -454,6 +454,8 @@ fork keeps the herding theme with the ram that leads the flock.
   `ui/calls/useHostCalls.ts` follows every bound notification runtime while
   the app is in the foreground, reopens dropped streams, and announces only
   calls that arrive while following. The core's `more` tab id is the Calls tab.
-- **Not changed yet:** the plugin installer still downloads from
-  `kosumic/whip`, which has no 0.1.7 release, so hosts on upstream 0.1.4 have
-  no call log until the plugin source moves to this fork.
+- **Plugin source:** the in-app installer, `whip-notify/build.sh` and the
+  release workflow now use `shiro-el/aries/whip-notify` and this fork's
+  releases. Upstream never published 0.1.7, the first version with the call
+  log, so hosts on upstream 0.1.4 update from here. The app needs a native
+  rebuild to pick up the new source.

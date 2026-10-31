@@ -3,7 +3,7 @@ name = "whip-notify"
 version = "0.1.7"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/kosumic/whip"
+repository = "https://github.com/shiro-el/aries"
 
 [features]
 default = ["host"]

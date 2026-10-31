@@ -11,7 +11,7 @@ See [installation, protocol, leases, relay deployment and security model](../doc
 Whip offers per-host **Install on host** / **Uninstall from host** controls over its existing SSH connection. Installation downloads a version-pinned GitHub Release binary and verifies its SHA-256 checksum. No Rust compiler, Node or Python is needed on the host. This package is also directly installable without a marketplace listing:
 
 ```sh
-herdr plugin install --yes --ref whip-notify-install-v0.1.5 kosumic/whip/whip-notify
+herdr plugin install --yes --ref whip-notify-install-v0.1.7 shiro-el/aries/whip-notify
 herdr plugin uninstall dev.whip.notify
 ```
 

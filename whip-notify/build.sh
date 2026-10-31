@@ -17,7 +17,7 @@ else
   exit 1
 fi
 notify_asset="whip-notify-$notify_target"
-notify_url="https://github.com/kosumic/whip/releases/download/whip-notify-v$notify_version/$notify_asset"
+notify_url="https://github.com/shiro-el/aries/releases/download/whip-notify-v$notify_version/$notify_asset"
 notify_tmp=$(mktemp -d "$notify_root/.whip-notify-download.XXXXXX")
 trap 'rm -rf "$notify_tmp"' EXIT
 trap 'exit 1' HUP INT TERM

@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 const PLUGIN: &str = "dev.whip.notify";
-const PLUGIN_SOURCE: &str = "kosumic/whip/whip-notify";
+const PLUGIN_SOURCE: &str = "shiro-el/aries/whip-notify";
 const INSTALL_TIMEOUT: Duration = Duration::from_mins(3);
 const SKILLS_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -133,7 +133,7 @@ fn installation_preflight_script() -> String {
 notify_target=$(notify_release_target)
 command -v git >/dev/null 2>&1 || {{ echo 'Install Git on this host first' >&2; exit 1; }}
 command -v curl >/dev/null 2>&1 || {{ echo 'Install curl on this host first' >&2; exit 1; }}
-notify_url="https://github.com/kosumic/whip/releases/download/whip-notify-v{version}/whip-notify-$notify_target.sha256"
+notify_url="https://github.com/shiro-el/aries/releases/download/whip-notify-v{version}/whip-notify-$notify_target.sha256"
 if ! curl -q --fail --location --silent --show-error --head --proto '=https' --proto-redir '=https' --connect-timeout 5 --max-time 15 --output /dev/null "$notify_url"; then
   printf 'Whip notification plugin {version} for %s is unavailable. Check host network access and GitHub release availability.\n' "$notify_target" >&2
   exit 1
