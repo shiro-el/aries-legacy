@@ -629,7 +629,7 @@ fn log_prunes_old_entries_and_oldest_records_at_the_size_bound() {
     let mut recent = records(root.path())[0].clone();
     recent["body"] = json!("x".repeat(300));
     let mut seed = format!("{}\n", old);
-    while seed.len() + recent.to_string().len() + 1 <= 1_048_576 {
+    while seed.len() + recent.to_string().len() < 1_048_576 {
         seed.push_str(&recent.to_string());
         seed.push('\n');
     }

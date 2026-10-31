@@ -196,7 +196,7 @@ fn record_locked(store: &Store, call: &CallRecord) -> Result<()> {
     }
     let next = serde_json::to_vec(call)?;
     let retained_size: usize = lines.iter().map(|line| line.len() + 1).sum();
-    if original_size == Some(retained_size) && retained_size + next.len() + 1 <= CALL_LOG_BYTES {
+    if original_size == Some(retained_size) && retained_size + next.len() < CALL_LOG_BYTES {
         let mut line = next;
         line.push(b'\n');
         return crate::host::append_private(&path, &line);

@@ -216,8 +216,8 @@ pub fn decrypt(
     if !matches!(event.status.as_str(), "blocked" | "done") || event.pane_id.is_empty() {
         return Err("invalid event".into());
     }
-    if let Some(kind) = event.kind.as_deref() {
-        if h.version < 2
+    if let Some(kind) = event.kind.as_deref()
+        && (h.version < 2
             || !matches!(kind, "call" | "approval")
             || !matches!(
                 event.urgency.as_deref(),
@@ -225,10 +225,9 @@ pub fn decrypt(
             )
             || event.call_id.as_deref().is_none_or(|id| !valid_id(id))
             || event.options.len() > 3
-            || (kind == "approval" && !event.options.is_empty())
-        {
-            return Err("invalid call event".into());
-        }
+            || (kind == "approval" && !event.options.is_empty()))
+    {
+        return Err("invalid call event".into());
     }
     Ok(event)
 }
