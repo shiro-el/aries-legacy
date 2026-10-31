@@ -8,6 +8,19 @@ import { handleNotificationChoice } from './notificationChoices';
 
 const TASK = 'aries-remote-notifications-v1';
 
+/**
+ * Background tasks get the raw native response, where a local alert's data
+ * is only `content.dataString`. Expo parses it for listeners but not here.
+ */
+function withContentData(response: Notifications.NotificationResponse): Notifications.NotificationResponse {
+  const request = response.notification.request;
+  const raw = (request.content as { dataString?: unknown }).dataString;
+  if (request.content.data || typeof raw !== 'string') return response;
+  const data = JSON.parse(raw) as Record<string, unknown>;
+  return { ...response, notification: { ...response.notification,
+    request: { ...request, content: { ...request.content, data } } } };
+}
+
 // Required by index.js so Expo can run this without mounting the application.
 TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ data, error }) => {
   if (error) return Notifications.BackgroundNotificationTaskResult.Failed;
@@ -15,7 +28,7 @@ TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ dat
   let stage = 'choice';
   try {
     if (data && 'actionIdentifier' in data) {
-      return await handleNotificationChoice(data)
+      return await handleNotificationChoice(withContentData(data))
         ? Notifications.BackgroundNotificationTaskResult.NewData : Notifications.BackgroundNotificationTaskResult.NoData;
     }
     // Visible fallback pushes already have an OS alert. Android drops the

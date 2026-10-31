@@ -227,9 +227,10 @@ test.each([false, true])('a cold background choice connects, verifies, submits a
   ]);
   const action = { actionIdentifier: 'whip-choice-1', notification: { date: 1, request: {
     identifier: 'local-call', trigger: null, content: { title: 'Choose', body: 'Which plan?',
-      categoryIdentifier: 'whip-call-call-123', data: {
+      // Android hands background tasks the local alert's data only as JSON text.
+      categoryIdentifier: 'whip-call-call-123', dataString: JSON.stringify({
         hostId: 'saved-host', paneId: 'w1:p1', remoteDeviceId: 'device', callId: 'call-123', agentAlertLevel: 'persistent',
-      } },
+      }) },
   } } } as unknown as Notifications.NotificationTaskPayload;
   expect(await mockTask({ data: action })).toBe(Notifications.BackgroundNotificationTaskResult.NewData);
   expect(createHostRuntime).toHaveBeenCalledWith(expect.objectContaining({
