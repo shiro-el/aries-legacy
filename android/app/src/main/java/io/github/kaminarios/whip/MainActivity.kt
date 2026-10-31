@@ -105,6 +105,10 @@ class MainActivity : ReactActivity() {
 
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
     if (handledVolumeKeys.remove(keyCode)) return true
+    // A React Native Modal's dialog forwards its key-ups here after its own
+    // TextInput consumed them. The dev double-R reload only checks this
+    // window's focus, so typing "herdr" in a modal search reloaded debug builds.
+    if (keyCode == KeyEvent.KEYCODE_R && !hasWindowFocus()) return false
     return super.onKeyUp(keyCode, event)
   }
 
