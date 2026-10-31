@@ -18,8 +18,9 @@ TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ dat
       return await handleNotificationChoice(data)
         ? Notifications.BackgroundNotificationTaskResult.NewData : Notifications.BackgroundNotificationTaskResult.NoData;
     }
-    // Visible fallback pushes already have an OS alert.
-    if (data?.notification !== null)
+    // Visible fallback pushes already have an OS alert. Android drops the
+    // null `notification` key when it serializes a data-only push.
+    if (!data || data.notification != null)
       return Notifications.BackgroundNotificationTaskResult.NoData;
     stage = 'parse';
     const payload: unknown = data.data.dataString ? JSON.parse(data.data.dataString) : data.data;

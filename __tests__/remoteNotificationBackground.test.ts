@@ -154,6 +154,13 @@ test('headless raw data objects use the same authenticated path as Android dataS
   expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
 });
 
+test('Android data-only pushes arrive without a notification key and still alert', async () => {
+  const received: Record<string, unknown> = { ...headless() };
+  delete received.notification;
+  await mockTask({ data: received as Notifications.NotificationTaskPayload });
+  expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+});
+
 test.each([1, 2, 3])('%i call choices become background actions on the authenticated local alert', async count => {
   const options = ['Ship it', 'Revise', 'Wait'].slice(0, count);
   jest.mocked(notificationOpen).mockReturnValueOnce(JSON.stringify({
