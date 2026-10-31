@@ -166,7 +166,7 @@ export function useAgentChatOpen(options: Options) {
             type: 'identity',
             agent,
             title: `Could not verify ${name} integration`,
-            message: `Whip could not read the ${name} status from Herdr. Check that the host supports integration status and installation, then try Chat again.`,
+            message: `Aries could not read the ${name} status from Herdr. Check that the host supports integration status and installation, then try Chat again.`,
           });
           break;
       }

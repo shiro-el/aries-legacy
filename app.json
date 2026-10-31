@@ -11,7 +11,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Whip to scan QR codes for host pairing and browser links, and attach photos you take to remote terminals.",
+          "cameraPermission": "Allow Aries to scan QR codes for host pairing and browser links, and attach photos you take to remote terminals.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
@@ -19,8 +19,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow Whip to scan QR codes for host pairing and browser links, and attach photos you take to remote terminals.",
-          "photosPermission": "Allow Whip to attach selected photos to the remote terminal."
+          "cameraPermission": "Allow Aries to scan QR codes for host pairing and browser links, and attach photos you take to remote terminals.",
+          "photosPermission": "Allow Aries to attach selected photos to the remote terminal."
         }
       ],
       [
@@ -36,7 +36,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Whip to use Face ID to protect SSH keys and app access."
+          "faceIDPermission": "Allow Aries to use Face ID to protect SSH keys and app access."
         }
       ],
       "expo-video",
@@ -44,14 +44,14 @@
       [
         "expo-sensors",
         {
-          "motionPermission": "Allow an agent launched with Reverse Control to request a single motion or pressure sensor reading while Whip is open."
+          "motionPermission": "Allow an agent launched with Reverse Control to request a single motion or pressure sensor reading while Aries is open."
         }
       ],
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow Whip to use the microphone for voice input in the message composer.",
-          "speechRecognitionPermission": "Allow Whip to turn your speech into text in the message composer."
+          "microphonePermission": "Allow Aries to use the microphone for voice input in the message composer.",
+          "speechRecognitionPermission": "Allow Aries to turn your speech into text in the message composer."
         }
       ],
       [
@@ -76,11 +76,11 @@
         "NSBonjourServices": [
           "_expo._tcp"
         ],
-        "NSFaceIDUsageDescription": "Allow Whip to use Face ID to protect SSH keys and app access.",
-        "NSLocalNetworkUsageDescription": "Whip connects to SSH servers on your local network.",
-        "NSLocationWhenInUseUsageDescription": "Allow an agent launched with Reverse Control to request your current location while Whip is open.",
-        "NSMotionUsageDescription": "Allow an agent launched with Reverse Control to request a single motion or pressure sensor reading while Whip is open.",
-        "NSPhotoLibraryUsageDescription": "Allow Whip to select terminal and app background images."
+        "NSFaceIDUsageDescription": "Allow Aries to use Face ID to protect SSH keys and app access.",
+        "NSLocalNetworkUsageDescription": "Aries connects to SSH servers on your local network.",
+        "NSLocationWhenInUseUsageDescription": "Allow an agent launched with Reverse Control to request your current location while Aries is open.",
+        "NSMotionUsageDescription": "Allow an agent launched with Reverse Control to request a single motion or pressure sensor reading while Aries is open.",
+        "NSPhotoLibraryUsageDescription": "Allow Aries to select terminal and app background images."
       }
     },
     "android": {

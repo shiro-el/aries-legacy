@@ -174,7 +174,7 @@ class CredentialVaultModule(
     val activity = context.currentActivity as? FragmentActivity
       ?: return promise.reject(
         failedCode,
-        "Biometric authentication requires the active Whip screen",
+        "Biometric authentication requires the active Aries screen",
       )
 
     context.runOnUiQueueThread {

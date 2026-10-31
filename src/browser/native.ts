@@ -73,7 +73,7 @@ export function supportsBrowserControl(): boolean {
 function nativeBrowser(): NativeBrowser {
   const module = NativeModules.WhipBrowser as NativeBrowser | undefined;
   if (!module)
-    throw new Error('Browser control requires the native Whip browser adapter');
+    throw new Error('Browser control requires the native Aries browser adapter');
   return module;
 }
 export function nativeBrowserDriver(

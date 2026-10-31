@@ -57,7 +57,7 @@ internal class WhipPrivilegedClient(private val context: Context) {
       if (access.status != WhipShizukuAccess.Status.READY) {
         val denied = access.status == WhipShizukuAccess.Status.PERMISSION_REQUIRED || access.status == WhipShizukuAccess.Status.DENIED
         promise.reject(if (denied) "permission_denied" else "device_unavailable",
-          if (denied) "Pair Whip with Shizuku in More before using privileged tools" else "Start a supported Shizuku service before using privileged tools")
+          if (denied) "Pair Aries with Shizuku in More before using privileged tools" else "Start a supported Shizuku service before using privileged tools")
         return@post
       }
       val call = Call(session, id, argv, timeoutMs, maxOutputBytes, promise)

@@ -1357,7 +1357,7 @@ function hostRuntimeMessage(
     return 'SSH host certificates are not supported';
   }
   if (expected !== undefined && received !== undefined) {
-    return `Herdr protocol mismatch: Whip supports ${expected}, server reports ${received}`;
+    return `Herdr protocol mismatch: Aries supports ${expected}, server reports ${received}`;
   }
   if (lastReadinessError)
     return `Herdr did not become ready: ${lastReadinessError}`;

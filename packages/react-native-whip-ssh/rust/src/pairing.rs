@@ -315,7 +315,7 @@ fn printable_device_name(value: &str) -> String {
         .take(80)
         .collect();
     if value.trim().is_empty() {
-        "Whip".into()
+        "Aries".into()
     } else {
         value
     }

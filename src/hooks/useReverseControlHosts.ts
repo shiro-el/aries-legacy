@@ -49,7 +49,7 @@ export function useReverseControlHosts(
       if (signal.aborted) return false;
       assertActive();
       if (!profile.secret)
-        throw Object.assign(new Error('Save an SSH credential for this host in Whip first'), { code: 'invalid_argument' });
+        throw Object.assign(new Error('Save an SSH credential for this host in Aries first'), { code: 'invalid_argument' });
       return sessions.connect(profile, {
         persistProfile: false, navigate: false, activateSession: false,
         promptForUnknownHosts: true, signal,

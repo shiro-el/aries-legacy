@@ -2,16 +2,16 @@
     <string name="app_name">Aries</string>
     <string name="chat_speech_listening">正在聆聽 %1$s</string>
     <string name="chat_speech_stop">停止聆聽</string>
-    <string name="herdr_background_channel">Whip 背景監控</string>
-    <string name="herdr_background_channel_description">Whip 保持遠端工作階段連線時顯示</string>
-    <string name="herdr_background_title">Whip 正在背景監控</string>
+    <string name="herdr_background_channel">Aries 背景監控</string>
+    <string name="herdr_background_channel_description">Aries 保持遠端工作階段連線時顯示</string>
+    <string name="herdr_background_title">Aries 正在背景監控</string>
     <string name="herdr_background_battery_tip">滑動關閉以節省電量</string>
     <plurals name="herdr_background_hosts">
         <item quantity="other">正在透過 SSH 監看 %1$d 台遠端主機</item>
     </plurals>
     <string name="credential_unlock_title">解鎖已還原的 SSH 認證資料</string>
     <string name="credential_unlock_subtitle">使用指紋、臉部或裝置螢幕鎖定</string>
-    <string name="app_unlock_title">解鎖 Whip</string>
+    <string name="app_unlock_title">解鎖 Aries</string>
     <string name="app_unlock_subtitle">使用指紋或臉部辨識驗證以繼續</string>
     <string name="biometric_cancel">取消</string>
 </resources>

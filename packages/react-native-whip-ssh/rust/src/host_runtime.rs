@@ -353,7 +353,7 @@ pub enum HostRuntimeError {
     SshConnectionFailure { code: SshErrorCode, message: String },
     #[error("{0}")]
     HerdrUnavailable(String),
-    #[error("Herdr protocol mismatch: Whip supports {expected}, server reports {received}")]
+    #[error("Herdr protocol mismatch: Aries supports {expected}, server reports {received}")]
     HerdrProtocolMismatch { expected: String, received: u32 },
     #[error("Herdr did not become ready within {timeout_ms} ms: {last_error}")]
     HerdrReadinessTimeout { timeout_ms: u64, last_error: String },

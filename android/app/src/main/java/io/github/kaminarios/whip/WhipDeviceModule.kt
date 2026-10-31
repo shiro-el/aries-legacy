@@ -58,7 +58,7 @@ class WhipDeviceModule(private val context: ReactApplicationContext) : ReactCont
         return@post
       }
       if (context.lifecycleState != LifecycleState.RESUMED) {
-        promise.reject("device_unavailable", "Keep Whip foregrounded to request location")
+        promise.reject("device_unavailable", "Keep Aries foregrounded to request location")
         return@post
       }
       val fix = Fix(requestId, promise)
@@ -134,7 +134,7 @@ class WhipDeviceModule(private val context: ReactApplicationContext) : ReactCont
     val googleCancellation = CancellationTokenSource()
     var sources: List<String> = emptyList()
     val timeout = Runnable {
-      fail("timeout", "No current location fix from ${sources.joinToString()} within ${LOCATION_TIMEOUT_MS / 1000}s. Keep Whip foregrounded; check Location Accuracy or retry with a clear view of the sky.")
+      fail("timeout", "No current location fix from ${sources.joinToString()} within ${LOCATION_TIMEOUT_MS / 1000}s. Keep Aries foregrounded; check Location Accuracy or retry with a clear view of the sky.")
     }
     private fun finish(): Boolean {
       if (requests[id] !== this) return false

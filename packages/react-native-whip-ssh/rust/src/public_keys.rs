@@ -67,7 +67,7 @@ pub fn inspect_public_key(
     let public_key = match value.strip_prefix(QR_PREFIX) {
         Some(key) => key,
         None if !require_qr => value,
-        None => return Err(invalid_key("Scan a Whip public-key QR code")),
+        None => return Err(invalid_key("Scan an Aries public-key QR code")),
     };
     let mut key = parse_public_key(public_key)?;
     key.set_comment("");

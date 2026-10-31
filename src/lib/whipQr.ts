@@ -150,7 +150,7 @@ function encodeWithCenteredLogo(payload: string) {
     const logo = logoPlacement(qr.size, qr.alignmentCoordinates);
     if (logo) return { qr, logo };
   }
-  throw new Error('This QR code has no clear area for a centered Whip logo');
+  throw new Error('This QR code has no clear area for a centered Aries logo');
 }
 
 function marker(x: number, y: number, size: number): string {

@@ -42,7 +42,7 @@ it('uses the iOS system authentication sheet with device passcode fallback', asy
   await authenticateAppAccess();
 
   expect(mockAuthenticateAsync).toHaveBeenCalledWith({
-    promptMessage: 'Unlock Whip',
+    promptMessage: 'Unlock Aries',
     cancelLabel: 'Cancel',
     disableDeviceFallback: false,
     fallbackLabel: 'Use Device Passcode',
@@ -64,14 +64,14 @@ it('uses a purpose-specific prompt for the global SSH keychain', async () => {
 it.each([
   {
     language: 'zh-Hant',
-    appPrompt: '解鎖 Whip',
+    appPrompt: '解鎖 Aries',
     keychainPrompt: '解鎖全域 SSH 金鑰圈',
     cancelLabel: '取消',
     fallbackLabel: '使用裝置密碼',
   },
   {
     language: 'fr',
-    appPrompt: 'Déverrouiller Whip',
+    appPrompt: 'Déverrouiller Aries',
     keychainPrompt: 'Déverrouiller le trousseau SSH global',
     cancelLabel: 'Annuler',
     fallbackLabel: 'Utiliser le code de l’appareil',
