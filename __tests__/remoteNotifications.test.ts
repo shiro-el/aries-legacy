@@ -26,6 +26,7 @@ jest.mock('expo-notifications', () => ({
     return { remove: jest.fn() };
   }),
   requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
   getExpoPushTokenAsync: jest
     .fn()
     .mockResolvedValue({ data: 'ExpoPushToken[test]' }),
@@ -313,7 +314,10 @@ test('token refresh verifies the new push token before replacing relay routing',
   notifications.getExpoPushTokenAsync.mockResolvedValueOnce({ data: 'ExpoPushToken[rotated]' });
   fetchMock.mockClear();
   command.mockClear();
+  notifications.requestPermissionsAsync.mockClear();
   await service.refreshRemotePushTokens();
+  // Refreshing on every foreground must never open the permission prompt.
+  expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(['PUT', 'POST']);
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
     protocol: 2, expo_token: 'ExpoPushToken[rotated]',

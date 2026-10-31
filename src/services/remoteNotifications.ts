@@ -168,8 +168,16 @@ async function relay(
       'This notification relay needs an update for automatic registration',
     );
 }
-async function pushToken(): Promise<string> {
-  const permission = await Notifications.requestPermissionsAsync();
+/**
+ * Only an explicit opt-in may prompt. A background refresh must not: on
+ * Android the request flips the app to background and back, which refreshes
+ * again, and a request started in the background never settles, stalling
+ * every queued push behind it.
+ */
+async function pushToken(prompt: boolean): Promise<string> {
+  const permission = prompt
+    ? await Notifications.requestPermissionsAsync()
+    : await Notifications.getPermissionsAsync();
   if (!permission.granted)
     throw new Error('Enable notification permission first');
   const projectId =
@@ -410,7 +418,7 @@ export function enableRemoteNotifications(
       throw new Error(
         'Finish disabling the previous registration before rotating keys',
       );
-    const expoToken = await pushToken();
+    const expoToken = await pushToken(true);
     const discovery = JSON.parse(
       await runtime.notificationCommand('discover', '{}'),
     ) as Discovery;
@@ -533,7 +541,7 @@ export function refreshRemotePushTokens(): Promise<void> {
   return serial(async () => {
     const registrations = (await load()).filter(r => r.enabled);
     if (!registrations.length) return;
-    const token = await pushToken();
+    const token = await pushToken(false);
     await Promise.all(
       registrations.map(r => verifyRelayRegistration(r, token)),
     );
