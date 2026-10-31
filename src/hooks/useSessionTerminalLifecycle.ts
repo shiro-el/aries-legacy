@@ -272,12 +272,23 @@ export function useSessionTerminalLifecycle({
   );
 
   const createWorkspace = useCallback(
-    async (sessionId: string, name: string, cwd: string, launch?: TabLaunchIntent) => {
+    async (
+      sessionId: string,
+      name: string,
+      cwd: string,
+      launch?: TabLaunchIntent,
+      onOpen?: (pane: PaneInfo, agentStarted: boolean) => void,
+    ) => {
       if (launch) {
         const { runtime, hostId } = await prepareAgentPreferences(sessionId);
         const workspace = await createWorkspaceAndOpenPane(
           runtime, name, cwd, launch,
           (pane, agentStarted) => {
+            // A caller that shows the pane itself skips the terminal handoff.
+            if (onOpen) {
+              onOpen(pane, agentStarted);
+              return;
+            }
             navigation.selectPane(null);
             terminals.openPane(sessionId, pane);
             if (agentStarted) {

@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import { reportBackgroundFailure } from '../services/backgroundOperations';
-import type { AgentCatalog } from 'react-native-whip-ssh';
-import type { TerminalRenderTarget } from '../lib/terminalRenderer';
+import type { AgentCatalog, HostRuntimeConnection } from 'react-native-whip-ssh';
+
+/** A pane on a connected runtime; pass null while it is not connected. */
+export type AgentCatalogSource = {
+  /** Distinguishes runtimes, such as the host session ID. */
+  key: string;
+  paneId: string;
+  native: HostRuntimeConnection;
+};
 
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 type Refresh = { checkedAt: number; pending?: Promise<AgentCatalog | undefined> };
@@ -9,20 +16,13 @@ const refreshes = new WeakMap<object, Map<string, Refresh>>();
 
 /** Native owns discovery and caching; late results cannot follow a pane switch. */
 export function useAgentCatalog(
-  target: TerminalRenderTarget | null,
+  source: AgentCatalogSource | null,
   visible: boolean,
   paneContext = '',
 ) {
-  const paneId = target?.session.paneId;
-  const client = target?.client;
-  const status = target?.session.status;
-  const context = JSON.stringify([
-    target?.key,
-    paneId,
-    paneContext,
-    visible,
-    status,
-  ]);
+  const paneId = source?.paneId;
+  const runtime = source?.native;
+  const context = JSON.stringify([source?.key, paneId, paneContext, visible]);
   const [result, setResult] = useState<{
     context: string;
     catalog?: AgentCatalog;
@@ -30,9 +30,9 @@ export function useAgentCatalog(
   }>({ context: '', status: 'unavailable' });
   useEffect(() => {
     let current = true;
-    if (!visible || !paneId || !client || status !== 'connected') return;
+    if (!visible || !paneId || !runtime) return;
     try {
-      const native = client.native;
+      const native = runtime;
       const cached = native.cachedAgentCatalog(paneId);
       setResult({
         context,
@@ -88,7 +88,7 @@ export function useAgentCatalog(
     return () => {
       current = false;
     };
-  }, [client, context, paneContext, paneId, status, visible]);
+  }, [context, paneContext, paneId, runtime, visible]);
   return result.context === context
     ? result
     : { catalog: undefined, status: 'unavailable' as const };

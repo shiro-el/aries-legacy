@@ -17,6 +17,7 @@ import type { HerdrClient } from '../../services/HerdrClient';
 import type { PaneInfo } from '../../types';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
+import { Composer } from './Composer';
 import { Markdown } from './Markdown';
 import { useAgentChat } from './useAgentChat';
 
@@ -28,9 +29,15 @@ type Props = {
   onRefresh: () => Promise<void>;
   onBack: () => void;
   onOpenTerminal: () => void;
+  /** This chat is the one on screen, not a retained hidden one. */
+  active: boolean;
+  /** Put the caret in the composer, as after starting a new task. */
+  focusComposer?: boolean;
 };
 
-export function ChatScreen({ hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal }: Props) {
+export function ChatScreen({
+  hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, active, focusComposer,
+}: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const chat = useAgentChat({ hostSessionId, pane, client, onRefresh });
@@ -38,6 +45,13 @@ export function ChatScreen({ hostSessionId, hostName, pane, client, onRefresh, o
   const agent = chatAgentForPane(pane);
   const name = agent ? chatAgentDisplayName(agent) : (pane?.display_agent ?? pane?.agent ?? 'Agent');
   const where = pane?.foreground_cwd ?? pane?.cwd;
+  const paneId = pane?.pane_id;
+  // Null until the runtime attaches and again after it disconnects.
+  const native = client?.activeNative ?? null;
+  const catalogSource = useMemo(
+    () => (native && paneId ? { key: hostSessionId, paneId, native } : null),
+    [hostSessionId, native, paneId],
+  );
 
   const toggleTool = useCallback((id: string) => {
     setOpenTools(current => {
@@ -102,7 +116,18 @@ export function ChatScreen({ hostSessionId, hostName, pane, client, onRefresh, o
         />
       )}
       {!chat.prompt.prompt && chat.prompt.error && <Text style={s.promptError}>{chat.prompt.error}</Text>}
-      <Composer name={name} s={s} palette={palette} disabled={!pane || !client} onSend={chat.send} />
+      <Composer
+        name={name}
+        agent={agent}
+        catalogSource={catalogSource}
+        paneContext={JSON.stringify([where, pane?.agent])}
+        active={active}
+        disabled={!pane || !client}
+        autoFocus={focusComposer}
+        palette={palette}
+        onSend={chat.send}
+        onOpenTerminal={onOpenTerminal}
+      />
     </View>
   );
 }
@@ -410,51 +435,6 @@ function PromptCard({ prompt, name, busy, error, s, palette, onRespond }: {
   );
 }
 
-function Composer({ name, s, palette, disabled, onSend }: {
-  name: string;
-  s: Styles;
-  palette: Palette;
-  disabled: boolean;
-  onSend: (text: string) => Promise<void>;
-}) {
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ready = !disabled && !sending && text.trim().length > 0;
-  const send = async () => {
-    if (!ready) return;
-    setSending(true);
-    setError(null);
-    try {
-      await onSend(text.trimEnd());
-      setText('');
-    } catch (reason) {
-      setError(`Not sent: ${reason instanceof Error ? reason.message : String(reason)}`);
-    } finally {
-      setSending(false);
-    }
-  };
-  return (
-    <View style={s.composer}>
-      {error ? <Text style={s.composerError}>{error}</Text> : null}
-      <View style={s.composerRow}>
-        <TextInput
-          style={[s.input, s.composerInput]}
-          value={text}
-          onChangeText={setText}
-          placeholder={`Message ${name}`}
-          placeholderTextColor={palette.muted}
-          multiline
-          editable={!disabled}
-        />
-        <Pressable onPress={() => { void send(); }} disabled={!ready} accessibilityRole="button" style={({ pressed }) => [s.solid, !ready && s.dim, pressed && s.solidPressed]}>
-          <Text style={s.solidLabel}>{sending ? 'Sending' : 'Send'}</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 type Styles = ReturnType<typeof makeStyles>;
 
 function makeStyles(p: Palette) {
@@ -552,9 +532,6 @@ function makeStyles(p: Palette) {
     cardError: { ...type.caption, color: p.text, flex: 1 },
     promptError: { ...type.caption, color: p.muted, paddingHorizontal: space.xl, paddingBottom: space.xs },
 
-    composer: { paddingHorizontal: space.md, paddingVertical: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.seam, gap: space.xs },
-    composerRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm },
-    composerError: { ...type.caption, color: p.text, paddingHorizontal: space.xs },
     input: {
       ...type.body,
       color: p.text,
@@ -565,7 +542,6 @@ function makeStyles(p: Palette) {
       borderColor: p.seam,
       backgroundColor: p.surface,
     },
-    composerInput: { flex: 1, maxHeight: 140 },
     solid: { paddingVertical: 11, paddingHorizontal: space.lg, borderRadius: radius.sm, backgroundColor: p.text },
     solidPressed: { opacity: 0.85 },
     solidLabel: { ...type.bodyBold, color: p.bg },

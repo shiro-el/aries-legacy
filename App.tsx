@@ -6,10 +6,12 @@ import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-co
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { chatAgentForPane } from './src/lib/agentChatSession';
+import { reportBackgroundFailure } from './src/services/backgroundOperations';
 import { ChatScreen } from './src/ui/chat/ChatScreen';
 import { DeleteHostPrompt, HostKeyPrompt, LockScreen } from './src/ui/Gate';
 import { TabBar, type MainTab } from './src/ui/TabBar';
 import { HerdScreen, type SavedHost } from './src/ui/herd/HerdScreen';
+import { NewTaskSheet, type NewTaskHost } from './src/ui/herd/NewTaskSheet';
 import { herdSection } from './src/ui/herd/herdSections';
 import { HostEditor } from './src/ui/hosts/HostEditor';
 import { HostsScreen, type HostRow } from './src/ui/hosts/HostsScreen';
@@ -59,6 +61,19 @@ export default function App() {
     connecting: sessions.connectingHostIds.has(host.id),
   })), [hosts.hosts, presentationSessions, sessions.connectingHostIds]);
 
+  // Hosts whose herd is live can start a task.
+  const taskHosts = useMemo<NewTaskHost[]>(() => sections.flatMap(section => {
+    if (section.state !== 'ready') return [];
+    const session = presentationSessions.find(candidate => candidate.id === section.sessionId);
+    return [{
+      sessionId: section.sessionId,
+      hostId: section.hostId,
+      hostName: section.hostName,
+      paneFolders: (session?.snapshot.panes ?? []).map(pane => pane.foreground_cwd ?? pane.cwd ?? ''),
+    }];
+  }), [presentationSessions, sections]);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+
   const connectHost = useCallback((host: HostProfile) => {
     void sessions.connectSavedHost(host);
   }, [sessions]);
@@ -73,6 +88,8 @@ export default function App() {
   // Recently read conversations stay mounted while hidden, so going back to
   // one shows it at once instead of rebuilding its rows.
   const [recentChats, setRecentChats] = useState<ChatRef[]>([]);
+  // A chat opened by starting a task, so its composer takes the caret.
+  const [freshChat, setFreshChat] = useState<string | null>(null);
   useEffect(() => {
     if (!chat) return;
     setRecentChats(current => [chat, ...current.filter(entry => chatKey(entry) !== chatKey(chat))].slice(0, RETAINED_CHATS));
@@ -147,6 +164,8 @@ export default function App() {
                       pane={pane}
                       client={sessions.getClient(entry.sessionId)}
                       onRefresh={() => sessions.refresh(entry.sessionId)}
+                      active={visible}
+                      focusComposer={freshChat === chatKey(entry)}
                       onBack={() => setChat(null)}
                       onOpenTerminal={() => {
                         if (pane) sessions.openPaneTerminal(entry.sessionId, pane);
@@ -156,7 +175,14 @@ export default function App() {
                 );
               })}
               {tab === 'herd' && !chatShown && (
-                <HerdScreen sections={sections} savedHosts={savedHosts} error={hosts.error} onConnect={connectById} onOpenPane={openPane} />
+                <HerdScreen
+                  sections={sections}
+                  savedHosts={savedHosts}
+                  error={hosts.error}
+                  onConnect={connectById}
+                  onOpenPane={openPane}
+                  onNewTask={taskHosts.length > 0 ? () => setNewTaskOpen(true) : undefined}
+                />
               )}
               {tab === 'hosts' && (
                 <HostsScreen
@@ -215,6 +241,27 @@ export default function App() {
           busy={hosts.deleteHostBusy}
           onCancel={hosts.cancelDelete}
           onConfirm={() => { void hosts.deleteConfirmed(); }}
+        />
+        <NewTaskSheet
+          visible={newTaskOpen}
+          hosts={taskHosts}
+          runtime={sessionId => sessions.getClient(sessionId)?.activeNative ?? null}
+          onClose={() => setNewTaskOpen(false)}
+          onCreate={async (sessionId, label, cwd, launch) => {
+            await sessions.createWorkspace(sessionId, label, cwd, launch, (pane, agentStarted) => {
+              if (agentStarted) {
+                const ref = { sessionId, paneId: pane.pane_id };
+                setFreshChat(chatKey(ref));
+                setChat(ref);
+                navigation.selectTab('herd');
+              } else {
+                // A shell, or an agent that failed to start: show the pane as it is.
+                sessions.openPaneTerminal(sessionId, pane);
+              }
+            });
+            // The new pane shows up in the herd without waiting for the next event.
+            reportBackgroundFailure(sessions.refresh(sessionId), 'new-task-refresh');
+          }}
         />
         <HostKeyPrompt challenge={hosts.unknownHostChallenge} onResolve={hosts.resolveUnknownHost} />
       </KeyboardProvider>

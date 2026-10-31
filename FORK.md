@@ -416,3 +416,23 @@ fork keeps the herding theme with the ram that leads the flock.
   `@shopify/flash-list`, `react-native-svg`, `react-native-reanimated`,
   `lucide-react-native`, CodeMirror) stay installed until the new UI decides
   whether to use them.
+
+### 17. New task and command/skill entries in the rebuilt UI
+
+- **What:** Herd has a New task button. Its sheet picks a host, a folder
+  (recent task folders, folders of open panes, or a remote folder browser),
+  the first pane (Claude Code, Codex or Shell), model and effort shortcuts
+  with a custom model ID, and the workspace name. An agent task opens its
+  chat with the caret in the composer; a shell or a failed agent start opens
+  the terminal. The chat composer lists the agent's commands when a message
+  starts with `/`, and a separate Skills button opens a searchable sheet that
+  inserts `/name` (Claude) or `$name` (Codex) at the caret. Sending a
+  terminal-only command opens the terminal.
+- **Why:** Brings decisions Q23 and Q22b, built headless in entries 5, 10 and
+  12, back onto the new screens.
+- **How:** `createWorkspace` takes an optional `onOpen` so the new UI shows the
+  pane itself instead of the old terminal handoff. `useAgentCatalog` now takes
+  a plain `{ key, paneId, native }` source instead of a terminal render
+  target. Model and effort shortcuts come from `claude --help` 2.1.316 and
+  `codex debug models` 0.165.0. A blank choice passes no flag. `~` paths are
+  resolved against the remote home before browsing or creating.

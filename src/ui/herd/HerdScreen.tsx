@@ -15,13 +15,15 @@ type Props = {
   error?: string | null;
   onConnect: (hostId: string) => void;
   onOpenPane?: (sessionId: string, paneId: string) => void;
+  /** Offered while at least one host can start a task. */
+  onNewTask?: () => void;
 };
 
 const ROW_PAD = 9;
 const GLYPH_TOP = 3;
 const GLYPH_CENTER = ROW_PAD + GLYPH_TOP + GLYPH_SIZE / 2;
 
-export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane }: Props) {
+export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane, onNewTask }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const multiHost = sections.length > 1;
@@ -33,8 +35,15 @@ export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane 
     <View style={s.screen}>
       <View style={s.appbar}>
         <Text style={s.title} accessibilityRole="header">Herd</Text>
-        {sections.length === 1 && <HostChip section={sections[0]} s={s} />}
-        {multiHost && <Text style={s.hostName}>{sections.length} hosts</Text>}
+        <View style={s.appbarEnd}>
+          {sections.length === 1 && <HostChip section={sections[0]} s={s} />}
+          {multiHost && <Text style={s.hostName}>{sections.length} hosts</Text>}
+          {onNewTask && (
+            <Pressable onPress={onNewTask} accessibilityRole="button" hitSlop={6} style={({ pressed }) => [s.newTask, pressed && s.rowPressed]}>
+              <Text style={s.newTaskLabel}>New task</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
       {agentsShown && <Summary needYou={needYou} working={working} s={s} />}
       {error ? <Text style={[s.notice, s.noticeError, s.inset]}>{error}</Text> : null}
@@ -95,7 +104,7 @@ function SectionState({ section, s, onConnect }: {
   switch (section.state) {
     case 'ready':
       return section.view.workspaces.length === 0
-        ? <Text style={s.notice}>No panes open. Start an agent in Herdr and it shows up here.</Text>
+        ? <Text style={s.notice}>No panes open. Start a task to put an agent to work here.</Text>
         : null;
     case 'connecting':
       return <Text style={s.notice}>Connecting to {section.hostName}</Text>;
@@ -231,6 +240,9 @@ function makeStyles(p: Palette) {
       paddingBottom: space.lg,
     },
     title: { ...type.display, color: p.text },
+    appbarEnd: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+    newTask: { paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: 8, borderWidth: 1.5, borderColor: p.seam },
+    newTaskLabel: { ...type.caption, fontFamily: type.bodyMedium.fontFamily, color: p.text },
     host: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     hostDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: p.text },
     hostDotOff: { backgroundColor: 'transparent', borderWidth: 1, borderColor: p.muted },

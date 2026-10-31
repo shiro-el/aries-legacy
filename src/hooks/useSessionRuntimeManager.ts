@@ -114,6 +114,7 @@ export interface SessionRuntimeController {
     name: string,
     cwd: string,
     launch?: TabLaunchIntent,
+    onOpen?: (pane: PaneInfo, agentStarted: boolean) => void,
   ) => Promise<HerdrSnapshot['workspaces'][number]>;
   renameWorkspace: (
     sessionId: string,
