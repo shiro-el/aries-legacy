@@ -122,8 +122,11 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
           : `Installed${plugin.state.version ? `, version ${plugin.state.version}` : ''}${plugin.state.enabled ? '' : ', turned off in Herdr'}`;
 
   const pushOn = push?.enabled === true;
-  const pushLine = push?.pendingHostRemoval
-    ? 'Turning off. Finishes the next time this host connects.'
+  // An earlier registration the relay has not confirmed removing blocks a new
+  // one; turning it off again retries the removal with the kept credentials.
+  const stale = push !== undefined && !pushOn && (!push.relayRevoked || push.pendingHostRemoval);
+  const pushLine = stale
+    ? `An earlier registration${push.relayUrl ? ` with ${push.relayUrl.replace(/^https:\/\//, '')}` : ''} was not fully removed. Remove it before turning push on.`
     : pushOn
       ? `On, through ${push.relayUrl.replace(/^https:\/\//, '')}`
       : 'Off. Calls still show in the app while it is open.';
@@ -186,7 +189,7 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
 
           <Section title="Push to this phone" s={s}>
             <Text style={s.body}>{pushLine}</Text>
-            {!pushOn && !push?.pendingHostRemoval && (
+            {!pushOn && !stale && (
               <View style={s.field}>
                 <Text style={s.hint}>Relay</Text>
                 <TextInput
@@ -202,7 +205,16 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
               </View>
             )}
             <View style={s.actions}>
-              {pushOn ? (
+              {stale ? (
+                <Action
+                  label="Remove old registration"
+                  busy={busy === 'cleanup'}
+                  disabled={busy !== null}
+                  solid
+                  s={s}
+                  onPress={() => run('cleanup', () => disableRemoteNotifications(hostId!))}
+                />
+              ) : pushOn ? (
                 <Action
                   label="Turn off push"
                   busy={busy === 'disable'}
@@ -214,7 +226,7 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
                 <Action
                   label="Turn on push"
                   busy={busy === 'enable'}
-                  disabled={busy !== null || !connected || !installed || !relay.trim() || push?.pendingHostRemoval === true}
+                  disabled={busy !== null || !connected || !installed || !relay.trim()}
                   solid
                   s={s}
                   onPress={() => run('enable', () => enableRemoteNotifications(hostId!, relay.trim(), encrypted))}

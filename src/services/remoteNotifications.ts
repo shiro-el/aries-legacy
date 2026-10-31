@@ -71,6 +71,8 @@ export interface RemoteNotificationState {
   enabled: boolean;
   connected: boolean;
   pendingHostRemoval: boolean;
+  /** False until the relay confirms an old registration's route is gone. */
+  relayRevoked: boolean;
   endToEndEncrypted: boolean;
 }
 export interface NotificationPluginState {
@@ -221,6 +223,7 @@ export async function remoteNotificationStates(): Promise<
     enabled: r.enabled,
     connected: runtimes.has(r.hostId),
     pendingHostRemoval: r.pendingHostRemoval,
+    relayRevoked: r.relayRevoked,
     endToEndEncrypted: r.endToEndEncrypted ?? true,
   }));
 }

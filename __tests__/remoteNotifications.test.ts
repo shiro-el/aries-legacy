@@ -275,6 +275,7 @@ test('opt-in registers public key over existing SSH and stores secrets in the pl
       connected: true,
       enabled: true,
       pendingHostRemoval: false,
+      relayRevoked: false,
       endToEndEncrypted: false,
     },
   ]);
