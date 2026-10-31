@@ -436,3 +436,24 @@ fork keeps the herding theme with the ram that leads the flock.
   target. Model and effort shortcuts come from `claude --help` 2.1.316 and
   `codex debug models` 0.165.0. A blank choice passes no flag. `~` paths are
   resolved against the remote home before browsing or creating.
+
+### 18. Calls tab and alert settings in the rebuilt UI
+
+- **What:** A Calls tab lists every connected host's retained calls and
+  approvals, newest first, with urgency filters, reply status and a count of
+  calls since the tab was last opened. Rows and a foreground banner open the
+  call's pane. Hosts gains a "This phone" section (agent alerts, keep ringing,
+  ring duration, Android permission) and a per-host Alerts sheet (host plugin
+  install/update/remove, push registration, end-to-end encryption). The
+  default relay is now `https://notify.aries.shiroel.com`.
+- **Why:** Brings entries 9 and 4–8 back onto the new screens after entry 16
+  removed them, and stops new registrations from defaulting to upstream's
+  relay, which cannot reach this application ID.
+- **How:** `services/callLog.ts` wraps the existing `calls-open`, `calls-read`
+  and `calls-stop` notification commands and merges revisions by call ID.
+  `ui/calls/useHostCalls.ts` follows every bound notification runtime while
+  the app is in the foreground, reopens dropped streams, and announces only
+  calls that arrive while following. The core's `more` tab id is the Calls tab.
+- **Not changed yet:** the plugin installer still downloads from
+  `kosumic/whip`, which has no 0.1.7 release, so hosts on upstream 0.1.4 have
+  no call log until the plugin source moves to this fork.

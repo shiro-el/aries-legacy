@@ -89,5 +89,13 @@ export function useAppRuntime() {
     void sessions.closeHostById(hostId);
   };
 
-  return { hosts, sessions, security, navigation, terminals, preferences: prefs };
+  return {
+    hosts,
+    sessions,
+    security,
+    navigation,
+    terminals,
+    preferences: prefs,
+    setPreference: preferences.setPreference,
+  };
 }

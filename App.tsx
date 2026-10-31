@@ -9,11 +9,15 @@ import { chatAgentForPane } from './src/lib/agentChatSession';
 import { reportBackgroundFailure } from './src/services/backgroundOperations';
 import { ChatScreen } from './src/ui/chat/ChatScreen';
 import { DeleteHostPrompt, HostKeyPrompt, LockScreen } from './src/ui/Gate';
+import { CallBanner } from './src/ui/calls/CallBanner';
+import { CallsScreen, type CallPane } from './src/ui/calls/CallsScreen';
+import { useHostCalls } from './src/ui/calls/useHostCalls';
 import { TabBar, type MainTab } from './src/ui/TabBar';
 import { HerdScreen, type SavedHost } from './src/ui/herd/HerdScreen';
 import { NewTaskSheet, type NewTaskHost } from './src/ui/herd/NewTaskSheet';
 import { herdSection } from './src/ui/herd/herdSections';
 import { HostEditor } from './src/ui/hosts/HostEditor';
+import { HostNotificationsSheet } from './src/ui/hosts/HostNotificationsSheet';
 import { HostsScreen, type HostRow } from './src/ui/hosts/HostsScreen';
 import { TerminalScreen } from './src/ui/terminal/TerminalScreen';
 import { fontAssets, palettes, usePalette } from './src/ui/theme/tokens';
@@ -33,16 +37,25 @@ function hideLaunchScreen() {
 export default function App() {
   const [fontsLoaded] = useFonts(fontAssets);
   const palette = usePalette();
-  const { hosts, sessions, security, navigation, terminals, preferences } = useAppRuntime();
+  const { hosts, sessions, security, navigation, terminals, preferences, setPreference } = useAppRuntime();
+  const calls = useHostCalls();
   const { presentationSessions, activeSession, terminalTargets } = sessions;
 
   useEffect(() => {
     if (fontsLoaded) hideLaunchScreen();
   }, [fontsLoaded]);
 
+  // The core's `more` tab is where calls live now.
   const tab: MainTab = navigation.state.tab === 'hosts' || navigation.state.tab === 'terminal'
     ? navigation.state.tab
-    : 'herd';
+    : navigation.state.tab === 'more' ? 'calls' : 'herd';
+  const selectTab = (next: MainTab) => navigation.selectTab(next === 'calls' ? 'more' : next);
+
+  // Reading Calls clears its count, including calls that arrive while it is open.
+  const { markSeen, unseen } = calls;
+  useEffect(() => {
+    if (tab === 'calls' && unseen > 0) markSeen();
+  }, [markSeen, tab, unseen]);
 
   const sections = useMemo(() => presentationSessions.map(herdSection), [presentationSessions]);
   const needYou = sections.reduce((sum, section) => sum + section.view.needYou, 0);
@@ -134,6 +147,29 @@ export default function App() {
     if (pane) sessions.activatePaneTerminal(activeSession.id, pane);
   };
 
+  const hostName = (hostId: string) => {
+    const host = hosts.hosts.find(candidate => candidate.id === hostId);
+    return host ? host.name || host.host : 'Removed host';
+  };
+
+  const callPane = (hostId: string, paneId: string): CallPane | null => {
+    const session = presentationSessions.find(candidate => candidate.hostId === hostId);
+    const pane = session?.snapshot.panes.find(candidate => candidate.pane_id === paneId);
+    if (!session || !pane) return null;
+    const tabLabel = session.snapshot.tabs.find(candidate => candidate.tab_id === pane.tab_id)?.label;
+    const agent = pane.display_agent ?? pane.agent ?? 'shell';
+    return { sessionId: session.id, label: tabLabel ? `${tabLabel}, ${agent}` : agent };
+  };
+
+  const openCallPane = (sessionId: string, paneId: string) => {
+    selectTab('herd');
+    openPane(sessionId, paneId);
+  };
+
+  const [alertsHost, setAlertsHost] = useState<HostProfile | null>(null);
+  const alertsHostConnected = alertsHost !== null && hostRows.some(row =>
+    row.host.id === alertsHost.id && (row.status === 'connected' || row.status === 'ready'));
+
   const editing = hosts.editorProfile;
   const editingSaved = editing ? hosts.hosts.find(host => host.id === editing.id) : undefined;
 
@@ -151,6 +187,17 @@ export default function App() {
             <LockScreen authenticating={security.authenticating} onUnlock={() => { void security.authenticateLockedApp(); }} />
           ) : (
             <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+              <CallBanner
+                arrived={calls.arrived}
+                hostName={hostName}
+                onDismiss={calls.dismissArrived}
+                onOpen={arrived => {
+                  calls.dismissArrived();
+                  const pane = callPane(arrived.hostId, arrived.call.paneId);
+                  if (pane) openCallPane(pane.sessionId, arrived.call.paneId);
+                  else selectTab('calls');
+                }}
+              />
               {retainedChats.map(entry => {
                 const session = presentationSessions.find(candidate => candidate.id === entry.sessionId);
                 if (!session) return null;
@@ -184,6 +231,9 @@ export default function App() {
                   onNewTask={taskHosts.length > 0 ? () => setNewTaskOpen(true) : undefined}
                 />
               )}
+              {tab === 'calls' && (
+                <CallsScreen logs={calls.logs} hostName={hostName} pane={callPane} onOpenPane={openCallPane} />
+              )}
               {tab === 'hosts' && (
                 <HostsScreen
                   rows={hostRows}
@@ -193,6 +243,9 @@ export default function App() {
                   onEdit={host => { void hosts.openEditor(host); }}
                   onConnect={connectHost}
                   onDisconnect={host => { void sessions.closeHostById(host.id); }}
+                  onNotifications={setAlertsHost}
+                  alerts={preferences}
+                  onAlertsChange={setPreference}
                 />
               )}
               {terminalShown && (
@@ -202,7 +255,7 @@ export default function App() {
                   fontSize={preferences.terminal.fontSize}
                   onBack={() => {
                     if (activeSession) sessions.exitTerminalToHerd(activeSession.id);
-                    else navigation.selectTab('herd');
+                    else selectTab('herd');
                   }}
                   onSelectTerminal={selectTerminal}
                   onCloseTerminal={terminalId => {
@@ -216,11 +269,12 @@ export default function App() {
               <TabBar
                 tab={tab}
                 needYou={needYou}
+                unseenCalls={calls.unseen}
                 terminalCount={terminalCount}
                 onSelect={next => {
                   // Tapping Herd while reading a conversation returns to the herd.
                   if (next === 'herd' && tab === 'herd') setChat(null);
-                  navigation.selectTab(next);
+                  selectTab(next);
                 }}
               />
             </KeyboardAvoidingView>
@@ -235,6 +289,11 @@ export default function App() {
           onDelete={() => {
             if (editingSaved) hosts.confirmDelete(editingSaved);
           }}
+        />
+        <HostNotificationsSheet
+          host={alertsHost ? { id: alertsHost.id, name: alertsHost.name || alertsHost.host } : null}
+          connected={alertsHostConnected}
+          onClose={() => setAlertsHost(null)}
         />
         <DeleteHostPrompt
           name={hosts.deleteHostTarget ? hosts.deleteHostTarget.name || hosts.deleteHostTarget.host : null}

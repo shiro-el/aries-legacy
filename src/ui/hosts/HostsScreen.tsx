@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { LiveHostConnectionStatus } from '../../liveHostSessions';
 import type { HostProfile } from '../../types';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
+import { PhoneAlerts, type PhoneAlertPreferences, type SetPreference } from './PhoneAlerts';
 
 export type HostRow = {
   host: HostProfile;
@@ -20,9 +21,14 @@ type Props = {
   onEdit: (host: HostProfile) => void;
   onConnect: (host: HostProfile) => void;
   onDisconnect: (host: HostProfile) => void;
+  onNotifications: (host: HostProfile) => void;
+  alerts: PhoneAlertPreferences;
+  onAlertsChange: SetPreference;
 };
 
-export function HostsScreen({ rows, loaded, error, onAdd, onEdit, onConnect, onDisconnect }: Props) {
+export function HostsScreen({
+  rows, loaded, error, onAdd, onEdit, onConnect, onDisconnect, onNotifications, alerts, onAlertsChange,
+}: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
@@ -54,8 +60,10 @@ export function HostsScreen({ rows, loaded, error, onAdd, onEdit, onConnect, onD
             onEdit={() => onEdit(row.host)}
             onConnect={() => onConnect(row.host)}
             onDisconnect={() => onDisconnect(row.host)}
+            onNotifications={() => onNotifications(row.host)}
           />
         ))}
+        {loaded && <PhoneAlerts value={alerts} onChange={onAlertsChange} />}
       </ScrollView>
     </View>
   );
@@ -79,12 +87,13 @@ function statusText(row: HostRow): string {
   }
 }
 
-function HostItem({ row, s, onEdit, onConnect, onDisconnect }: {
+function HostItem({ row, s, onEdit, onConnect, onDisconnect, onNotifications }: {
   row: HostRow;
   s: Styles;
   onEdit: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onNotifications: () => void;
 }) {
   const { host } = row;
   const live = row.status !== undefined && row.status !== 'disconnected' && row.status !== 'error';
@@ -105,6 +114,16 @@ function HostItem({ row, s, onEdit, onConnect, onDisconnect }: {
           <Text style={s.meta}>{statusText(row)}{host.herdrEnabled === false ? ', SSH only' : ''}</Text>
         </View>
       </Pressable>
+      {host.herdrEnabled !== false && (
+        <Pressable
+          onPress={onNotifications}
+          accessibilityRole="button"
+          accessibilityLabel={`${host.name || host.host} notifications`}
+          style={({ pressed }) => [s.action, pressed && s.pressed]}
+        >
+          <Text style={s.actionLabel}>Alerts</Text>
+        </Pressable>
+      )}
       <Pressable
         onPress={live ? onDisconnect : onConnect}
         disabled={row.connecting}

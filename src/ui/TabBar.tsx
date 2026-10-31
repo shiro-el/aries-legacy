@@ -4,21 +4,24 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusGlyph } from './herd/StatusGlyph';
 import { space, type, usePalette, type Palette } from './theme/tokens';
 
-export type MainTab = 'herd' | 'hosts' | 'terminal';
+export type MainTab = 'herd' | 'calls' | 'hosts' | 'terminal';
 
 type Props = {
   tab: MainTab;
   needYou: number;
+  /** Calls that arrived since Calls was last opened. */
+  unseenCalls: number;
   terminalCount: number;
   onSelect: (tab: MainTab) => void;
 };
 
-/** Words, not icons: three destinations, the herd carrying the gold count. */
-export function TabBar({ tab, needYou, terminalCount, onSelect }: Props) {
+/** Words, not icons: four destinations, the herd carrying the gold count. */
+export function TabBar({ tab, needYou, unseenCalls, terminalCount, onSelect }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const items: { id: MainTab; label: string }[] = [
     { id: 'herd', label: 'Herd' },
+    { id: 'calls', label: unseenCalls > 0 ? `Calls ${unseenCalls}` : 'Calls' },
     { id: 'hosts', label: 'Hosts' },
     { id: 'terminal', label: terminalCount > 0 ? `Terminal ${terminalCount}` : 'Terminal' },
   ];
