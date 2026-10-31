@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aries: Herd wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* Tokens. Gold only marks agents that need the user. */
+  .dark {
+    --bg: #1E1B19; --surface: #2B2724; --seam: #3D3833;
+    --text: #EDE6DA; --muted: #9A9087;
+    --gold: #F4B73A; --gold-ink: #F4B73A; --on-gold: #2B2724;
+  }
+  .light {
+    --bg: #FBFAF7; --surface: #EFEBE4; --seam: #D9D2C7;
+    --text: #2B2724; --muted: #6F665E;
+    --gold: #F4B73A; --gold-ink: #8A5A00; --on-gold: #2B2724;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "JetBrains Mono", monospace;
+    background: #8C857D; color: #2B2724;
+    padding: 40px 32px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .doc-intro { max-width: 70ch; margin-bottom: 40px; color: #1E1B19; }
+  .doc-intro h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .doc-intro p { font-size: 14px; line-height: 1.6; }
+
+  .variant { margin-bottom: 64px; }
+  .variant-head { max-width: 70ch; margin-bottom: 20px; color: #1E1B19; }
+  .variant-head h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .variant-head p { font-size: 14px; line-height: 1.6; }
+  .pair { display: flex; gap: 32px; flex-wrap: wrap; }
+
+  /* Phone */
+  .phone {
+    width: 360px; height: 760px; border-radius: 28px; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column;
+    box-shadow: 0 0 0 8px #1A1715;
+  }
+  .statusbar { height: 28px; flex: none; font-size: 12px; color: var(--muted); padding: 6px 20px 0; display: flex; justify-content: space-between; }
+  .appbar { flex: none; padding: 12px 20px 16px; display: flex; align-items: baseline; justify-content: space-between; }
+  .appbar h3 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .host { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .host i { width: 6px; height: 6px; border-radius: 50%; background: var(--text); display: inline-block; }
+  .summary { flex: none; padding: 0 20px 16px; font-size: 14px; color: var(--muted); }
+  .summary b { color: var(--gold-ink); font-weight: 700; }
+  .scroll { flex: 1; overflow: hidden; padding: 0 20px; }
+
+  .nav { flex: none; height: 64px; border-top: 1px solid var(--seam); display: flex; }
+  .nav a { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); text-decoration: none; }
+  .nav a[aria-current] { color: var(--text); font-weight: 700; }
+
+  /* Status glyphs */
+  .g { width: 14px; height: 14px; flex: none; display: block; }
+  .g-blocked { fill: var(--gold); }
+  .light .g-blocked { stroke: var(--gold-ink); stroke-width: 1.5; }
+  .g-done { fill: none; stroke: var(--gold-ink); stroke-width: 2; }
+  .g-working { fill: var(--text); }
+  .g-idle { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
+  .g-unknown { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 2; }
+
+  /* A: Constellation */
+  .ws { font-size: 12px; color: var(--muted); padding: 4px 0 8px; }
+  .tab-label { font-size: 14px; font-weight: 500; padding: 4px 0 4px 28px; }
+  .chain { position: relative; margin-bottom: 16px; }
+  .chain::before { content: ""; position: absolute; left: 6px; top: 20px; bottom: 28px; width: 1.5px; background: var(--seam); }
+  .row { position: relative; display: flex; gap: 14px; padding: 9px 0; }
+  .row .g { margin-top: 3px; position: relative; z-index: 1; }
+  .row-body { flex: 1; min-width: 0; }
+  .row-top em { font-style: normal; color: var(--muted); margin-left: 8px; }
+  .row-top { display: flex; justify-content: space-between; font-size: 14px; }
+  .row-top > span:last-child { color: var(--muted); font-size: 12px; }
+  .row-msg { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-msg.ask { color: var(--gold-ink); }
+
+  /* B: Needs you, then the sky */
+  .ask-card { background: var(--surface); border-radius: 16px; padding: 14px 16px 16px; margin-bottom: 10px; }
+  .ask-card.done { background: transparent; border: 1.5px solid var(--seam); }
+  .ask-head { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; }
+  .ask-head small { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .ask-where { font-size: 12px; color: var(--muted); margin: 4px 0 10px 24px; }
+  .ask-text { font-size: 14px; line-height: 1.5; margin-left: 24px; }
+  .ask-actions { display: flex; gap: 8px; margin: 14px 0 0 24px; }
+  .btn { font: inherit; font-size: 14px; font-weight: 700; border-radius: 10px; padding: 9px 14px; border: none; }
+  .btn-gold { background: var(--gold); color: var(--on-gold); }
+  .btn-quiet { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1.5px var(--seam); }
+  .sky-head { font-size: 12px; color: var(--muted); margin: 20px 0 6px; }
+  .sky-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--seam); font-size: 14px; }
+  .sky-row:last-child { border-bottom: none; }
+  .sky-row em { font-style: normal; color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+  .mini { display: flex; align-items: center; }
+  .mini .g { width: 12px; height: 12px; }
+  .mini .link { width: 16px; height: 1.5px; background: var(--seam); }
+
+  /* C: Roster */
+  .group-head { font-size: 12px; color: var(--muted); padding: 12px 0 4px; }
+  .group-head:first-child { padding-top: 0; }
+  .roster-row { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--seam); }
+  .roster-row .row-body { min-width: 0; }
+  .roster-row.needs { margin: 0 -12px; padding: 12px; border-radius: 12px; border-bottom: none; background: var(--surface); margin-bottom: 6px; }
+
+  /* Composer motif */
+  .composer { flex: none; margin: 0 12px 12px; border-radius: 14px; background: var(--surface); padding: 12px 14px; font-size: 14px; color: var(--muted); display: flex; gap: 10px; }
+  .composer b { color: var(--text); font-weight: 700; font-variant-ligatures: none; }
+
+  .tokens { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 56px; }
+  .swatches { display: grid; grid-template-columns: repeat(6, 72px); gap: 8px; font-size: 11px; color: #1E1B19; }
+  .sw { height: 48px; border-radius: 8px; margin-bottom: 4px; box-shadow: inset 0 0 0 1px rgba(30,27,25,.2); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="star" viewBox="-1 -1 26 26"><path d="M12 0 Q13.8 10.2 24 12 Q13.8 13.8 12 24 Q10.2 13.8 0 12 Q10.2 10.2 12 0Z"/></symbol>
+    <symbol id="dot" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="doc-intro">
+  <h1>Herd: three layouts</h1>
+  <p>Gold appears only when an agent needs you. Filled star: blocked, waiting on you. Outlined star: done, ready to review. Solid dot: working. Hollow dot: idle. Dashed dot: unknown. Everything else stays in charcoal and fleece.</p>
+</header>
+
+<section class="tokens">
+  <div>
+    <div class="swatches">
+      <div><div class="sw" style="background:#1E1B19"></div>bg #1E1B19</div>
+      <div><div class="sw" style="background:#2B2724"></div>surface #2B2724</div>
+      <div><div class="sw" style="background:#3D3833"></div>seam #3D3833</div>
+      <div><div class="sw" style="background:#EDE6DA"></div>text #EDE6DA</div>
+      <div><div class="sw" style="background:#9A9087"></div>muted #9A9087</div>
+      <div><div class="sw" style="background:#F4B73A"></div>gold #F4B73A</div>
+      <div><div class="sw" style="background:#FBFAF7"></div>bg #FBFAF7</div>
+      <div><div class="sw" style="background:#EFEBE4"></div>surface #EFEBE4</div>
+      <div><div class="sw" style="background:#D9D2C7"></div>seam #D9D2C7</div>
+      <div><div class="sw" style="background:#2B2724"></div>text #2B2724</div>
+      <div><div class="sw" style="background:#6F665E"></div>muted #6F665E</div>
+      <div><div class="sw" style="background:#8A5A00"></div>gold text #8A5A00</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ A ============ -->
+<section class="variant">
+  <div class="variant-head">
+    <h2>A. Constellation</h2>
+    <p>Grouped by workspace and tab. Agents in one tab hang on one line, like the stars on the ram's flank, so you see which agents belong to the same piece of work.</p>
+  </div>
+  <div class="pair">
+  <template id="tpl-a">
+    <div class="statusbar"><span>14:32</span><span>87%</span></div>
+    <div class="appbar"><h3>Herd</h3><span class="host"><i></i>studio</span></div>
+    <p class="summary"><b>2 need you</b>, 3 working</p>
+    <div class="scroll">
+      <p class="ws">aries</p>
+      <p class="tab-label">ui-reset</p>
+      <div class="chain">
+        <div class="row"><svg class="g g-blocked"><use href="#star"/></svg>
+          <div class="row-body"><div class="row-top"><span>claude</span><span>now</span></div>
+          <p class="row-msg ask">Allow edit to App.tsx?</p></div></div>
+        <div class="row"><svg class="g g-working"><use href="#dot"/></svg>
+          <div class="row-body"><div class="row-top"><span>codex</span><span>4m</span></div>
+          <p class="row-msg">Running jest __tests__/herdQueue</p></div></div>
+        <div class="row"><svg class="g g-idle"><use href="#dot"/></svg>
+          <div class="row-body"><div class="row-top"><span>shell</span><span>1h</span></div>
+          <p class="row-msg">~/Documents/Github/shiro-el/aries</p></div></div>
+      </div>
+      <p class="tab-label">relay-title</p>
+      <div class="chain">
+        <div class="row"><svg class="g g-done"><use href="#star"/></svg>
+          <div class="row-body"><div class="row-top"><span>pi</span><span>12m</span></div>
+          <p class="row-msg ask">Finished, 2 files changed</p></div></div>
+        <div class="row"><svg class="g g-working"><use href="#dot"/></svg>
+          <div class="row-body"><div class="row-top"><span>codex</span><span>2m</span></div>
+          <p class="row-msg">Reviewing notify-relay/src/index.ts</p></div></div>
+      </div>
+      <p class="ws">dotfiles</p>
+      <p class="tab-label">main</p>
+      <div class="chain">
+        <div class="row"><svg class="g g-working"><use href="#dot"/></svg>
+          <div class="row-body"><div class="row-top"><span>opencode</span><span>8m</span></div>
+          <p class="row-msg">Updating flake inputs</p></div></div>
+      </div>
+    </div>
+    <nav class="nav"><a aria-current="page">Herd</a><a>Hosts</a><a>Terminal</a><a>More</a></nav>
+  </template>
+  <div class="phone dark" data-tpl="tpl-a"></div>
+  <div class="phone light" data-tpl="tpl-a"></div>
+  </div>
+</section>
+
+<!-- ============ B ============ -->
+<section class="variant">
+  <div class="variant-head">
+    <h2>B. Needs you, then the sky</h2>
+    <p>Agents that need you come first as cards you can act on without leaving the screen. Below them, every tab collapses to one line with its agents drawn as a small constellation.</p>
+  </div>
+  <div class="pair">
+  <template id="tpl-b">
+    <div class="statusbar"><span>14:32</span><span>87%</span></div>
+    <div class="appbar"><h3>Herd</h3><span class="host"><i></i>studio</span></div>
+    <div class="scroll">
+      <div class="ask-card">
+        <div class="ask-head"><svg class="g g-blocked"><use href="#star"/></svg>claude<small>now</small></div>
+        <p class="ask-where">aries / ui-reset</p>
+        <p class="ask-text">Allow edit to App.tsx?</p>
+        <div class="ask-actions"><button class="btn btn-gold">Allow</button><button class="btn btn-quiet">Open chat</button></div>
+      </div>
+      <div class="ask-card done">
+        <div class="ask-head"><svg class="g g-done"><use href="#star"/></svg>pi<small>12m</small></div>
+        <p class="ask-where">aries / relay-title</p>
+        <p class="ask-text">Finished, 2 files changed</p>
+        <div class="ask-actions"><button class="btn btn-quiet">Review diff</button><button class="btn btn-quiet">Open chat</button></div>
+      </div>
+      <p class="sky-head">All tabs</p>
+      <div class="sky-row"><div>ui-reset<em>aries</em></div>
+        <div class="mini"><svg class="g g-blocked"><use href="#star"/></svg><span class="link"></span><svg class="g g-working"><use href="#dot"/></svg><span class="link"></span><svg class="g g-idle"><use href="#dot"/></svg></div></div>
+      <div class="sky-row"><div>relay-title<em>aries</em></div>
+        <div class="mini"><svg class="g g-done"><use href="#star"/></svg><span class="link"></span><svg class="g g-working"><use href="#dot"/></svg></div></div>
+      <div class="sky-row"><div>main<em>dotfiles</em></div>
+        <div class="mini"><svg class="g g-working"><use href="#dot"/></svg></div></div>
+      <div class="sky-row"><div>scratch<em>dotfiles</em></div>
+        <div class="mini"><svg class="g g-idle"><use href="#dot"/></svg><span class="link"></span><svg class="g g-unknown"><use href="#dot"/></svg></div></div>
+    </div>
+    <nav class="nav"><a aria-current="page">Herd</a><a>Hosts</a><a>Terminal</a><a>More</a></nav>
+  </template>
+  <div class="phone dark" data-tpl="tpl-b"></div>
+  <div class="phone light" data-tpl="tpl-b"></div>
+  </div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="variant">
+  <div class="variant-head">
+    <h2>C. Roster with a reply bar</h2>
+    <p>A flat list in the order the queue already sorts by. The top agent that needs you gets a reply bar with the <span style="font-variant-ligatures:none">&gt;-</span> prompt from the logo, so a quick answer takes one tap.</p>
+  </div>
+  <div class="pair">
+  <template id="tpl-c">
+    <div class="statusbar"><span>14:32</span><span>87%</span></div>
+    <div class="appbar"><h3>Herd</h3><span class="host"><i></i>studio</span></div>
+    <div class="scroll">
+      <p class="group-head">Needs you</p>
+      <div class="roster-row needs"><svg class="g g-blocked"><use href="#star"/></svg>
+        <div class="row-body"><div class="row-top"><span>claude<em>ui-reset</em></span><span>now</span></div>
+        <p class="row-msg ask">Allow edit to App.tsx?</p></div></div>
+      <div class="roster-row needs"><svg class="g g-done"><use href="#star"/></svg>
+        <div class="row-body"><div class="row-top"><span>pi<em>relay-title</em></span><span>12m</span></div>
+        <p class="row-msg ask">Finished, 2 files changed</p></div></div>
+      <p class="group-head">Working</p>
+      <div class="roster-row"><svg class="g g-working"><use href="#dot"/></svg>
+        <div class="row-body"><div class="row-top"><span>codex<em>ui-reset</em></span><span>4m</span></div>
+        <p class="row-msg">Running jest __tests__/herdQueue</p></div></div>
+      <div class="roster-row"><svg class="g g-working"><use href="#dot"/></svg>
+        <div class="row-body"><div class="row-top"><span>codex<em>relay-title</em></span><span>2m</span></div>
+        <p class="row-msg">Reviewing notify-relay/src/index.ts</p></div></div>
+      <div class="roster-row"><svg class="g g-working"><use href="#dot"/></svg>
+        <div class="row-body"><div class="row-top"><span>opencode<em>main</em></span><span>8m</span></div>
+        <p class="row-msg">Updating flake inputs</p></div></div>
+      <p class="group-head">Quiet</p>
+      <div class="roster-row"><svg class="g g-idle"><use href="#dot"/></svg>
+        <div class="row-body"><div class="row-top"><span>shell<em>ui-reset</em></span><span>1h</span></div>
+        <p class="row-msg">~/Documents/Github/shiro-el/aries</p></div></div>
+    </div>
+    <div class="composer"><b>&gt;-</b><span>Reply to claude</span></div>
+    <nav class="nav"><a aria-current="page">Herd</a><a>Hosts</a><a>Terminal</a><a>More</a></nav>
+  </template>
+  <div class="phone dark" data-tpl="tpl-c"></div>
+  <div class="phone light" data-tpl="tpl-c"></div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('[data-tpl]').forEach(el => {
+    el.appendChild(document.getElementById(el.dataset.tpl).content.cloneNode(true));
+  });
+</script>
+</body>
+</html>
