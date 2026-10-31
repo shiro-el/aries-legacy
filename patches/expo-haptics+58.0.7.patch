@@ -1,0 +1,31 @@
+diff --git a/node_modules/expo-haptics/android/src/main/java/expo/modules/haptics/arguments/HapticsTypes.kt b/node_modules/expo-haptics/android/src/main/java/expo/modules/haptics/arguments/HapticsTypes.kt
+index ac42769..95a71ca 100644
+--- a/node_modules/expo-haptics/android/src/main/java/expo/modules/haptics/arguments/HapticsTypes.kt
++++ b/node_modules/expo-haptics/android/src/main/java/expo/modules/haptics/arguments/HapticsTypes.kt
+@@ -4,7 +4,7 @@ import android.annotation.SuppressLint
+ import android.os.Build
+ import android.view.HapticFeedbackConstants
+ 
+-enum class NotificationType(val value: String) {
++enum class NotificationType(val value: String) : io.github.expo.modules.v2.Enumerable {
+   SUCCESS("success"),
+   WARNING("warning"),
+   ERROR("error");
+@@ -31,7 +31,7 @@ enum class NotificationType(val value: String) {
+     }
+ }
+ 
+-enum class ImpactStyle(val value: String) {
++enum class ImpactStyle(val value: String) : io.github.expo.modules.v2.Enumerable {
+   LIGHT("light"),
+   MEDIUM("medium"),
+   HEAVY("heavy"),
+@@ -60,7 +60,7 @@ enum class ImpactStyle(val value: String) {
+     }
+ }
+ 
+-enum class HapticType(val value: String) {
++enum class HapticType(val value: String) : io.github.expo.modules.v2.Enumerable {
+   CONFIRM("confirm"),
+   REJECT("reject"),
+   GESTURE_START("gesture-start"),
