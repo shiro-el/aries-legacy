@@ -113,5 +113,23 @@ export const OPEN_SOURCE_LICENSES: readonly OpenSourceLicenseNotice[] = [
     copyright: 'Copyright (c) 2026 Lucide Icons and Contributors\nCopyright (c) 2013-present Cole Bemis',
     licenseAsset: bundledAsset(require('../../assets/licenses/lucide-ISC-and-Feather-MIT.txt')),
   },
+  {
+    id: 'zed-icons',
+    projectName: 'Zed file icons',
+    sourceUrl: 'https://github.com/zed-industries/zed',
+    attribution: "Aries's file browser uses Zed's file icons and its file name to icon rules. Portions of the icons come from Lucide.",
+    licenseName: 'GPL-3.0-or-later and ISC License',
+    copyright: 'Copyright Zed Industries, Inc.\nCopyright (c) Lucide Contributors 2022, Cole Bemis 2013-2022',
+    licenseAsset: bundledAsset(require('../../assets/licenses/zed-icons-GPL-3.0-and-Lucide-ISC.txt')),
+  },
+  {
+    id: 'pdfjs',
+    projectName: 'PDF.js',
+    sourceUrl: 'https://github.com/mozilla/pdf.js',
+    attribution: 'Aries draws PDF previews with PDF.js, loaded from jsDelivr at a pinned version when a PDF is opened.',
+    licenseName: 'Apache License 2.0',
+    copyright: 'Copyright Mozilla Foundation',
+    licenseAsset: bundledAsset(require('../../assets/licenses/pdfjs-Apache-2.0.txt')),
+  },
   ...GENERATED_OPEN_SOURCE_LICENSES,
 ];

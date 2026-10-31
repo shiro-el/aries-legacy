@@ -15,6 +15,8 @@ type Props = {
   error?: string | null;
   onConnect: (hostId: string) => void;
   onOpenPane?: (sessionId: string, paneId: string) => void;
+  /** Opens the uncommitted changes in a finished agent's folder. */
+  onReviewPane?: (sessionId: string, paneId: string) => void;
   /** Offered while at least one host can start a task. */
   onNewTask?: () => void;
 };
@@ -23,7 +25,7 @@ const ROW_PAD = 9;
 const GLYPH_TOP = 3;
 const GLYPH_CENTER = ROW_PAD + GLYPH_TOP + GLYPH_SIZE / 2;
 
-export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane, onNewTask }: Props) {
+export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane, onReviewPane, onNewTask }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const multiHost = sections.length > 1;
@@ -63,6 +65,7 @@ export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane,
                     palette={palette}
                     s={s}
                     onOpenPane={onOpenPane ? paneId => onOpenPane(section.sessionId, paneId) : undefined}
+                    onReviewPane={onReviewPane ? paneId => onReviewPane(section.sessionId, paneId) : undefined}
                   />
                 ))}
               </View>
@@ -168,11 +171,12 @@ function ActionRow({ label, s, onPress, disabled }: {
   );
 }
 
-function TabChain({ tab, palette, s, onOpenPane }: {
+function TabChain({ tab, palette, s, onOpenPane, onReviewPane }: {
   tab: HerdTab;
   palette: Palette;
   s: Styles;
   onOpenPane?: (paneId: string) => void;
+  onReviewPane?: (paneId: string) => void;
 }) {
   const last = tab.panes.length - 1;
   return (
@@ -187,19 +191,22 @@ function TabChain({ tab, palette, s, onOpenPane }: {
           palette={palette}
           s={s}
           onPress={onOpenPane ? () => onOpenPane(pane.paneId) : undefined}
+          onReview={onReviewPane && pane.status === 'done' ? () => onReviewPane(pane.paneId) : undefined}
         />
       ))}
     </View>
   );
 }
 
-function PaneRow({ pane, linkAbove, linkBelow, palette, s, onPress }: {
+function PaneRow({ pane, linkAbove, linkBelow, palette, s, onPress, onReview }: {
   pane: HerdPane;
   linkAbove: boolean;
   linkBelow: boolean;
   palette: Palette;
   s: Styles;
   onPress?: () => void;
+  /** Offered once the agent is done, to read what it changed before replying. */
+  onReview?: () => void;
 }) {
   const needsYou = pane.status === 'blocked' || pane.status === 'done';
   return (
@@ -222,6 +229,17 @@ function PaneRow({ pane, linkAbove, linkBelow, palette, s, onPress }: {
           </Text>
         )}
       </View>
+      {onReview && (
+        <Pressable
+          onPress={onReview}
+          accessibilityRole="button"
+          accessibilityLabel={`Review diff of ${pane.name}`}
+          hitSlop={6}
+          style={({ pressed }) => [s.review, pressed && s.rowPressed]}
+        >
+          <Text style={s.reviewLabel}>Review diff</Text>
+        </Pressable>
+      )}
     </Pressable>
   );
 }
@@ -284,5 +302,14 @@ function makeStyles(p: Palette) {
     rowName: { ...type.body, color: p.text },
     rowDetail: { ...type.caption, color: p.muted, marginTop: 3 },
     rowDetailGold: { color: p.goldInk },
+    review: {
+      alignSelf: 'center',
+      paddingVertical: space.xs,
+      paddingHorizontal: space.sm,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      borderColor: p.seam,
+    },
+    reviewLabel: { ...type.caption, fontFamily: type.bodyMedium.fontFamily, color: p.text },
   });
 }

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type ReactElement } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   FlatList,
   Pressable,
@@ -18,6 +18,7 @@ import type { PaneInfo } from '../../types';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { Composer } from './Composer';
+import type { FileLink } from './fileLinks';
 import { Markdown } from './Markdown';
 import { useAgentChat } from './useAgentChat';
 
@@ -29,6 +30,10 @@ type Props = {
   onRefresh: () => Promise<void>;
   onBack: () => void;
   onOpenTerminal: () => void;
+  /** The project screen: files, changes and a browser for this pane's folder. */
+  onOpenProject: () => void;
+  /** Opens a file the agent named, in the project screen. */
+  onOpenFile: (link: FileLink) => void;
   /** This chat is the one on screen, not a retained hidden one. */
   active: boolean;
   /** Put the caret in the composer, as after starting a new task. */
@@ -36,7 +41,7 @@ type Props = {
 };
 
 export function ChatScreen({
-  hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, active, focusComposer,
+  hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, onOpenProject, onOpenFile, active, focusComposer,
 }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -52,6 +57,11 @@ export function ChatScreen({
     () => (native && paneId ? { key: hostSessionId, paneId, native } : null),
     [hostSessionId, native, paneId],
   );
+
+  // Rows are memoized; the parent's handler changes every render, this one never does.
+  const openFileHandler = useRef(onOpenFile);
+  openFileHandler.current = onOpenFile;
+  const openFile = useCallback((link: FileLink) => openFileHandler.current(link), []);
 
   const toggleTool = useCallback((id: string) => {
     setOpenTools(current => {
@@ -77,8 +87,8 @@ export function ChatScreen({
           </View>
           <Text style={s.where} numberOfLines={1}>{where ? `${hostName}  ${where}` : hostName}</Text>
         </View>
-        <Pressable onPress={onOpenTerminal} accessibilityRole="button" hitSlop={8} style={({ pressed }) => [s.mode, pressed && s.pressed]}>
-          <Text style={s.modeLabel}>Terminal</Text>
+        <Pressable onPress={onOpenProject} disabled={!native} accessibilityRole="button" hitSlop={8} style={({ pressed }) => [s.mode, pressed && s.pressed, !native && s.dim]}>
+          <Text style={s.modeLabel}>Project</Text>
         </Pressable>
       </View>
 
@@ -99,6 +109,7 @@ export function ChatScreen({
               onToggleTool={toggleTool}
               changesOpen={chat.expanded.has(JSON.stringify([item.turnId, 'changes']))}
               onToggleChanges={chat.toggle}
+              onOpenFile={native ? openFile : undefined}
             />
           )}
         />
@@ -219,7 +230,7 @@ function Working({ name, s, palette, quiet }: { name: string; s: Styles; palette
   );
 }
 
-const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleTool, changesOpen, onToggleChanges }: {
+const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleTool, changesOpen, onToggleChanges, onOpenFile }: {
   block: ChatBlock;
   palette: Palette;
   s: Styles;
@@ -227,6 +238,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
   onToggleTool: (id: string) => void;
   changesOpen: boolean;
   onToggleChanges: (key: string) => void;
+  onOpenFile?: (link: FileLink) => void;
 }) {
   const gap = block.spacing === 'turn' ? s.gapTurn : block.spacing === 'part' ? s.gapPart : null;
   switch (block.type) {
@@ -247,7 +259,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
       const part = block.part;
       switch (part.type) {
         case 'text':
-          return <View style={gap}><Markdown text={part.text} palette={palette} /></View>;
+          return <View style={gap}><Markdown text={part.text} palette={palette} onOpenFile={onOpenFile} /></View>;
         case 'reasoning':
           return (
             <Pressable onPress={() => onToggleTool(block.id)} style={gap} accessibilityRole="button" accessibilityState={{ expanded: toolOpen }}>
@@ -259,7 +271,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
           return (
             <View style={[s.plan, gap]}>
               <Text style={s.planLabel}>Plan</Text>
-              <Markdown text={part.text} palette={palette} />
+              <Markdown text={part.text} palette={palette} onOpenFile={onOpenFile} />
             </View>
           );
         case 'notice':

@@ -12,6 +12,7 @@ import {
   type NewTaskChoice,
 } from '../../services/newTaskPreferences';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
+import { FileGlyph } from '../workbench/FileGlyph';
 import { AGENTS, folderLabel, folderSuggestions, launchFor, parentFolder, type FirstPane } from './newTask';
 
 export type NewTaskHost = {
@@ -127,7 +128,7 @@ export function NewTaskSheet({ visible, hosts, runtime, onCreate, onClose }: Pro
       setBrowse({ path: target, entries: null, error: null });
       const listing = await native.listDirectory(target);
       const folders = listing.entries
-        .filter(entry => entry.kind === 'directory' && !entry.name.startsWith('.'))
+        .filter(entry => entry.kind === 'directory')
         .sort((a, b) => a.name.localeCompare(b.name));
       setBrowse({ path: listing.path, entries: folders, error: null });
     } catch (reason) {
@@ -348,8 +349,9 @@ function FolderBrowser({ browse, s, palette, onOpen, onUse }: {
         </Pressable>
       </View>
       {!root && (
-        <Pressable onPress={() => onOpen(parentFolder(browse.path))} accessibilityRole="button" style={({ pressed }) => [s.entry, pressed && s.pressed]}>
-          <Text style={s.entryText}>‹ Up</Text>
+        <Pressable onPress={() => onOpen(parentFolder(browse.path))} accessibilityRole="button" accessibilityLabel="Parent folder" style={({ pressed }) => [s.entry, pressed && s.pressed]}>
+          <FileGlyph parent />
+          <Text style={s.entryText}>../</Text>
         </Pressable>
       )}
       {browse.error ? <Text style={s.hint}>Could not list this folder: {browse.error}</Text> : null}
@@ -357,6 +359,7 @@ function FolderBrowser({ browse, s, palette, onOpen, onUse }: {
       {browse.entries?.length === 0 && <Text style={s.hint}>No folders in here.</Text>}
       {browse.entries?.map(entry => (
         <Pressable key={entry.path} onPress={() => onOpen(entry.path)} accessibilityRole="button" style={({ pressed }) => [s.entry, pressed && s.pressed]}>
+          <FileGlyph entry={entry} />
           <Text style={s.entryText} numberOfLines={1}>{entry.name}/</Text>
         </Pressable>
       ))}
@@ -446,8 +449,8 @@ function makeStyles(p: Palette) {
     suggestionActive: { color: p.text, fontFamily: fonts.medium },
     browser: { gap: 2, padding: space.sm, borderRadius: radius.sm, borderWidth: 1.5, borderColor: p.seam },
     browserPath: { ...type.caption, color: p.text, paddingHorizontal: space.xs },
-    entry: { paddingVertical: space.sm, paddingHorizontal: space.sm, borderRadius: 8 },
-    entryText: { ...type.body, color: p.text },
+    entry: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.sm, borderRadius: 8 },
+    entryText: { ...type.body, fontFamily: fonts.medium, color: p.text, flex: 1 },
     loading: { paddingVertical: space.md },
     segment: { flexDirection: 'row', padding: 3, borderRadius: radius.sm, backgroundColor: p.surface },
     segmentItem: { flex: 1, paddingVertical: space.sm, borderRadius: 8, alignItems: 'center' },

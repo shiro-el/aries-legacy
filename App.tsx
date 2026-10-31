@@ -22,6 +22,9 @@ import { HostsScreen, type HostRow } from './src/ui/hosts/HostsScreen';
 import { TerminalScreen } from './src/ui/terminal/TerminalScreen';
 import { fontAssets, palettes, usePalette } from './src/ui/theme/tokens';
 import { useAppRuntime } from './src/ui/useAppRuntime';
+import { WorkbenchScreen } from './src/ui/workbench/WorkbenchScreen';
+import type { WorkbenchMode } from './src/ui/workbench/workbench';
+import type { FileLink } from './src/ui/chat/fileLinks';
 import type { HostProfile } from './src/types';
 
 // The new UI mounts here on top of src/hooks, src/services and src/lib
@@ -29,6 +32,8 @@ import type { HostProfile } from './src/types';
 type ChatRef = { sessionId: string; paneId: string };
 const RETAINED_CHATS = 3;
 const chatKey = (ref: ChatRef) => `${ref.sessionId}:${ref.paneId}`;
+/** The project screen for one pane: which mode it opens in and, from a chat link, which file. */
+type WorkbenchRef = ChatRef & { mode: WorkbenchMode; file?: FileLink };
 
 function hideLaunchScreen() {
   (NativeModules.WhipLaunchScreen as { hide(): void } | undefined)?.hide();
@@ -113,7 +118,13 @@ export default function App() {
     : recentChats
   ).filter(entry => presentationSessions.some(session => session.id === entry.sessionId));
   const chatSession = chat ? presentationSessions.find(session => session.id === chat.sessionId) : undefined;
-  const chatShown = chat !== null && chatSession !== undefined && tab === 'herd';
+  // Files, changes and the browser open over the chat they were opened from.
+  const [workbench, setWorkbench] = useState<WorkbenchRef | null>(null);
+  const workbenchSession = workbench ? presentationSessions.find(session => session.id === workbench.sessionId) : undefined;
+  const workbenchPane = workbenchSession?.snapshot.panes.find(candidate => candidate.pane_id === workbench?.paneId);
+  const workbenchShown = workbench !== null && workbenchSession !== undefined && tab === 'herd';
+  const chatShown = chat !== null && chatSession !== undefined && tab === 'herd' && !workbenchShown;
+  const closeWorkbench = useCallback(() => setWorkbench(null), []);
 
   useEffect(() => {
     if (!chatShown) return;
@@ -217,17 +228,34 @@ export default function App() {
                       onOpenTerminal={() => {
                         if (pane) sessions.openPaneTerminal(entry.sessionId, pane);
                       }}
+                      onOpenProject={() => setWorkbench({ ...entry, mode: 'files' })}
+                      onOpenFile={file => setWorkbench({ ...entry, mode: 'files', file })}
                     />
                   </View>
                 );
               })}
-              {tab === 'herd' && !chatShown && (
+              {workbenchShown && workbench && (
+                <WorkbenchScreen
+                  key={`${chatKey(workbench)}:${workbench.mode}:${workbench.file ? `${workbench.file.path}:${workbench.file.line ?? ''}` : ''}`}
+                  initialMode={workbench.mode}
+                  initialFile={workbench.file}
+                  native={sessions.getClient(workbench.sessionId)?.activeNative ?? null}
+                  cwd={workbenchPane?.foreground_cwd
+                    ?? workbenchPane?.cwd
+                    ?? workbenchSession?.snapshot.workspaces.find(item => item.workspace_id === workbenchPane?.workspace_id)?.worktree?.checkout_path
+                    ?? '~'}
+                  backLabel={chat ? 'Chat' : 'Herd'}
+                  onClose={closeWorkbench}
+                />
+              )}
+              {tab === 'herd' && !chatShown && !workbenchShown && (
                 <HerdScreen
                   sections={sections}
                   savedHosts={savedHosts}
                   error={hosts.error}
                   onConnect={connectById}
                   onOpenPane={openPane}
+                  onReviewPane={(sessionId, paneId) => setWorkbench({ sessionId, paneId, mode: 'changes' })}
                   onNewTask={taskHosts.length > 0 ? () => setNewTaskOpen(true) : undefined}
                 />
               )}
@@ -273,7 +301,10 @@ export default function App() {
                   unseenCalls={calls.unseen}
                   onSelect={next => {
                     // Tapping Herd while reading a conversation returns to the herd.
-                    if (next === 'herd' && tab === 'herd') setChat(null);
+                    if (next === 'herd' && tab === 'herd') {
+                      setWorkbench(null);
+                      setChat(null);
+                    }
                     selectTab(next);
                   }}
                 />
