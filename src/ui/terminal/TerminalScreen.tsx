@@ -7,6 +7,7 @@ import type { TerminalSessionStatus } from '../../terminalSessions';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, palettes, radius, space, type } from '../theme/tokens';
 import { TerminalSurface, type TerminalSurfaceHandle } from './TerminalSurface';
+import { EXTRA_KEY_ROWS, NO_MODIFIERS, keySequence, modifiedText, type ExtraKey, type Modifier, type Modifiers } from './terminalKeys';
 
 // The terminal is always charcoal: remote programs assume a dark screen, and
 // the app chrome around it follows that rather than the system theme.
@@ -22,35 +23,16 @@ type Props = {
   onStatus: (terminalId: string, status: TerminalSessionStatus, error?: string) => void;
 };
 
-type Key = { label: string; data?: string; ctrl?: true; a11y: string };
-
-const KEYS: Key[] = [
-  { label: 'esc', data: '\u001b', a11y: 'Escape' },
-  { label: 'tab', data: '\t', a11y: 'Tab' },
-  { label: 'ctrl', ctrl: true, a11y: 'Control, applies to the next key' },
-  { label: '^C', data: '\u0003', a11y: 'Interrupt' },
-  { label: '↑', data: '\u001b[A', a11y: 'Up' },
-  { label: '↓', data: '\u001b[B', a11y: 'Down' },
-  { label: '←', data: '\u001b[D', a11y: 'Left' },
-  { label: '→', data: '\u001b[C', a11y: 'Right' },
-  { label: '⏎', data: '\r', a11y: 'Enter' },
-];
-
-function controlOf(data: string): string {
-  if (data.length !== 1) return data;
-  const code = data.toLowerCase().charCodeAt(0);
-  if (code >= 97 && code <= 122) return String.fromCharCode(code - 96);
-  if (data === ' ' || data === '@') return '\u0000';
-  if (data === '[') return '\u001b';
-  return data;
-}
-
 export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerminal, onCloseTerminal, onStatus }: Props) {
   const surface = useRef<TerminalSurfaceHandle>(null);
-  const [ctrl, setCtrl] = useState(false);
-  const ctrlRef = useRef(false);
-  ctrlRef.current = ctrl;
-  const [keyboard, setKeyboard] = useState(false);
+  // Ctrl and Alt latch for the next key, typed or tapped, then let go.
+  const [modifiers, setModifiers] = useState<Modifiers>(NO_MODIFIERS);
+  const modifiersRef = useRef(modifiers);
+  modifiersRef.current = modifiers;
+  const latch = (next: Modifiers) => {
+    setModifiers(next);
+    surface.current?.setModifierLatched(next.ctrl || next.alt);
+  };
 
   const terminals = session?.terminalRail.terminals ?? [];
   const activeId = target?.session.terminalId;
@@ -62,24 +44,20 @@ export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerm
   const status = target?.session.status;
 
   const transform = useCallback((data: string) => {
-    if (!ctrlRef.current) return data;
-    setCtrl(false);
-    return controlOf(data);
+    const held = modifiersRef.current;
+    if (!held.ctrl && !held.alt) return data;
+    setModifiers(NO_MODIFIERS);
+    surface.current?.setModifierLatched(false);
+    return modifiedText(data, held);
   }, []);
 
-  const press = (key: Key) => {
-    if (key.ctrl) {
-      setCtrl(value => !value);
-      return;
-    }
-    if (key.data) surface.current?.send(ctrl ? controlOf(key.data) : key.data);
-    setCtrl(false);
-  };
+  const toggle = (modifier: Modifier) => latch({ ...modifiers, [modifier]: !modifiers[modifier] });
 
-  const toggleKeyboard = () => {
-    if (keyboard) surface.current?.hideKeyboard();
-    else surface.current?.showKeyboard();
-    setKeyboard(!keyboard);
+  const press = (key: Exclude<ExtraKey, { kind: 'modifier' }>) => {
+    const handle = surface.current;
+    if (!handle) return;
+    handle.send(keySequence(key, modifiers, handle.applicationCursorKeys()));
+    if (modifiers.ctrl || modifiers.alt) latch(NO_MODIFIERS);
   };
 
   return (
@@ -125,6 +103,7 @@ export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerm
             fontSize={fontSize}
             background={p.bg}
             transformInput={transform}
+            onTap={() => surface.current?.showKeyboard()}
             onStatus={(next, error) => onStatus(target.session.terminalId, next, error)}
           />
         ) : (
@@ -148,31 +127,27 @@ export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerm
 
       {target && (
         <View style={s.keys}>
-          <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={s.keysContent}>
-            {KEYS.map(key => {
-              const latched = key.ctrl && ctrl;
-              return (
-                <Pressable
-                  key={key.label}
-                  onPress={() => press(key)}
-                  accessibilityRole="button"
-                  accessibilityLabel={key.a11y}
-                  accessibilityState={key.ctrl ? { selected: ctrl } : undefined}
-                  style={({ pressed }) => [s.key, (pressed || latched) && s.keyPressed]}
-                >
-                  <Text style={[s.keyLabel, latched && s.keyLabelLatched]}>{key.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <Pressable
-            onPress={toggleKeyboard}
-            accessibilityRole="button"
-            accessibilityLabel={keyboard ? 'Hide keyboard' : 'Show keyboard'}
-            style={({ pressed }) => [s.type, pressed && s.keyPressed]}
-          >
-            <Text style={s.typeLabel}>{keyboard ? 'Done' : 'Type'}</Text>
-          </Pressable>
+          {EXTRA_KEY_ROWS.map((row, index) => (
+            <View key={index} style={s.keyRow}>
+              {row.map(key => {
+                const latched = key.kind === 'modifier' && modifiers[key.modifier];
+                return (
+                  <Pressable
+                    key={key.label}
+                    onPress={() => (key.kind === 'modifier' ? toggle(key.modifier) : press(key))}
+                    accessibilityRole="button"
+                    accessibilityLabel={key.a11y}
+                    accessibilityState={key.kind === 'modifier' ? { selected: latched } : undefined}
+                    style={({ pressed }) => [s.key, pressed && s.keyPressed, latched && s.keyLatched]}
+                  >
+                    <Text style={[s.keyLabel, latched && s.keyLabelLatched]} numberOfLines={1} adjustsFontSizeToFit>
+                      {key.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
         </View>
       )}
     </View>
@@ -225,30 +200,25 @@ const s = StyleSheet.create({
   },
   emptyButtonLabel: { ...type.bodyBold, color: p.text },
   keys: {
-    flexDirection: 'row',
-    alignItems: 'center',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: p.seam,
     backgroundColor: p.surface,
+    paddingHorizontal: space.xs,
+    paddingVertical: space.xs,
+    gap: space.xs,
   },
-  keysContent: { paddingHorizontal: space.sm, paddingVertical: space.sm, gap: 6 },
+  keyRow: { flexDirection: 'row', gap: space.xs },
   key: {
-    minWidth: 40,
-    paddingHorizontal: 10,
-    paddingVertical: space.sm,
+    flex: 1,
+    height: 38,
     borderRadius: 8,
     backgroundColor: p.bg,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
   },
   keyPressed: { backgroundColor: p.seam },
-  keyLabel: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 18, color: p.text, fontVariant: ['no-contextual'] },
-  keyLabelLatched: { fontFamily: fonts.bold },
-  type: {
-    paddingHorizontal: space.lg,
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: p.seam,
-  },
-  typeLabel: { ...type.bodyBold, color: p.text },
+  keyLatched: { backgroundColor: p.text },
+  keyLabel: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: p.text, fontVariant: ['no-contextual'] },
+  keyLabelLatched: { fontFamily: fonts.bold, color: p.bg },
 });

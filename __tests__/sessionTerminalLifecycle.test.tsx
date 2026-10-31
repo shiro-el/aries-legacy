@@ -180,7 +180,7 @@ test('cached terminals can be selected before SSH attaches without creating rend
   ]);
   const pane = { pane_id: 'pane', terminal_id: 'terminal' } as PaneInfo;
   expect(lifecycle.terminalTargets).toEqual([]);
-  act(() => lifecycle.openPaneTerminal(profile.id, pane, true));
+  act(() => lifecycle.openPaneTerminal(profile.id, pane));
   expect(openPane).toHaveBeenCalledWith(profile.id, pane);
   expect(client.activeNative).toBeNull();
 });

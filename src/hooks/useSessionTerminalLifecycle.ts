@@ -174,28 +174,15 @@ export function useSessionTerminalLifecycle({
     [terminals],
   );
 
+  // Opening a pane on the phone leaves the computer's Herdr where it is: no
+  // pane.focus or agent.focus, which would move the computer's view too.
   const openPaneTerminal = useCallback(
-    (sessionId: string, pane: PaneInfo, focusAgent = false) => {
+    (sessionId: string, pane: PaneInfo) => {
       navigation.selectPane(null);
       terminals.openPane(sessionId, pane);
       select(sessionId, 'terminal');
-      if (
-        findLiveHostSession(getState(), sessionId)?.connectionStatus !== 'ready'
-      )
-        return;
-      const runtime = runtimesRef.current.get(sessionId);
-      const focus = focusAgent
-        ? runtime?.client.native.requestHerdrApi({
-            method: 'agent.focus',
-            params: { target: pane.pane_id },
-          })
-        : runtime?.client.native.requestHerdrApi({
-            method: 'pane.focus',
-            params: { pane_id: pane.pane_id },
-          });
-      focus?.catch(error => scheduleReconnect(sessionId, error));
     },
-    [getState, navigation, runtimesRef, scheduleReconnect, select, terminals],
+    [navigation, select, terminals],
   );
 
   const openAgentTerminal = useCallback(
@@ -206,7 +193,7 @@ export function useSessionTerminalLifecycle({
         sessionSnapshot(session).panes.find(
           item => item.pane_id === agent.pane_id,
         );
-      if (pane) openPaneTerminal(sessionId, pane, true);
+      if (pane) openPaneTerminal(sessionId, pane);
     },
     [openPaneTerminal, getState],
   );

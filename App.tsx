@@ -45,8 +45,9 @@ export default function App() {
     if (fontsLoaded) hideLaunchScreen();
   }, [fontsLoaded]);
 
-  // The core's `more` tab is where calls live now.
-  const tab: MainTab = navigation.state.tab === 'hosts' || navigation.state.tab === 'terminal'
+  // The core's `more` tab is where calls live now. A terminal fills the screen
+  // in place of the tabs; it opens from a shell pane in the herd.
+  const tab: MainTab | 'terminal' = navigation.state.tab === 'hosts' || navigation.state.tab === 'terminal'
     ? navigation.state.tab
     : navigation.state.tab === 'more' ? 'calls' : 'herd';
   const selectTab = (next: MainTab) => navigation.selectTab(next === 'calls' ? 'more' : next);
@@ -59,7 +60,6 @@ export default function App() {
 
   const sections = useMemo(() => presentationSessions.map(herdSection), [presentationSessions]);
   const needYou = sections.reduce((sum, section) => sum + section.view.needYou, 0);
-  const terminalCount = presentationSessions.reduce((sum, session) => sum + session.terminalRail.terminals.length, 0);
 
   const savedHosts = useMemo<SavedHost[]>(() => {
     const live = new Set(presentationSessions.map(session => session.hostId));
@@ -266,17 +266,18 @@ export default function App() {
                   }}
                 />
               )}
-              <TabBar
-                tab={tab}
-                needYou={needYou}
-                unseenCalls={calls.unseen}
-                terminalCount={terminalCount}
-                onSelect={next => {
-                  // Tapping Herd while reading a conversation returns to the herd.
-                  if (next === 'herd' && tab === 'herd') setChat(null);
-                  selectTab(next);
-                }}
-              />
+              {tab !== 'terminal' && (
+                <TabBar
+                  tab={tab}
+                  needYou={needYou}
+                  unseenCalls={calls.unseen}
+                  onSelect={next => {
+                    // Tapping Herd while reading a conversation returns to the herd.
+                    if (next === 'herd' && tab === 'herd') setChat(null);
+                    selectTab(next);
+                  }}
+                />
+              )}
             </KeyboardAvoidingView>
           )}
         </SafeAreaView>

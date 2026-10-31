@@ -98,11 +98,7 @@ export interface SessionRuntimeController {
   refreshSnapshot: (sessionId: string) => Promise<HerdrSnapshot | null>;
   exitTerminalToHerd: (sessionId: string) => void;
   activatePaneTerminal: (sessionId: string, pane: PaneInfo) => void;
-  openPaneTerminal: (
-    sessionId: string,
-    pane: PaneInfo,
-    focusAgent?: boolean,
-  ) => void;
+  openPaneTerminal: (sessionId: string, pane: PaneInfo) => void;
   openAgentTerminal: (sessionId: string, agent: AgentInfo) => void;
   openSshShell: (sessionId: string, title?: string) => void;
   closeTerminal: (sessionId: string, terminalId: string) => void;
