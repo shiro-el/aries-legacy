@@ -177,7 +177,8 @@
     "autolinking": {
       "android": {
         "buildFromSource": [
-          "expo-blur"
+          "expo-blur",
+          "expo-haptics"
         ]
       }
     },
