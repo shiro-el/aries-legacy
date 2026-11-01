@@ -487,18 +487,21 @@ fork keeps the herding theme with the ram that leads the flock.
   and dictated thoughts carry fillers and misheard identifiers that blur what
   the agent receives.
 - **How:** `services/voiceInput.ts` is the record → transcribe state machine;
-  a failed transcription keeps its one recording for Retry/Discard, and
-  leftover `voice-input-*` files are deleted on the first composer of a
-  process. The prompt is the context words of the draft and the last ten
-  messages, cut to Whisper's 224-token window by a byte-based estimate. The
+  a failed transcription keeps its one recording for Retry/Discard, also
+  across a detour to the key setting (leaving the chat only closes the
+  microphone), and leftover `voice-input-*` files are deleted on the first
+  composer of a process. The prompt is the context words of the draft and the
+  last ten messages, cut to 224 UTF-8 bytes, which bounds Whisper's 224-token
+  window. The
   key lives only in the keychain (`aries.groq-api-key.v1`). Polish runs
   `claude -p --model haiku` in the pane's folder through the login shell with
   `--tools Read,Grep,Glob`, `--strict-mcp-config` and `--setting-sources ''`
   (so user hooks do not report it as an agent turn). The passage, the rest of
   the draft and the last six messages go over stdin through the new
-  `HostRuntime.execute_with_input`; the reply must be one `<polished>` block,
-  and anything else, a missing `claude`, or 30 seconds without an answer
-  leaves the transcript unchanged. Editing inside the passage, sending, or
+  `HostRuntime.execute_with_input`, which closes its SSH channel when the
+  phone gives up (the host also wraps Claude in `timeout 35`). The reply must
+  be exactly one `<polished>` block; anything else, a missing `claude`, or 30
+  seconds without an answer leaves the transcript unchanged. Editing inside the passage, sending, or
   dictating again withdraws Polish and Original; edits elsewhere move it.
 - **Validation:** Jest covers the Groq client, the state machine (fake
   recorder and fetch), the key setting, composer insertion, recording bar,

@@ -1,6 +1,7 @@
 import type { RecentMessage } from '../ui/chat/voiceText';
 
 export const POLISH_TIMEOUT_MS = 30_000;
+const HOST_TIMEOUT_SECONDS = 35;
 
 const NO_CLAUDE = 'ARIES_NO_CLAUDE';
 const READ_ONLY_TOOLS = 'Read,Grep,Glob';
@@ -14,14 +15,12 @@ export class PolishError extends Error {
   }
 }
 
-export type PolishRequest = {
+/** The latest dictated text, the only part that is rewritten, and the draft around it. */
+export type PolishPassage = { transcript: string; before: string; after: string };
+
+export type PolishRequest = PolishPassage & {
   /** The pane's folder; the model may read the repository there. */
   cwd: string;
-  /** The latest dictated text, the only part that is rewritten. */
-  transcript: string;
-  /** The rest of the draft around it. */
-  before: string;
-  after: string;
   /** The pane's last messages, oldest first. */
   recent: readonly RecentMessage[];
 };
@@ -61,10 +60,12 @@ export function polishCommand(cwd: string): string {
     "--setting-sources ''",
     `--system-prompt ${quote(SYSTEM_PROMPT)}`,
   ].join(' ');
+  // The phone gives up after 30 seconds; the host stops Claude soon after.
+  const bounded = `if command -v timeout >/dev/null 2>&1; then ${claude.replace('exec claude', `exec timeout ${HOST_TIMEOUT_SECONDS} claude`)}; else ${claude}; fi`;
   const script = [
     `cd ${quote(cwd)} || exit 1`,
     `command -v claude >/dev/null 2>&1 || { printf '%s\\n' ${NO_CLAUDE}; exit 127; }`,
-    claude,
+    bounded,
   ].join('\n');
   const inner = `exec /bin/sh -c ${quote(script)}`;
   const bootstrap = 'exec "${SHELL:-/bin/sh}" -lc "$1"';
@@ -84,11 +85,12 @@ function polishInput(request: PolishRequest): string {
   ].join('\n\n');
 }
 
+/** Exactly one block and nothing else; an answer around it means the model went off task. */
 function parsePolished(output: string): string {
   if (output.includes(NO_CLAUDE)) throw new PolishError('noClaude', 'Claude Code is not installed on this host');
-  const matches = [...output.matchAll(/<polished>([\s\S]*?)<\/polished>/g)];
-  const text = matches.at(-1)?.[1].trim();
-  if (!text) throw new PolishError('malformed', 'Claude did not return polished text');
+  const match = /^<polished>([\s\S]*)<\/polished>$/.exec(output.trim());
+  const text = match?.[1].trim();
+  if (!text || /<\/?polished>/.test(text)) throw new PolishError('malformed', 'Claude did not return one polished block');
   return text;
 }
 

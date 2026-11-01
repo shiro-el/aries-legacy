@@ -48,23 +48,22 @@ const select = async (start: number, end: number) => {
   await act(async () => { input().props.onSelectionChange({ nativeEvent: { selection: { start, end } } }); });
 };
 
+const element = (props: { voice?: ComposerVoice | null; active?: boolean }) => (
+  <Composer
+    name="Claude"
+    agent="claude"
+    catalogSource={null}
+    paneContext=""
+    active={props.active ?? true}
+    disabled={false}
+    palette={palettes.light}
+    onSend={onSend}
+    onOpenTerminal={jest.fn()}
+    voice={props.voice === undefined ? voice : props.voice ?? undefined}
+  />
+);
 const render = async (props: { voice?: ComposerVoice | null } = {}) => {
-  await act(async () => {
-    root = renderer.create(
-      <Composer
-        name="Claude"
-        agent="claude"
-        catalogSource={null}
-        paneContext=""
-        active
-        disabled={false}
-        palette={palettes.light}
-        onSend={onSend}
-        onOpenTerminal={jest.fn()}
-        voice={props.voice === undefined ? voice : props.voice ?? undefined}
-      />,
-    );
-  });
+  await act(async () => { root = renderer.create(element(props)); });
 };
 
 const dictate = async () => {
@@ -152,6 +151,26 @@ it('offers retry and discard after a failed transcription', async () => {
   expect(input().props.value).toBe('음성으로 쓴 글');
 });
 
+it('keeps a failed recording for Retry after a detour to the key setting', async () => {
+  transcribe.mockRejectedValueOnce(new TranscriptionError('unauthorized', '401'));
+  await render();
+  await dictate();
+  await press('Set up Groq API key');
+  await act(async () => { root.update(element({ active: false })); });
+  await act(async () => { root.update(element({ active: true })); });
+  await press('Retry transcription');
+  expect(input().props.value).toBe('음성으로 쓴 글');
+});
+
+it('points to Android settings when the microphone is denied', async () => {
+  recorder.permission = 'denied';
+  const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue();
+  await render();
+  await press('Record voice');
+  await press('Open Android settings');
+  expect(openSettings).toHaveBeenCalled();
+});
+
 it('discards a failed recording', async () => {
   transcribe.mockRejectedValueOnce(new TranscriptionError('network', 'offline'));
   await render();
@@ -219,6 +238,14 @@ describe('polish', () => {
     await typeText('음성으로 쓴 글. 그리고');
     await press('Polish transcript');
     expect(input().props.value).toBe('다듬은 글. 그리고');
+  });
+
+  it('withdraws the offer as soon as a new recording starts', async () => {
+    await render();
+    await dictate();
+    await press('Record voice');
+    await press('Cancel recording');
+    expect(findButton('Polish transcript')).toBeUndefined();
   });
 
   it('withdraws the offer once the message is sent', async () => {

@@ -8,14 +8,17 @@ import { createVoiceInput } from '../../services/voiceRecorder';
 import type { DictatedPassage } from './useDictatedPassage';
 import { radius, space, type, type Palette } from '../theme/tokens';
 
-/** One voice input per composer, cancelled when the composer goes away. */
-export function useVoiceInput(enabled: boolean): { input: VoiceInput; snapshot: VoiceInputSnapshot } {
+/**
+ * One voice input per composer. Leaving the screen closes the microphone but
+ * keeps a failed recording, so Retry works after fixing the key in Hosts.
+ */
+export function useVoiceInput(visible: boolean): { input: VoiceInput; snapshot: VoiceInputSnapshot } {
   const [input] = useState(createVoiceInput);
   const snapshot = useSyncExternalStore(input.subscribe, input.getSnapshot);
   useEffect(() => {
-    if (!enabled) input.dispose();
-    return () => input.dispose();
-  }, [enabled, input]);
+    if (!visible) input.pause();
+  }, [visible, input]);
+  useEffect(() => () => input.dispose(), [input]);
   return { input, snapshot };
 }
 
@@ -24,7 +27,7 @@ export type VoiceNotice = Exclude<StartResult, 'started' | 'busy'> | Transcripti
 
 const NOTICES: Record<VoiceNotice, string> = {
   noKey: 'Voice input needs a Groq API key.',
-  permissionDenied: 'Aries needs the microphone for voice input.',
+  permissionDenied: 'Aries needs the microphone for voice input. Tap Voice to allow it, or allow it in Android settings.',
   permissionBlocked: 'The microphone is turned off for Aries in Android settings.',
   recordingFailed: 'The microphone did not start. Another app may be using it.',
   unauthorized: 'Groq rejected the API key.',
@@ -58,7 +61,7 @@ export function VoiceStatus({ notice, failed, transcribing, palette, onSetUpKey,
         </>
       ) : notice === 'noKey' ? (
         <Link label="Set up" a11y="Set up Groq API key" onPress={onSetUpKey} s={s} />
-      ) : notice === 'permissionBlocked' ? (
+      ) : notice === 'permissionBlocked' || notice === 'permissionDenied' ? (
         <Link
           label="Settings"
           a11y="Open Android settings"

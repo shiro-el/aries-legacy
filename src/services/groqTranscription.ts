@@ -1,9 +1,9 @@
 const ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const MODEL = 'whisper-large-v3';
 const LANGUAGE = 'ko';
-// Whisper reads at most 224 prompt tokens. The budget leaves headroom for
-// the estimate below, which no tokenizer on the phone can check exactly.
-const PROMPT_TOKEN_BUDGET = 200;
+// Whisper reads at most 224 prompt tokens. Byte-level BPE never spends more
+// than one token per UTF-8 byte, so a byte budget is a guaranteed bound.
+const PROMPT_BYTE_BUDGET = 224;
 
 export type TranscriptionFailure = 'unauthorized' | 'rateLimited' | 'network' | 'failed';
 
@@ -55,27 +55,14 @@ export async function transcribeWithGroq(request: TranscriptionRequest, fetchImp
   return body.text.trim();
 }
 
-/**
- * Joins context hints, most relevant first, until the prompt window is full.
- * Byte-level BPE spends at most one token per byte; ASCII words merge into
- * far fewer, so they are counted at a third of their length.
- */
+/** Joins context hints, most relevant first, while the prompt fits Whisper's window. */
 export function transcriptionPrompt(hints: readonly string[]): string {
   const encoder = new TextEncoder();
-  const cost = (text: string) => {
-    let ascii = 0;
-    let other = 0;
-    for (const character of text) {
-      if (character.charCodeAt(0) < 0x80) ascii += 1;
-      else other += encoder.encode(character).length;
-    }
-    return ascii / 3 + other;
-  };
   const kept: string[] = [];
   let spent = 0;
   for (const hint of hints) {
-    const next = cost(kept.length ? `, ${hint}` : hint);
-    if (spent + next > PROMPT_TOKEN_BUDGET) break;
+    const next = encoder.encode(kept.length ? `, ${hint}` : hint).length;
+    if (spent + next > PROMPT_BYTE_BUDGET) break;
     kept.push(hint);
     spent += next;
   }

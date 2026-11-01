@@ -66,6 +66,36 @@ pub(super) fn current_ssh(inner: &RuntimeInner) -> Result<Arc<SshSession>, HostR
     })
 }
 
+/// Aborts a spawned SSH command when the caller's future is dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn run_ssh_command(
+    inner: &RuntimeInner,
+    command: String,
+    input: Option<String>,
+) -> Result<String, HostRuntimeError> {
+    let ssh = current_ssh(inner)?;
+    let task = crate::runtime()
+        .map_err(HostRuntimeError::SshTransportFailure)?
+        .spawn(async move {
+            match input {
+                Some(input) => ssh.execute_with_input(&command, input.as_bytes()).await,
+                None => ssh.execute(&command).await,
+            }
+        });
+    let _abort = AbortOnDrop(task.abort_handle());
+    let output = task.await.map_err(|error| {
+        HostRuntimeError::SshTransportFailure(format!("SSH command task failed: {error}"))
+    })??;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 pub(super) async fn resume_reverse_control(inner: &Arc<RuntimeInner>) {
     if !inner.reverse_control.needs_resume() {
         return;
@@ -1377,32 +1407,17 @@ impl HostRuntime {
     }
 
     pub async fn execute(&self, command: String) -> Result<String, HostRuntimeError> {
-        let ssh = current_ssh(&self.inner)?;
-        let output = crate::runtime()
-            .map_err(HostRuntimeError::SshTransportFailure)?
-            .spawn(async move { ssh.execute(&command).await })
-            .await
-            .map_err(|error| {
-                HostRuntimeError::SshTransportFailure(format!("SSH command task failed: {error}"))
-            })??;
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        run_ssh_command(&self.inner, command, None).await
     }
 
     /// Runs a command with private text on stdin, never in a process argument.
+    /// Cancelling the call closes its SSH channel instead of leaving it running.
     pub async fn execute_with_input(
         &self,
         command: String,
         input: String,
     ) -> Result<String, HostRuntimeError> {
-        let ssh = current_ssh(&self.inner)?;
-        let output = crate::runtime()
-            .map_err(HostRuntimeError::SshTransportFailure)?
-            .spawn(async move { ssh.execute_with_input(&command, input.as_bytes()).await })
-            .await
-            .map_err(|error| {
-                HostRuntimeError::SshTransportFailure(format!("SSH command task failed: {error}"))
-            })??;
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        run_ssh_command(&self.inner, command, Some(input)).await
     }
 
     pub async fn remote_home(&self) -> Result<String, HostRuntimeError> {

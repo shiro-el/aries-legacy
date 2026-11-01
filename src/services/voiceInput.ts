@@ -53,8 +53,10 @@ export class VoiceInput {
   private request: Request | null = null;
   private kept: string | null = null;
   private limit: ReturnType<typeof setTimeout> | null = null;
-  // Bumped when the composer goes away; a transcription from before is dropped.
+  // Bumped when the composer goes away; work started before it is dropped.
   private generation = 0;
+  private starting = false;
+  private teardown: Promise<void> | null = null;
 
   constructor(private readonly deps: VoiceInputDependencies) {}
 
@@ -70,52 +72,70 @@ export class VoiceInput {
   }
 
   async start(request: Request): Promise<StartResult> {
-    if (this.snapshot.phase === 'recording' || this.snapshot.phase === 'transcribing') return 'busy';
-    if (!await this.deps.loadKey()) return 'noKey';
-    const permission = await this.deps.recorder.requestPermission();
-    if (permission === 'denied') return 'permissionDenied';
-    if (permission === 'blocked') return 'permissionBlocked';
-    this.forget();
+    if (this.starting || this.snapshot.phase === 'recording' || this.snapshot.phase === 'transcribing') return 'busy';
+    this.starting = true;
+    const generation = this.generation;
     try {
-      await this.deps.microphone?.(true);
-      await this.deps.recorder.start();
-    } catch {
-      await this.deps.microphone?.(false);
-      this.publish(IDLE);
-      return 'recordingFailed';
+      // A cancelled recording finishes releasing the microphone first.
+      await this.teardown;
+      if (!await this.deps.loadKey()) return 'noKey';
+      const permission = await this.deps.recorder.requestPermission();
+      if (permission === 'denied') return 'permissionDenied';
+      if (permission === 'blocked') return 'permissionBlocked';
+      if (generation !== this.generation) return 'busy';
+      this.forget();
+      try {
+        await this.deps.microphone?.(true);
+        await this.deps.recorder.start();
+      } catch {
+        await this.deps.microphone?.(false);
+        this.publish(IDLE);
+        return 'recordingFailed';
+      }
+      if (generation !== this.generation) {
+        // The composer went away while the microphone was opening.
+        const uri = await this.release();
+        if (uri) this.deps.deleteFile(uri);
+        return 'busy';
+      }
+      this.request = request;
+      this.deps.haptic();
+      this.limit = setTimeout(() => { void this.stop(); }, MAX_RECORDING_MS);
+      this.publish({ phase: 'recording', startedAt: Date.now() });
+      return 'started';
+    } finally {
+      this.starting = false;
     }
-    this.request = request;
-    this.deps.haptic();
-    this.limit = setTimeout(() => { void this.stop(); }, MAX_RECORDING_MS);
-    this.publish({ phase: 'recording', startedAt: Date.now() });
-    return 'started';
   }
 
   async stop(): Promise<void> {
     if (this.snapshot.phase !== 'recording') return;
+    const generation = this.generation;
     this.publish({ phase: 'transcribing' });
     const uri = await this.release();
     this.deps.haptic();
     if (!uri) {
-      this.publish(IDLE);
+      if (generation === this.generation) this.publish(IDLE);
       return;
     }
     this.kept = uri;
-    await this.transcribe();
+    await this.transcribe(generation);
   }
 
   async cancel(): Promise<void> {
     if (this.snapshot.phase !== 'recording') return;
-    this.publish(IDLE);
-    const uri = await this.release();
-    if (uri) this.deps.deleteFile(uri);
     this.request = null;
+    this.publish(IDLE);
+    const teardown = this.release().then(uri => { if (uri) this.deps.deleteFile(uri); });
+    this.teardown = teardown;
+    await teardown;
+    if (this.teardown === teardown) this.teardown = null;
   }
 
   async retry(): Promise<void> {
     if (this.snapshot.phase !== 'failed' || !this.kept) return;
     this.publish({ phase: 'transcribing' });
-    await this.transcribe();
+    await this.transcribe(this.generation);
   }
 
   discard(): void {
@@ -123,6 +143,12 @@ export class VoiceInput {
     this.forget();
     this.request = null;
     this.publish(IDLE);
+  }
+
+  /** The composer left the screen: close the microphone, keep everything else. */
+  pause(): void {
+    if (this.starting) this.generation += 1;
+    if (this.snapshot.phase === 'recording') void this.cancel();
   }
 
   /** The composer is gone: stop listening, keep nothing, drop late results. */
@@ -145,12 +171,12 @@ export class VoiceInput {
     }
   }
 
-  private async transcribe(): Promise<void> {
+  private async transcribe(generation: number): Promise<void> {
     const uri = this.kept;
     const request = this.request;
     if (!uri || !request) return;
-    const generation = this.generation;
     try {
+      if (generation !== this.generation) throw new TranscriptionError('failed', 'Cancelled');
       const apiKey = await this.deps.loadKey();
       if (!apiKey) throw new TranscriptionError('unauthorized', 'No Groq API key');
       const text = await this.deps.transcribe({ uri, apiKey, prompt: request.prompt });

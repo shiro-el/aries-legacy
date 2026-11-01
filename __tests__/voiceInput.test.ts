@@ -181,3 +181,71 @@ it('drops a result that arrives after the composer goes away', async () => {
   expect(inserted).toEqual([]);
   expect(deleted).toEqual(['file:///cache/Audio/voice-input-1.m4a']);
 });
+
+it('ignores a second tap while the microphone is still opening', async () => {
+  const first = start();
+  const second = start();
+  expect(await second).toBe('busy');
+  expect(await first).toBe('started');
+  expect(recorder.count).toBe(1);
+});
+
+it('does not open the microphone for a composer that went away during the permission prompt', async () => {
+  let grant: (value: 'granted') => void = () => {};
+  recorder.requestPermission = () => new Promise(resolve => { grant = resolve; });
+  const started = start();
+  await flush();
+  input.dispose();
+  grant('granted');
+  expect(await started).toBe('busy');
+  expect(recorder.recording).toBe(false);
+  expect(input.getSnapshot().phase).toBe('idle');
+});
+
+it('drops a recording whose composer went away while it was stopping', async () => {
+  let finishStop: (uri: string) => void = () => {};
+  await start();
+  recorder.stop = () => new Promise(resolve => { finishStop = resolve; });
+  const stopped = input.stop();
+  input.dispose();
+  finishStop('file:///cache/Audio/voice-input-1.m4a');
+  await stopped;
+  expect(transcribe).not.toHaveBeenCalled();
+  expect(inserted).toEqual([]);
+  expect(deleted).toEqual(['file:///cache/Audio/voice-input-1.m4a']);
+});
+
+it('finishes releasing a cancelled recording before the next one opens the microphone', async () => {
+  const events: string[] = [];
+  const microphone = jest.fn((active: boolean) => { events.push(active ? 'open' : 'close'); });
+  input = new VoiceInput({ recorder, loadKey: () => Promise.resolve(key), transcribe, deleteFile: () => {}, haptic: jest.fn(), microphone });
+  await start();
+  let finishStop: (uri: string) => void = () => {};
+  recorder.stop = () => new Promise(resolve => { finishStop = resolve; });
+  const cancelled = input.cancel();
+  const next = start();
+  await flush();
+  expect(events).toEqual(['open']);
+  finishStop('file:///cache/Audio/voice-input-1.m4a');
+  await cancelled;
+  expect(await next).toBe('started');
+  expect(events).toEqual(['open', 'close', 'open']);
+  expect(input.getSnapshot().phase).toBe('recording');
+});
+
+it('keeps a failed recording when the composer leaves the screen', async () => {
+  transcribe.mockRejectedValueOnce(new TranscriptionError('unauthorized', 'x'));
+  await start();
+  await input.stop();
+  input.pause();
+  expect(input.getSnapshot()).toEqual({ phase: 'failed', error: 'unauthorized' });
+  expect(deleted).toEqual([]);
+});
+
+it('closes the microphone when the composer leaves the screen', async () => {
+  await start();
+  input.pause();
+  await flush();
+  expect(recorder.recording).toBe(false);
+  expect(transcribe).not.toHaveBeenCalled();
+});

@@ -18,7 +18,8 @@ import {
 import { transcriptionPrompt } from '../../services/groqTranscription';
 import { PolishBar, RecordingBar, useVoiceInput, VoiceStatus, type VoiceNotice } from './ComposerVoice';
 import { SkillSheet } from './SkillSheet';
-import { useDictatedPassage, type PolishPassage } from './useDictatedPassage';
+import type { PolishPassage } from '../../services/transcriptPolish';
+import { useDictatedPassage } from './useDictatedPassage';
 import { insertTranscript } from './voiceText';
 
 /** Voice input for an agent's composer. Shell panes have none. */
@@ -103,7 +104,9 @@ export function Composer({
         dictated.dictated(inserted.range);
       },
     });
-    if (result !== 'started' && result !== 'busy') setVoiceNotice(result);
+    // Dictating again withdraws Polish and Original from the previous passage.
+    if (result === 'started') dictated.end();
+    else if (result !== 'busy') setVoiceNotice(result);
   };
   const phase = dictation.snapshot.phase;
   const shownNotice = dictation.snapshot.phase === 'failed' ? dictation.snapshot.error : voiceNotice;

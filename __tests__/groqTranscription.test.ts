@@ -67,7 +67,7 @@ it('keeps the prompt inside Whisper\'s 224-token window, most relevant hints fir
   expect(prompt.startsWith('identifier_number_0, identifier_number_1')).toBe(true);
   expect(prompt).not.toContain('identifier_number_99');
   // Byte-level BPE needs at most one token per UTF-8 byte.
-  expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(224 * 3);
+  expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(224);
   expect(prompt.endsWith(',')).toBe(false);
 });
 

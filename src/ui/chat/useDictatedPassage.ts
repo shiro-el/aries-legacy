@@ -1,10 +1,7 @@
 import { useRef, useState } from 'react';
 
-import { PolishError } from '../../services/transcriptPolish';
+import { PolishError, type PolishPassage } from '../../services/transcriptPolish';
 import { followRange, type TextRange } from './voiceText';
-
-/** The passage to polish, and the rest of the draft around it. */
-export type PolishPassage = { transcript: string; before: string; after: string };
 
 /** The latest dictated passage, which polish may rewrite and restore. */
 export type DictatedPassage = {

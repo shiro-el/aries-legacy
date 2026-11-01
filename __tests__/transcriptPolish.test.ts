@@ -57,7 +57,7 @@ it('reports a host without claude', () => {
 
 it('sends the dictation, the rest of the draft and recent messages on stdin and returns the polished text', async () => {
   const run = jest.fn((_command: string, _stdin: string, _signal: AbortSignal) =>
-    Promise.resolve('notice\n<polished>\nsrc/ui/chat/Composer.tsx 고쳐 줘\n</polished>\n'));
+    Promise.resolve('<polished>\nsrc/ui/chat/Composer.tsx 고쳐 줘\n</polished>\n'));
   const text = await polishTranscript(request, run);
   expect(text).toBe('src/ui/chat/Composer.tsx 고쳐 줘');
   const [command, stdin] = run.mock.calls[0];
@@ -82,6 +82,9 @@ it.each([
   ['', 'malformed'],
   ['Sure! Here is the cleaned text: hello', 'malformed'],
   ['<polished>   </polished>', 'malformed'],
+  ['Sure, done.\n<polished>x</polished>', 'malformed'],
+  ['<polished>first</polished>\n<polished>second</polished>', 'malformed'],
+  ['<polished>x</polished>\nI also edited the file.', 'malformed'],
   ['ARIES_NO_CLAUDE\n', 'noClaude'],
 ])('rejects %j as %s', async (output, kind) => {
   const run = jest.fn(() => Promise.resolve(output));
