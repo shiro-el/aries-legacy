@@ -97,9 +97,22 @@ fn menu_choice(line: &str) -> Option<AgentInteractionChoice> {
     })
 }
 
+/// The line where the live menu begins: its first choice is the last `1.` on
+/// screen, since numbered prose in the transcript above can start earlier.
+fn menu_start(text: &str) -> Option<usize> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| menu_choice(line).is_some_and(|choice| choice.index == 0))
+        .map(|(index, _)| index)
+        .last()
+}
+
 fn menu_choices(text: &str) -> Vec<AgentInteractionChoice> {
+    let Some(start) = menu_start(text) else {
+        return Vec::new();
+    };
     let mut choices = Vec::new();
-    let mut lines = text.lines().peekable();
+    let mut lines = text.lines().skip(start).peekable();
     while let Some(line) = lines.next() {
         let Some(mut choice) = menu_choice(line) else {
             continue;
@@ -136,22 +149,43 @@ fn menu_choices(text: &str) -> Vec<AgentInteractionChoice> {
     choices
 }
 
+/// A summary longer than this is transcript that no separator cut away.
+const MAX_SUMMARY_LINES: usize = 12;
+
+fn horizontal_rule(line: &str) -> bool {
+    let line = line.trim();
+    line.chars().count() >= 3
+        && line
+            .chars()
+            .all(|character| matches!(character, '─' | '━' | '═' | '╭' | '╮' | '┌' | '┐'))
+}
+
 fn menu_summary(text: &str) -> String {
     let mut lines = Vec::new();
-    for line in text.lines().take_while(|line| menu_choice(line).is_none()) {
+    // Where the last plain rule sits; it hides the transcript only if a question follows it.
+    let mut rule = None;
+    let end = menu_start(text).unwrap_or(usize::MAX);
+    for line in text.lines().take(end) {
         // Dialog borders separate the current prompt from the CLI transcript.
-        if line.trim().starts_with(['╭', '┌'])
-            && line.chars().all(|character| {
-                character.is_whitespace()
-                    || matches!(character, '─' | '━' | '═' | '╭' | '╮' | '┌' | '┐')
-            })
-        {
+        if line.trim().starts_with(['╭', '┌']) && horizontal_rule(line) {
             lines.clear();
+            rule = None;
         } else {
+            if horizontal_rule(line) {
+                rule = Some(lines.len());
+            }
             lines.push(line.trim());
         }
     }
+    if let Some(rule) = rule
+        && lines[rule + 1..].iter().any(|line| !line.is_empty())
+    {
+        lines.drain(..=rule);
+    }
     let summary = lines.join("\n");
+    let summary = summary.trim();
+    let lines = summary.lines().collect::<Vec<_>>();
+    let summary = lines[lines.len().saturating_sub(MAX_SUMMARY_LINES)..].join("\n");
     if summary.trim().is_empty() {
         "Choose an option.".to_owned()
     } else {
@@ -193,6 +227,24 @@ fn project_prompt(
         choices,
         text,
     })
+}
+
+/// An answer is typed, not pasted: a bracketed paste opens with Escape, which
+/// a question menu takes as cancel and rejects the whole question.
+fn response_requests(
+    pane_id: String,
+    answer: Option<String>,
+    keys: Vec<String>,
+) -> Vec<HerdrControlRequest> {
+    let mut requests = Vec::with_capacity(2);
+    if let Some(text) = answer {
+        requests.push(HerdrControlRequest::PaneSendText {
+            pane_id: pane_id.clone(),
+            text,
+        });
+    }
+    requests.push(HerdrControlRequest::PaneSendKeys { pane_id, keys });
+    requests
 }
 
 /// Local binding plus fresh server identity are both required: a terminal id
@@ -413,19 +465,16 @@ impl HostRuntime {
                 )?;
                 // Reserve before dispatch. A lost acknowledgement must never
                 // cause an automatic duplicate approval or text submission.
-                let request = if action == "answer" {
-                    HerdrControlRequest::PaneSendInput {
-                        pane_id: live.pane_id,
-                        text: answer,
-                        keys,
+                let answer = (action == "answer").then_some(answer);
+                let mut result = Ok(());
+                for request in response_requests(live.pane_id, answer, keys) {
+                    result = control_request_inner(inner.clone(), request)
+                        .await
+                        .map(drop);
+                    if result.is_err() {
+                        break;
                     }
-                } else {
-                    HerdrControlRequest::PaneSendKeys {
-                        pane_id: live.pane_id,
-                        keys,
-                    }
-                };
-                let result = control_request_inner(inner.clone(), request).await;
+                }
                 drop(last);
                 result?;
                 Ok(())
@@ -506,6 +555,71 @@ mod tests {
         assert_eq!(prompt.choices[1].label, "Pear");
         assert_eq!(response_keys(&prompt, "choice:1", "").unwrap(), ["down"]);
         assert!(response_keys(&prompt, "open", "").is_err());
+    }
+
+    #[test]
+    fn question_below_a_plain_rule_omits_the_transcript_above_it() {
+        let transcript =
+            "● Bash(rm test-support/reanimatedFade.js)\n  ⎿  Tests: 2463 passed\n".repeat(20);
+        let prompt = prompt(&format!(
+            "{transcript}────────────────────────────────\n ☐ + 메뉴\n\nWhich layout should + open?\n\n❯ 1. Bottom sheet\n  2. Inline icons\n\nEnter to select · Esc to cancel"
+        ));
+        assert_eq!(prompt.kind, AgentInteractionKind::Menu);
+        assert_eq!(prompt.summary, "☐ + 메뉴\n\nWhich layout should + open?");
+    }
+
+    #[test]
+    fn numbered_prose_in_the_transcript_does_not_hide_the_menu_below_it() {
+        let prompt = prompt(
+            "● 고쳤습니다.\n\n  1. + 바텀시트 (src/ui/chat/AttachSheet.tsx)\n  - 시트가 올라옵니다.\n\n  2. 질문할 때 화면이 안 보이던 문제\n  - 원인: 요약\n\n❯ 한번 질문 띄워봐\n────────────────────────\n ☐ 카드 테스트\n\n선택지가 보이나요?\n\n❯ 1. 잘 보임\n     질문과 선택지가 보임\n  2. 제목에 기록이 섞임\n     이전 출력이 보임\n  3. Type something.\n────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel",
+        );
+        assert_eq!(prompt.kind, AgentInteractionKind::Menu);
+        assert_eq!(prompt.summary, "☐ 카드 테스트\n\n선택지가 보이나요?");
+        let labels = prompt
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels,
+            [
+                "잘 보임\n질문과 선택지가 보임",
+                "제목에 기록이 섞임\n이전 출력이 보임",
+                "Type something.",
+                "Chat about this"
+            ]
+        );
+        assert!(prompt.choices[0].selected);
+    }
+
+    #[test]
+    fn an_answer_is_typed_before_its_keys() {
+        let requests = response_requests(
+            "p".to_owned(),
+            Some("pear".to_owned()),
+            vec!["enter".to_owned()],
+        );
+        assert!(matches!(
+            requests.as_slice(),
+            [
+                HerdrControlRequest::PaneSendText { text, .. },
+                HerdrControlRequest::PaneSendKeys { keys, .. },
+            ] if text == "pear" && keys == &["enter"]
+        ));
+        assert!(matches!(
+            response_requests("p".to_owned(), None, vec!["down".to_owned()]).as_slice(),
+            [HerdrControlRequest::PaneSendKeys { keys, .. }] if keys == &["down"]
+        ));
+    }
+
+    #[test]
+    fn summary_without_a_separator_keeps_only_its_last_lines() {
+        let transcript = (1..=40)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+        let prompt = prompt(&format!("{transcript}Pick one\n❯ 1. Yes\n  2. No"));
+        assert_eq!(prompt.summary.lines().count(), MAX_SUMMARY_LINES);
+        assert!(prompt.summary.ends_with("line 40\nPick one"));
     }
 
     #[test]
