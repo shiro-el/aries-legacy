@@ -486,6 +486,30 @@ fn runtime_replacement_fences_old_callbacks_and_does_not_touch_other_hosts() {
 }
 
 #[test]
+fn completion_transitions_schedule_regular_alerts_in_foreground_and_background() {
+    for foreground in [false, true] {
+        let owner = LocalAlertCoordinator::new();
+        let mut request = request("h", "p", "t", false);
+        request.delivery = LocalAlertDelivery::Regular;
+        let effect = one(owner.transition(LocalAlertTransition {
+            host_id: "h".into(),
+            pane_id: "p".into(),
+            runtime: None,
+            status: Some(HerdrAgentStatus::Done),
+            request: Some(request),
+            enabled: true,
+            foreground,
+        }));
+        assert!(matches!(
+            &effect.action,
+            LocalAlertAction::Schedule { request } if request.delivery == LocalAlertDelivery::Regular
+        ));
+        begin(&owner, &effect);
+        assert!(scheduled(&owner, &effect, "completion").is_empty());
+    }
+}
+
+#[test]
 fn transition_admission_preserves_foreground_background_modes_and_resolutions() {
     for foreground in [false, true] {
         for delivery in [LocalAlertDelivery::Persistent, LocalAlertDelivery::Regular] {

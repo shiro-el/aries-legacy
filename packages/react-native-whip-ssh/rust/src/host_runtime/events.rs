@@ -94,11 +94,16 @@ pub(super) async fn request_host_state_snapshot(
         response => response,
     };
     let outcome = match response {
-        Ok(HerdrControlResult::SessionSnapshot { snapshot }) => inner
-            .state
-            .lock()
-            .host_state
-            .complete_sync(token, snapshot, now_ms()),
+        Ok(HerdrControlResult::SessionSnapshot { snapshot }) => {
+            let mut state = inner.state.lock();
+            if inner.herdr.is_core() {
+                state
+                    .host_state
+                    .complete_core_sync(token, snapshot, now_ms())
+            } else {
+                state.host_state.complete_sync(token, snapshot, now_ms())
+            }
+        }
         Ok(_) => inner.state.lock().host_state.fail_sync(
             token,
             "Herdr returned an unexpected result for session.snapshot".to_owned(),

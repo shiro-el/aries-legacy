@@ -351,8 +351,29 @@ impl HostState {
     pub(crate) fn complete_sync(
         &mut self,
         token: SnapshotToken,
+        snapshot: HerdrSessionSnapshot,
+        now_ms: u64,
+    ) -> ApplyResult {
+        self.complete_sync_inner(token, snapshot, now_ms, false)
+    }
+
+    /// Core delivers live status changes through refreshed snapshots, rather
+    /// than legacy pane events. Only a ready connection has a live baseline.
+    pub(crate) fn complete_core_sync(
+        &mut self,
+        token: SnapshotToken,
+        snapshot: HerdrSessionSnapshot,
+        now_ms: u64,
+    ) -> ApplyResult {
+        self.complete_sync_inner(token, snapshot, now_ms, self.connection_ready)
+    }
+
+    fn complete_sync_inner(
+        &mut self,
+        token: SnapshotToken,
         mut snapshot: HerdrSessionSnapshot,
         now_ms: u64,
+        snapshot_transitions: bool,
     ) -> ApplyResult {
         let Some(active) = self.active_sync.take() else {
             return ApplyResult::IgnoredStale;
@@ -380,12 +401,16 @@ impl HostState {
                 }
             }
         }
-        // A full snapshot is the authoritative status baseline. Events received
-        // while it was in flight were also projected onto the old snapshot for
-        // the UI, but only their replay against this baseline can establish a
-        // live status transition.
-        self.agent_statuses = agent_statuses_from_snapshot(&snapshot);
+        // Legacy snapshots establish a baseline; only replayed pane events
+        // establish live transitions. Core snapshots are themselves the live
+        // updates after the connection's initial baseline.
         self.bump_revision();
+        let statuses = agent_statuses_from_snapshot(&snapshot);
+        if snapshot_transitions {
+            self.capture_agent_status_transitions(statuses);
+        } else {
+            self.agent_statuses = statuses;
+        }
         let mut replay_error = None;
         for event in active.buffered_events {
             if let HerdrEvent::PaneClosed { pane_id, .. } = &event {
@@ -2084,6 +2109,70 @@ mod tests {
             );
             assert!(state.take_agent_status_transitions().is_empty());
             assert_eq!(state.agent_statuses.get("p1"), Some(&status));
+        }
+    }
+
+    #[test]
+    fn core_snapshot_status_changes_emit_once_without_legacy_pane_events() {
+        let mut state = HostState::default();
+        state.connection_installed(1);
+        let initial = state.begin_sync(1);
+        state.complete_core_sync(
+            initial,
+            snapshot_with_agent_status(HerdrAgentStatus::Working),
+            10,
+        );
+        assert!(state.take_agent_status_transitions().is_empty());
+
+        for status in [
+            HerdrAgentStatus::Done,
+            HerdrAgentStatus::Working,
+            HerdrAgentStatus::Blocked,
+        ] {
+            let previous = state.agent_statuses["p1"];
+            let token = state.begin_sync(1);
+            assert_eq!(
+                state.complete_core_sync(token, snapshot_with_agent_status(status), 20),
+                ApplyResult::Applied
+            );
+            let transitions = state.take_agent_status_transitions();
+            assert_eq!(transitions.len(), 1);
+            assert_eq!(transitions[0].pane_id, "p1");
+            assert_eq!(transitions[0].previous, Some(previous));
+            assert_eq!(transitions[0].current, Some(status));
+            assert_eq!(transitions[0].revision, state.projection().revision);
+            assert_eq!(
+                state.projection().snapshot.unwrap().agents[0].agent_status,
+                status
+            );
+
+            let token = state.begin_sync(1);
+            state.complete_core_sync(token, snapshot_with_agent_status(status), 21);
+            assert!(state.take_agent_status_transitions().is_empty());
+        }
+    }
+
+    #[test]
+    fn core_initial_and_reconnect_snapshots_do_not_alert_for_existing_statuses() {
+        for status in [HerdrAgentStatus::Blocked, HerdrAgentStatus::Done] {
+            let mut state = HostState::default();
+            state.connection_installed(1);
+            let initial = state.begin_sync(1);
+            state.complete_core_sync(initial, snapshot_with_agent_status(status), 10);
+            assert!(state.take_agent_status_transitions().is_empty());
+
+            let working = state.begin_sync(1);
+            state.complete_core_sync(
+                working,
+                snapshot_with_agent_status(HerdrAgentStatus::Working),
+                11,
+            );
+            state.take_agent_status_transitions();
+            state.mark_reconnecting("connection lost".into());
+            state.connection_installed(2);
+            let reconnect = state.begin_sync(2);
+            state.complete_core_sync(reconnect, snapshot_with_agent_status(status), 20);
+            assert!(state.take_agent_status_transitions().is_empty());
         }
     }
 
