@@ -6,6 +6,7 @@ import { HerdScreen } from '../src/ui/herd/HerdScreen';
 import { TerminalScreen } from '../src/ui/terminal/TerminalScreen';
 import type { SessionPresentation } from '../src/liveHostSessions';
 
+jest.mock('react-native-whip-ssh', () => require('./mockWhipSsh').createMockWhipSshModule());
 jest.mock('../src/ui/herd/StatusGlyph', () => ({
   StatusGlyph: 'StatusGlyph',
   GLYPH_SIZE: 12,
