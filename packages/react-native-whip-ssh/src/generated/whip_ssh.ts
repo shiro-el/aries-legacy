@@ -26719,6 +26719,7 @@ export interface HostRuntimeLike {
   ) /*throws*/ : Promise<string>;
   /**
    * Runs a command with private text on stdin, never in a process argument.
+   * Cancelling the call closes its SSH channel instead of leaving it running.
    */
   executeWithInput(
     command: string,
@@ -27998,6 +27999,7 @@ export class HostRuntime
 
   /**
    * Runs a command with private text on stdin, never in a process argument.
+   * Cancelling the call closes its SSH channel instead of leaving it running.
    */
   async executeWithInput(
     command: string,
@@ -36256,7 +36258,7 @@ function uniffiEnsureInitialized() {
   }
   if (
     nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_execute_with_input() !==
-    79
+    11822
   ) {
     throw new UniffiInternalError.ApiChecksumMismatch(
       'uniffi_whip_ssh_checksum_method_hostruntime_execute_with_input',
