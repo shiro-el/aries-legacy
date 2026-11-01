@@ -841,7 +841,7 @@ export const GENERATED_OPEN_SOURCE_LICENSES = [
     id: "cargo-whip-notify-0-1-7",
     category: "cargo",
     projectName: "whip-notify",
-    sourceUrl: "https://github.com/kosumic/whip",
+    sourceUrl: "https://github.com/shiro-el/aries",
     attribution: "Direct Rust dependency · version 0.1.7 · used by whip-ssh",
     licenseName: "AGPL-3.0-or-later",
     licenseAsset: require("../../assets/licenses/generated/66660932cb889161.txt"),

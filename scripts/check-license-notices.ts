@@ -82,6 +82,17 @@ const noticeSources = [
     source: 'node_modules/lucide-react-native/LICENSE',
     dependency: 'lucide-react-native',
   },
+  {
+    id: 'zed-icons',
+    asset: 'assets/licenses/zed-icons-GPL-3.0-and-Lucide-ISC.txt',
+    sha256: 'cd2fe82217a15dad8eee2e45db5835e47621ec4facd179a175241fb448cabc96',
+  },
+  {
+    // pdfjs-dist@6.4.299 LICENSE, the version pdfPreview.ts loads from jsDelivr.
+    id: 'pdfjs',
+    asset: 'assets/licenses/pdfjs-Apache-2.0.txt',
+    sha256: '0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594',
+  },
 ];
 
 const npmLicenseSourceOverrides = new Map([
