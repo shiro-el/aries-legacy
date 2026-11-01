@@ -341,7 +341,7 @@ function AppContent() {
                   rows={hostRows}
                   loaded={hosts.profilesLoaded}
                   error={editing ? null : hosts.error}
-                  onAdd={hosts.openManualHost}
+                  onAdd={() => hosts.openManualHost()}
                   onEdit={host => { void hosts.openEditor(host); }}
                   onConnect={connectHost}
                   onDisconnect={host => { void sessions.closeHostById(host.id); }}
