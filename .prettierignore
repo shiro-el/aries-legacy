@@ -2,7 +2,6 @@
 **/generated/
 packages/react-native-whip-ssh/src/generated-entry.tsx
 src/licenses/generated.ts
-feedback-worker/worker-configuration.d.ts
 nativewind-env.d.ts
 
 # Synced terminal assets

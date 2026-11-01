@@ -14,11 +14,6 @@ updates:
         applies-to: version-updates
         patterns:
           - '@xterm/*'
-      revenuecat:
-        applies-to: version-updates
-        patterns:
-          - react-native-purchases
-          - react-native-purchases-ui
       typescript-eslint:
         applies-to: version-updates
         patterns:
@@ -40,8 +35,6 @@ updates:
           - '*'
         exclude-patterns:
           - '@xterm/*'
-          - react-native-purchases
-          - react-native-purchases-ui
           - '@typescript-eslint/*'
           - '@react-native-community/cli*'
           - expo

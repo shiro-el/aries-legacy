@@ -2,7 +2,7 @@ import { AppState, Appearance } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocales } from 'expo-localization';
 
-import { applyDeveloperOptionsPolicy, getBillingRolloutPolicy } from '../billing/rollout';
+import { applyDeveloperOptionsPolicy, developerOptionsAvailable as readDeveloperOptionsAvailable } from '../services/distribution';
 import i18n, { languageForLocale } from '../i18n';
 import type { TerminalControlId } from '../lib/terminalControls';
 import {
@@ -152,7 +152,7 @@ export function useDevicePreferences(
     });
   }, [resolvedLanguage]);
 
-  const { developerOptionsAvailable } = getBillingRolloutPolicy();
+  const developerOptionsAvailable = readDeveloperOptionsAvailable();
   // Pick up accumulated usage on ordinary renders without scheduling a render
   // for each press (or for a periodic persistence flush).
   const terminalControlUsage = persistence.terminalControlUsage;

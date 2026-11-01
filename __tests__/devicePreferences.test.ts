@@ -15,8 +15,7 @@ jest.mock('../src/services/latencyDiagnostics', () => ({
   setLatencyDiagnosticsEnabled: jest.fn(() => Promise.resolve()),
 }));
 
-import { effectiveDevicePreferences } from '../src/billing/effectiveSettings';
-import { applyDeveloperOptionsPolicy } from '../src/billing/rollout';
+import { applyDeveloperOptionsPolicy } from '../src/services/distribution';
 import { shouldPersistDevicePreferences } from '../src/hooks/useDevicePreferences';
 jest.mock('../src/services/appStorage', () => ({
   __esModule: true,
@@ -106,22 +105,6 @@ test.each([
   expect((await loadDevicePreferences()).appFontSizePercent).toBe(expected);
 });
 
-test('requires Rancher for the default fullscreen terminal and preserves disabled choices', () => {
-  expect(effectiveDevicePreferences(defaultDevicePreferences, 'cowboy').terminal.fullscreen)
-    .toBe(false);
-  expect(effectiveDevicePreferences(defaultDevicePreferences, 'rancher').terminal.fullscreen)
-    .toBe(true);
-
-  const disabled = {
-    ...defaultDevicePreferences,
-    fullscreenApp: false,
-    terminal: { ...defaultDevicePreferences.terminal, fullscreen: false },
-  };
-  const rancher = effectiveDevicePreferences(disabled, 'rancher');
-  expect(rancher.fullscreenApp).toBe(false);
-  expect(rancher.terminal.fullscreen).toBe(false);
-});
-
 test('terminal preference defaults match the mobile renderer', () => {
   expect(defaultDevicePreferences.terminal).toEqual({
     fullscreen: true,
@@ -147,7 +130,6 @@ test('terminal preference defaults match the mobile renderer', () => {
   expect(defaultDevicePreferences.appBackgroundDimming).toBe(60);
   expect(defaultDevicePreferences.appGlassEnabled).toBe(false);
   expect(defaultDevicePreferences.developerOptionsEnabled).toBe(false);
-  expect(defaultDevicePreferences.developerMembershipState).toBe('cowboy');
   expect(defaultDevicePreferences.language).toBe('system');
   expect(defaultDevicePreferences.biometricForKeys).toBe(false);
   expect(defaultDevicePreferences.biometricOnResume).toBe(false);
@@ -202,7 +184,6 @@ test('migrates the old 11px mobile default to the usable 8px geometry', async ()
     appBackgroundDimming: 60,
     appGlassEnabled: false,
     developerOptionsEnabled: false,
-    developerMembershipState: 'cowboy',
     language: 'system',
     keepScreenOn: false,
     reopenTerminalOnLaunch: false,
@@ -450,22 +431,6 @@ test('enables terminal visual hints only through developer options', async () =>
   });
 });
 
-test('defaults and parses the developer membership simulator state', async () => {
-  mockGetItem.mockResolvedValueOnce(JSON.stringify({
-    developerMembershipState: 'free-trial',
-  }));
-  await expect(loadDevicePreferences()).resolves.toMatchObject({
-    developerMembershipState: 'free-trial',
-  });
-
-  mockGetItem.mockResolvedValueOnce(JSON.stringify({
-    developerMembershipState: 'subscriber',
-  }));
-  await expect(loadDevicePreferences()).resolves.toMatchObject({
-    developerMembershipState: 'cowboy',
-  });
-});
-
 test('sanitizes persisted terminal background preferences', async () => {
   mockGetItem.mockResolvedValueOnce(JSON.stringify({
     terminal: {
@@ -635,7 +600,6 @@ test('Store builds ignore persisted developer settings without erasing them', ()
   const stored = {
     ...defaultDevicePreferences,
     developerOptionsEnabled: true,
-    developerMembershipState: 'rancher' as const,
     terminal: { ...defaultDevicePreferences.terminal, visualHints: true },
   };
   const effective = applyDeveloperOptionsPolicy(stored, false);

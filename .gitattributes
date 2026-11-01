@@ -7,4 +7,3 @@ assets/licenses/generated/** linguist-generated=true
 src/licenses/generated.ts linguist-generated=true
 packages/react-native-whip-ssh/src/NativeWhipSsh.ts linguist-generated=true
 packages/react-native-whip-ssh/src/generated-entry.tsx linguist-generated=true
-feedback-worker/worker-configuration.d.ts linguist-generated=true

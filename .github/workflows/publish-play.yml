@@ -19,7 +19,6 @@ jobs:
     env:
       NODE_ENV: production
       WHIP_DISTRIBUTION_CHANNEL: google-play
-      WHIP_REVENUECAT_ANDROID_PUBLIC_SDK_KEY: ${{ secrets.WHIP_REVENUECAT_ANDROID_PUBLIC_SDK_KEY }}
 
     steps:
       - name: Check out repository
@@ -36,9 +35,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-
-      - name: Validate store billing configuration
-        run: node scripts/check-store-billing.cjs android
 
       - name: Validate package version and tag when building a tag
         env:

@@ -509,3 +509,21 @@ fork keeps the herding theme with the ram that leads the flock.
   polish failures, and runs the polish command through `/bin/sh` with a stub
   `claude`. Three representative dictations were polished by real Haiku
   without being carried out.
+
+### 21. Billing, tips and feedback requests removed
+
+- **What:** Deleted the Rancher membership, free trial, developer membership
+  simulator and tip jar: `src/billing/`, `services/revenueCat.ts`,
+  `react-native-purchases(-ui)`, the Play `BILLING` permission, the RevenueCat
+  build keys and store-billing checks, and the Rancher web checkout URL. The
+  feature-request service went with them (`services/feedbackApi.ts`,
+  `feedback-worker/`), since its backend existed to attach tips to requests
+  and pointed at upstream's server. The stored `developerMembershipState`
+  preference is no longer read; old values are ignored.
+- **Why:** Q8 of the design notes: a personal build has nothing to sell, so
+  the code goes, not just the screens. The rebuilt UI never imported it.
+- **How:** The one non-billing rule in `src/billing`, hiding developer options
+  in app-store and Google Play builds, moved to `services/distribution.ts`.
+  iOS project settings (the In-App Purchase capability) and upstream's
+  README, launch videos and release notes are left as they were (Q4).
+- **Validation:** `tsc`, the full Jest suite and ESLint on touched files pass.

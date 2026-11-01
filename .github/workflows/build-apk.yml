@@ -24,8 +24,6 @@ jobs:
     env:
       NODE_ENV: production
       WHIP_DISTRIBUTION_CHANNEL: github
-      WHIP_REVENUECAT_ANDROID_PUBLIC_SDK_KEY: ${{ secrets.WHIP_REVENUECAT_ANDROID_PUBLIC_SDK_KEY }}
-      WHIP_RANCHER_WEB_PURCHASE_URL: ${{ secrets.WHIP_RANCHER_WEB_PURCHASE_URL }}
 
     steps:
       - name: Check out repository

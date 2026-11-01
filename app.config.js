@@ -4,8 +4,6 @@ const { version } = require('./scripts/app-version.cjs');
 const DEFAULT_NOTIFY_RELAY_URL = 'https://notify.aries.shiroel.com';
 const COMMIT_PATTERN = /^[0-9a-f]{7,64}$/i;
 const DISTRIBUTION_CHANNELS = new Set(['app-store', 'google-play', 'github']);
-const DEVELOPMENT_REVENUECAT_TEST_PUBLIC_SDK_KEY =
-  'test_DlbxSQbXcMlbbZrHJdiUgunsAOx';
 
 function optionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -64,21 +62,8 @@ module.exports = ({ config }) => {
       ...config.extra,
       ...(gitCommit ? { gitCommit } : {}),
       notifyRelayUrl: optionalHttpsUrl(process.env.WHIP_NOTIFY_RELAY_URL) || DEFAULT_NOTIFY_RELAY_URL,
-      feedbackApiUrl: process.env.WHIP_FEEDBACK_API_URL || null,
-      revenueCatIosPublicSdkKey:
-        optionalString(process.env.WHIP_REVENUECAT_IOS_PUBLIC_SDK_KEY),
-      revenueCatAndroidPublicSdkKey:
-        optionalString(process.env.WHIP_REVENUECAT_ANDROID_PUBLIC_SDK_KEY),
-      revenueCatTestPublicSdkKey:
-        optionalString(process.env.WHIP_REVENUECAT_TEST_PUBLIC_SDK_KEY) ||
-        (process.env.NODE_ENV === 'production'
-          ? null
-          : DEVELOPMENT_REVENUECAT_TEST_PUBLIC_SDK_KEY),
       distributionChannel: distributionChannel(
         process.env.WHIP_DISTRIBUTION_CHANNEL,
-      ),
-      rancherWebPurchaseUrl: optionalHttpsUrl(
-        process.env.WHIP_RANCHER_WEB_PURCHASE_URL,
       ),
     },
   };
