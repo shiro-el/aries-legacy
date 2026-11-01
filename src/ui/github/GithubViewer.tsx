@@ -86,7 +86,7 @@ export function GithubViewer({ connection, repository, active, onClose }: Github
           keyboardShouldPersistTaps="handled" renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`#${item.id} ${item.title}`}
             onPress={() => setSelected(item)} style={({ pressed }) => [s.listRow, pressed && s.pressed]}>
             <Text style={s.strong}>{item.title}</Text>
-            <View style={s.row}><Text style={s.muted}>#{item.id}</Text><GithubEntryState state={item.state} /></View>
+            <View style={s.row}><GithubEntryState state={item.state} /></View>
             <Text style={s.muted} numberOfLines={2}>{item.subtitle}</Text>
           </Pressable>}
           ListEmptyComponent={page.isSuccess ? <View style={s.center}><Text style={s.muted}>{t(search || state !== 'open' ? 'github.noResults' : `github.empty.${section}`)}</Text></View> : undefined}

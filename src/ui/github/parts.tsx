@@ -36,11 +36,15 @@ export function GithubEntryState({ state }: { state: string }) {
     {t(`github.state.${state}`, { defaultValue: state.replaceAll('_', ' ') })}
   </Text>;
 }
+function shortDate(value: string | undefined) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : undefined;
+}
 export function GithubAuthorRow({ entry }: { entry: RuntimeGithubEntry }) {
   const { s } = useGithubStyles();
   return <View style={s.author}>
     {entry.author?.avatarUrl && <Image source={{ uri: entry.author.avatarUrl }} style={s.avatar} accessibilityIgnoresInvertColors />}
     <Text style={s.strong}>{entry.author?.login || entry.title}</Text>
-    <Text style={s.muted}>{entry.createdAt || entry.subtitle}</Text>
+    <Text style={s.muted}>{shortDate(entry.createdAt) ?? entry.subtitle}</Text>
   </View>;
 }

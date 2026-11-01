@@ -50,7 +50,7 @@ export function GithubDetail(props: GithubRequest & {
   return <ScrollView style={s.fill} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
     <View style={s.stack}>
       <Text style={s.title} selectable>{entry.title}</Text>
-      <Text style={s.muted} selectable>#{entry.id} {entry.subtitle}</Text>
+      <Text style={s.muted} selectable>{entry.subtitle}</Text>
       <GithubEntryState state={entry.state} />
       {entry.pull && <View style={s.stack}>
         <Text style={s.muted} selectable>{entry.pull.headBranch} → {entry.pull.baseBranch}</Text>
