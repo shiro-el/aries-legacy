@@ -15,6 +15,9 @@ use crate::herdr_api::{
 use crate::host_state::{HostFreshness, HostSyncStatus};
 
 const EXIT_COMMAND: &str = "/exit";
+/// Claude Code asks before exiting while it has background tasks. Restart keeps
+/// them running, so it picks this option rather than stopping them.
+const BACKGROUND_EXIT_OPTION: &str = "Move to background and exit";
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 const STOP_TIMEOUT_MS: u64 = 15_000;
 const STOP_TIMEOUT: Duration = Duration::from_millis(STOP_TIMEOUT_MS);
@@ -408,6 +411,16 @@ async fn change_directory(
     }
 }
 
+/// The number Claude Code shows beside the background-exit option, if that
+/// prompt is on screen.
+fn background_exit_choice(screen: &str) -> Option<char> {
+    let line = screen
+        .lines()
+        .find(|line| line.contains(BACKGROUND_EXIT_OPTION))?;
+    let before = &line[..line.find(BACKGROUND_EXIT_OPTION)?];
+    before.chars().rev().find(char::is_ascii_digit)
+}
+
 async fn stop_agent_using<F, Fut>(
     pane: &HerdrPaneInfo,
     preference: &AgentPreference,
@@ -471,6 +484,7 @@ where
     })
     .await?;
     let deadline = tokio::time::Instant::now() + STOP_TIMEOUT;
+    let mut exit_confirmed = false;
     loop {
         let HerdrControlResult::SessionSnapshot { snapshot } =
             send(HerdrControlRequest::SessionSnapshot).await?
@@ -490,6 +504,23 @@ where
                 != preference.session_id
         {
             return Err(invalid("The agent conversation changed during restart"));
+        }
+        if !exit_confirmed && current.agent_status == HerdrAgentStatus::Blocked {
+            let read = send(HerdrControlRequest::PaneReadVisible {
+                pane_id: pane.pane_id.clone(),
+            })
+            .await?;
+            if let HerdrControlResult::PaneRead { read } = read
+                && read.pane_id == pane.pane_id
+                && let Some(choice) = background_exit_choice(&read.text)
+            {
+                send(HerdrControlRequest::PaneSendText {
+                    pane_id: pane.pane_id.clone(),
+                    text: choice.to_string(),
+                })
+                .await?;
+                exit_confirmed = true;
+            }
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(invalid(
@@ -973,6 +1004,7 @@ impl HostRuntime {
 mod tests {
     use super::super::tests::agent_chat_snapshot;
     use super::*;
+    use crate::herdr_api::{HerdrPaneReadFormat, HerdrPaneReadResult, HerdrPaneReadSource};
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
@@ -1368,6 +1400,68 @@ mod tests {
             matches!(requests.as_slice(), [HerdrControlRequest::SessionSnapshot, HerdrControlRequest::PaneSendKeys {keys, ..}, HerdrControlRequest::AgentPrompt {target, text}, HerdrControlRequest::SessionSnapshot] if keys == &strings(&["ctrl+u"]) && target == &pane.pane_id && text == EXIT_COMMAND)
         );
         Ok(())
+    }
+
+    #[test]
+    fn restart_moves_background_tasks_aside_when_claude_asks_before_exiting()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let initial = agent_chat_snapshot(Some(("codex", "original")), Some("codex"));
+        let pane = initial.panes[0].clone();
+        let preference = AgentPreferences::default().for_pane(&pane)?;
+        let mut asking = initial.clone();
+        asking.panes[0].agent_status = HerdrAgentStatus::Blocked;
+        let mut shell = initial.clone();
+        shell.panes[0].agent = None;
+        shell.panes[0].agent_session = None;
+        let screen = "Background tasks are running\n 1 Exit and stop tasks\n 2 Move to background and exit\n 3 Stay";
+        let mut requests = Vec::new();
+        let mut snapshots = std::collections::VecDeque::from([initial, asking, shell]);
+        crate::runtime()?.block_on(stop_agent_using(&pane, &preference, |request| {
+            let result = match &request {
+                HerdrControlRequest::SessionSnapshot => snapshots
+                    .pop_front()
+                    .map(|snapshot| HerdrControlResult::SessionSnapshot { snapshot })
+                    .ok_or_else(|| invalid("Unexpected snapshot request")),
+                HerdrControlRequest::PaneReadVisible { pane_id } => {
+                    Ok(HerdrControlResult::PaneRead {
+                        read: HerdrPaneReadResult {
+                            pane_id: pane_id.clone(),
+                            workspace_id: String::new(),
+                            tab_id: String::new(),
+                            source: HerdrPaneReadSource::Visible,
+                            format: HerdrPaneReadFormat::Text,
+                            text: screen.to_owned(),
+                            revision: 0.0,
+                            truncated: false,
+                        },
+                    })
+                }
+                _ => Ok(HerdrControlResult::SessionSnapshot {
+                    snapshot: agent_chat_snapshot(None, None),
+                }),
+            };
+            requests.push(request);
+            std::future::ready(result)
+        }))?;
+        assert!(requests.iter().any(|request| matches!(
+            request,
+            HerdrControlRequest::PaneSendText { pane_id, text } if pane_id == &pane.pane_id && text == "2"
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn background_exit_choice_reads_the_number_beside_the_option() {
+        assert_eq!(
+            background_exit_choice(
+                "  1. Exit and stop tasks\n❯ 2. Move to background and exit\n  3. Stay"
+            ),
+            Some('2')
+        );
+        assert_eq!(
+            background_exit_choice("Do you want to proceed?\n 1 Yes\n 2 No"),
+            None
+        );
     }
 
     #[test]
