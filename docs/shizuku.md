@@ -1,6 +1,6 @@
 # Shizuku authorization
 
-On Android, **More → Settings → Reverse Control → Shizuku → Pair with Shizuku**
+On Android, **Hosts → This phone → Shizuku → Pair with Shizuku**
 requests authorization for Whip through the official Shizuku API. Install and
 start Shizuku first, then accept its permission prompt. The section links to the
 official download page when Shizuku is missing and opens its manager when the
@@ -14,8 +14,8 @@ The service runs commands as Shizuku's shell/root identity; Whip's own process
 and remote SSH sessions retain their existing identities.
 
 Each Android agent session has a separate **Allow Shizuku access** switch beside
-**Reverse Control**, both in the Herd command launcher and the existing agent's
-actions menu. It defaults to off whenever Reverse Control is enabled. Pairing
+**Reverse Control** in the agent actions menu, opened from **···** in the chat
+or terminal header. It defaults to off whenever Reverse Control is enabled. Pairing
 Whip alone does not enable it. The choice follows that conversation across app
 restarts and agent restarts; new and copied agents start with Shizuku access off.
 Turning it off immediately blocks both Shizuku tools and cancels that session's
@@ -28,7 +28,7 @@ as required by the [official developer guide](https://github.com/RikkaApps/Shizu
 
 To check on a device:
 
-1. Open **More → Settings → Reverse Control → Shizuku** without Shizuku installed
+1. Open **Hosts → This phone → Shizuku** without Shizuku installed
    and confirm **Install Shizuku** opens its official download page.
 2. Install Shizuku with the service stopped and confirm **Open Shizuku** opens
    the manager. Start the service and return to Whip.
