@@ -3,6 +3,7 @@ import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackHandler, NativeModules, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
@@ -23,6 +24,7 @@ import { herdSection } from './src/ui/herd/herdSections';
 import { HostEditor } from './src/ui/hosts/HostEditor';
 import { HostNotificationsSheet } from './src/ui/hosts/HostNotificationsSheet';
 import { HostsScreen, type HostRow } from './src/ui/hosts/HostsScreen';
+import type { ItemAction } from './src/ui/menus/ItemMenu';
 import { TerminalScreen } from './src/ui/terminal/TerminalScreen';
 import { fontAssets, palettes, usePalette } from './src/ui/theme/tokens';
 import { useAppRuntime } from './src/ui/useAppRuntime';
@@ -53,6 +55,7 @@ export default function App() {
 }
 
 function AppContent() {
+  const { t } = useTranslation();
   const [fontsLoaded] = useFonts(fontAssets);
   const palette = usePalette();
   const { hosts, sessions, security, navigation, terminals, openNotificationPaneRef, preferences, setPreference } = useAppRuntime();
@@ -77,6 +80,26 @@ function AppContent() {
   }, [markSeen, tab, unseen]);
 
   const sections = useMemo(() => presentationSessions.map(herdSection), [presentationSessions]);
+  const itemActions = (sessionId: string, kind: 'workspace' | 'tab', id: string): ItemAction[] => {
+    const session = presentationSessions.find(item => item.id === sessionId);
+    if (!session || !['ready', 'connected'].includes(session.connectionStatus)
+      || session.hostState?.freshness !== 'fresh') return [];
+    const item = kind === 'workspace'
+      ? session.snapshot.workspaces.find(workspace => workspace.workspace_id === id)
+      : session.snapshot.tabs.find(tabInfo => tabInfo.tab_id === id);
+    if (!item) return [];
+    return [
+      { id: 'rename', label: t(kind === 'workspace' ? 'herd.renameSpace' : 'session.renameTab'), run: name => {
+        if (kind === 'workspace') return sessions.renameWorkspace(sessionId, id, name!);
+        const client = sessions.getClient(sessionId);
+        if (!client) throw new Error(t('common.notConnected'));
+        return client.native.requestHerdrApi({ method: 'tab.rename', params: { tab_id: id, label: name! } });
+      } },
+      { id: 'close', label: t(kind === 'workspace' ? 'rail.closeWorkspace' : 'session.closeTab', { workspace: item.label, tab: item.label }),
+        run: () => kind === 'workspace' ? sessions.closeWorkspace(sessionId, id) : sessions.closeTab(sessionId, id) },
+    ];
+  };
+
   const needYou = sections.reduce((sum, section) => sum + section.view.needYou, 0);
 
   const savedHosts = useMemo<SavedHost[]>(() => {
@@ -299,6 +322,9 @@ function AppContent() {
               {tab === 'herd' && !chatShown && !workbenchShown && (
                 <HerdScreen
                   sections={sections}
+                  workspaceActions={(sessionId, id) => itemActions(sessionId, 'workspace', id)}
+                  tabActions={(sessionId, id) => itemActions(sessionId, 'tab', id)}
+                  onDisconnect={hostId => sessions.closeHostById(hostId)}
                   savedHosts={savedHosts}
                   error={hosts.error}
                   onConnect={connectById}
@@ -327,6 +353,7 @@ function AppContent() {
               )}
               {terminalShown && (
                 <TerminalScreen
+                  key={activeSession?.id}
                   sessionAccess={activeSession ? sessionAccess(activeSession.id, terminalTarget?.session.terminalId) : undefined}
                   session={activeSession}
                   target={terminalTarget}
@@ -336,8 +363,17 @@ function AppContent() {
                     else selectTab('herd');
                   }}
                   onSelectTerminal={selectTerminal}
-                  onCloseTerminal={terminalId => {
-                    if (activeSession) sessions.closeTerminal(activeSession.id, terminalId);
+                  terminalActions={terminalId => {
+                    const entry = activeSession?.terminalRail.terminals.find(item => item.terminalId === terminalId);
+                    if (!activeSession || !entry || !['connected', 'ready'].includes(activeSession.connectionStatus)) return [];
+                    if (entry.kind === 'herdr') {
+                      const pane = activeSession.snapshot.panes.find(item => item.pane_id === entry.paneId);
+                      return pane ? itemActions(activeSession.id, 'tab', pane.tab_id) : [];
+                    }
+                    return [
+                      { id: 'rename', label: t('session.renameTab'), run: name => terminals.renameSshShell(activeSession.id, terminalId, name!) },
+                      { id: 'close', label: t('session.closeTab', { tab: entry.title }), run: () => sessions.closeTerminal(activeSession.id, terminalId) },
+                    ];
                   }}
                   onStatus={(terminalId, status, error) => {
                     if (activeSession) terminals.updateStatus(activeSession.id, terminalId, status, error);

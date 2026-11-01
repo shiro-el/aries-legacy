@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { ItemMenu, type ItemAction } from '../menus/ItemMenu';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { GLYPH_SIZE, StatusGlyph } from './StatusGlyph';
 import type { HerdSection } from './herdSections';
@@ -10,6 +12,9 @@ export type SavedHost = { hostId: string; name: string; connecting: boolean };
 
 type Props = {
   sections: HerdSection[];
+  workspaceActions?: (sessionId: string, workspaceId: string) => ItemAction[];
+  tabActions?: (sessionId: string, tabId: string) => ItemAction[];
+  onDisconnect?: (hostId: string) => unknown;
   /** Saved hosts with no live session, offered when nothing is connected. */
   savedHosts: SavedHost[];
   error?: string | null;
@@ -25,7 +30,8 @@ const ROW_PAD = 9;
 const GLYPH_TOP = 3;
 const GLYPH_CENTER = ROW_PAD + GLYPH_TOP + GLYPH_SIZE / 2;
 
-export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane, onReviewPane, onNewTask }: Props) {
+export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane, onReviewPane, onNewTask, workspaceActions, tabActions, onDisconnect }: Props) {
+  const { t } = useTranslation();
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const multiHost = sections.length > 1;
@@ -38,7 +44,7 @@ export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane,
       <View style={s.appbar}>
         <Text style={s.title} accessibilityRole="header">Herd</Text>
         <View style={s.appbarEnd}>
-          {sections.length === 1 && <HostChip section={sections[0]} s={s} />}
+          {sections.length === 1 && <ItemMenu label={sections[0].hostName} actions={onDisconnect ? [{ id: 'disconnect', label: t('rail.disconnectHost', { host: sections[0].hostName }), run: () => onDisconnect(sections[0].hostId) }] : []}><HostChip section={sections[0]} s={s} /></ItemMenu>}
           {multiHost && <Text style={s.hostName}>{sections.length} hosts</Text>}
           {onNewTask && (
             <Pressable onPress={onNewTask} accessibilityRole="button" hitSlop={6} style={({ pressed }) => [s.newTask, pressed && s.rowPressed]}>
@@ -53,15 +59,16 @@ export function HerdScreen({ sections, savedHosts, error, onConnect, onOpenPane,
         {sections.length === 0 && <SavedHosts hosts={savedHosts} s={s} onConnect={onConnect} />}
         {sections.map(section => (
           <View key={section.sessionId}>
-            {multiHost && <Text style={s.hostHeading}>{section.hostName}</Text>}
+            {multiHost && <ItemMenu label={section.hostName} actions={onDisconnect ? [{ id: 'disconnect', label: t('rail.disconnectHost', { host: section.hostName }), run: () => onDisconnect(section.hostId) }] : []}><Text style={s.hostHeading}>{section.hostName}</Text></ItemMenu>}
             <SectionState section={section} s={s} onConnect={onConnect} />
             {section.view.workspaces.map(workspace => (
               <View key={workspace.workspaceId} style={s.workspace}>
-                <Text style={s.workspaceLabel}>{workspace.label}</Text>
+                <ItemMenu label={workspace.label} actions={workspaceActions?.(section.sessionId, workspace.workspaceId) ?? []} actionsDisabled={section.state !== 'ready'}><Text style={s.workspaceLabel}>{workspace.label}</Text></ItemMenu>
                 {workspace.tabs.map(tab => (
                   <TabChain
                     key={tab.tabId}
                     tab={tab}
+                    actions={section.state === 'ready' ? tabActions?.(section.sessionId, tab.tabId) : undefined}
                     palette={palette}
                     s={s}
                     onOpenPane={onOpenPane ? paneId => onOpenPane(section.sessionId, paneId) : undefined}
@@ -171,8 +178,9 @@ function ActionRow({ label, s, onPress, disabled }: {
   );
 }
 
-function TabChain({ tab, palette, s, onOpenPane, onReviewPane }: {
+function TabChain({ tab, actions = [], palette, s, onOpenPane, onReviewPane }: {
   tab: HerdTab;
+  actions?: ItemAction[];
   palette: Palette;
   s: Styles;
   onOpenPane?: (paneId: string) => void;
@@ -181,7 +189,7 @@ function TabChain({ tab, palette, s, onOpenPane, onReviewPane }: {
   const last = tab.panes.length - 1;
   return (
     <View style={s.tab}>
-      <Text style={s.tabLabel}>{tab.label}</Text>
+      <ItemMenu label={tab.label} actions={actions}><Text style={s.tabLabel}>{tab.label}</Text></ItemMenu>
       {tab.panes.map((pane, index) => (
         <PaneRow
           key={pane.paneId}
