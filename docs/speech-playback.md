@@ -38,7 +38,7 @@ longer used.
 
 ## Optional local speech (#263)
 
-Settings → Voice → Speech backend defaults to **System**. Voice also contains
+Hosts → Speech backend defaults to **System**. The same section contains
 the voice announcements toggle. Choosing **Download
 Phonon** explicitly installs Phonon 31M English and one default voice. Opening
 settings, starting the app, or opening chat never downloads model weights.
@@ -49,7 +49,7 @@ speech, and an unavailable model or a load failure before any audio also falls
 back to system speech. The settings status explains the fallback. Errors after
 partial playback stop that utterance instead of repeating its beginning.
 
-Voice contains separate pickers for installed system TTS voices and Phonon
+The speech section contains separate pickers for installed system TTS voices and Phonon
 voices. System choices come from the platform speech engine and retain their
 language and network requirement. The saved system voice applies to chat and
 announcements; an explicit device-tool language still takes precedence when
@@ -65,7 +65,7 @@ cancel/resume, individual voice removal, and missing/corrupt-voice recovery use
 the same Rust manager as the model. Voice choices persist independently of
 backend selection. No voice catalog or embedding is fetched on app startup.
 Preview uses the shared native playback policy, stops on selection changes or
-leaving Voice, and cannot displace an active chat or device-tool speech lease.
+leaving Hosts, and cannot displace an active chat or device-tool speech lease.
 Backend choices are grouped together, with the selected backend's voice picker
 visually nested below them. Preview text is an editable input prefilled with
 the default sample on first use. User edits, including an empty input, persist

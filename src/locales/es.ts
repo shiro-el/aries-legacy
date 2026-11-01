@@ -21,6 +21,8 @@ export const es = {
   "connection.herdrBackend.core": "Herdr Core",
   "connection.herdrBackend.legacy": "Herdr clásico",
   "connection.socketAuto": "Detectar automáticamente",
+  'speech.retry': 'Intentar de nuevo',
+  'speech.noVoices': 'Ninguna voz coincide con tu búsqueda.',
   'speech.systemVoice': 'Voz del sistema',
   'speech.phononVoice': 'Voz de Phonon',
   'speech.defaultVoice': 'Voz predeterminada',

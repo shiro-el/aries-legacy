@@ -16,6 +16,8 @@ export const en = {
   'newTask.launchFailed': 'Task created, agent launch failed',
   'files.selectDirectory': 'Use this folder',
 
+  'speech.retry': 'Try again',
+  'speech.noVoices': 'No voices match your search.',
   'speech.systemVoice': 'System voice',
   'speech.phononVoice': 'Phonon voice',
   'speech.defaultVoice': 'Default voice',

@@ -21,6 +21,8 @@ export const zhHans = {
   "connection.herdrBackend.core": "Herdr Core",
   "connection.herdrBackend.legacy": "旧版 Herdr",
   "connection.socketAuto": "自动发现",
+  'speech.retry': '重试',
+  'speech.noVoices': '没有与搜索匹配的语音。',
   'speech.systemVoice': '系统声音',
   'speech.phononVoice': 'Phonon 声音',
   'speech.defaultVoice': '默认声音',

@@ -23,6 +23,8 @@ export const fr = {
   'connection.herdrBackend.core': 'Herdr Core',
   'connection.herdrBackend.legacy': 'Herdr classique',
   'connection.socketAuto': 'Détecter automatiquement',
+  'speech.retry': 'Réessayer',
+  'speech.noVoices': 'Aucune voix ne correspond à votre recherche.',
   'speech.systemVoice': 'Voix du système',
   'speech.phononVoice': 'Voix Phonon',
   'speech.defaultVoice': 'Voix par défaut',
