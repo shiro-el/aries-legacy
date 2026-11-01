@@ -109,7 +109,14 @@ export function createVoiceInput(): VoiceInput {
   return new VoiceInput({
     recorder: new ExpoVoiceRecorder(),
     loadKey: loadGroqApiKey,
-    transcribe: request => transcribeWithGroq(request),
+    transcribe: request => transcribeWithGroq(request, {
+      fetch,
+      readFile: uri => new File(uri).bytes(),
+    }).catch((error: unknown) => {
+      // The composer shows only the failure kind, so keep the cause for diagnosis.
+      recordOperationalDiagnostic('warn', 'Application', 'voice-input-transcription-failed', operationalErrorDetails(error));
+      throw error;
+    }),
     deleteFile: deleteRecording,
     haptic: () => reportBackgroundFailure(
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),

@@ -22,13 +22,18 @@ export type TranscriptionRequest = {
   prompt: string;
 };
 
-type Fetch = (url: string, init: RequestInit) => Promise<Response>;
+export type GroqTransport = {
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+  readFile: (uri: string) => Promise<Uint8Array>;
+};
 
 /** Sends one recording to Groq and returns its text. */
-export async function transcribeWithGroq(request: TranscriptionRequest, fetchImpl: Fetch = fetch): Promise<string> {
+export async function transcribeWithGroq(request: TranscriptionRequest, transport: GroqTransport): Promise<string> {
   const form = new FormData();
-  // React Native uploads a local file from this descriptor.
-  form.append('file', { uri: request.uri, name: 'voice.m4a', type: 'audio/mp4' } as unknown as Blob);
+  // Expo's global fetch serializes a file part through its bytes() and rejects
+  // React Native's { uri } descriptor, so the recording is read on upload.
+  const file = { name: 'voice.m4a', type: 'audio/mp4', bytes: () => transport.readFile(request.uri) };
+  form.append('file', file as unknown as Blob);
   form.append('model', MODEL);
   form.append('language', LANGUAGE);
   form.append('response_format', 'json');
@@ -36,7 +41,7 @@ export async function transcribeWithGroq(request: TranscriptionRequest, fetchImp
 
   let response: Response;
   try {
-    response = await fetchImpl(ENDPOINT, {
+    response = await transport.fetch(ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${request.apiKey}` },
       body: form,

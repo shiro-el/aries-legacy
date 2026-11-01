@@ -21,9 +21,12 @@ const response = (status: number, body: unknown) => Promise.resolve({
   text: () => Promise.resolve(JSON.stringify(body)),
 } as Response);
 
+const audio = new Uint8Array([1, 2, 3]);
+const readFile = jest.fn((_uri: string) => Promise.resolve(audio));
+
 it('posts the recording to Groq whisper-large-v3 in Korean with the context prompt', async () => {
   const fetch = jest.fn((_url: string, _init: RequestInit) => response(200, { text: ' 안녕 WhipSsh ' }));
-  const text = await transcribeWithGroq({ uri: 'file:///cache/Audio/voice.m4a', apiKey: 'gsk_key', prompt: 'WhipSsh, Composer' }, fetch);
+  const text = await transcribeWithGroq({ uri: 'file:///cache/Audio/voice.m4a', apiKey: 'gsk_key', prompt: 'WhipSsh, Composer' }, { fetch, readFile });
   expect(text).toBe('안녕 WhipSsh');
   const [url, init] = fetch.mock.calls[0];
   expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
@@ -34,12 +37,17 @@ it('posts the recording to Groq whisper-large-v3 in Korean with the context prom
   expect(form.get('language')).toBe('ko');
   expect(form.get('response_format')).toBe('json');
   expect(form.get('prompt')).toBe('WhipSsh, Composer');
-  expect(form.get('file')).toEqual(expect.objectContaining({ uri: 'file:///cache/Audio/voice.m4a', type: 'audio/mp4' }));
+  // Expo's fetch uploads a part through its bytes(); it rejects React Native's { uri } descriptor.
+  const file = form.get('file') as unknown as { name: string; type: string; bytes(): Promise<Uint8Array> };
+  expect(file).toEqual(expect.objectContaining({ name: 'voice.m4a', type: 'audio/mp4' }));
+  expect(file).not.toHaveProperty('uri');
+  await expect(file.bytes()).resolves.toBe(audio);
+  expect(readFile).toHaveBeenCalledWith('file:///cache/Audio/voice.m4a');
 });
 
 it('omits an empty prompt', async () => {
   const fetch = jest.fn((_url: string, _init: RequestInit) => response(200, { text: 'x' }));
-  await transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, fetch);
+  await transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, { fetch, readFile });
   expect((fetch.mock.calls[0][1].body as FormData).get('prompt')).toBeNull();
 });
 
@@ -50,13 +58,13 @@ it.each([
   [500, 'failed'],
 ])('reports HTTP %i as %s', async (status, kind) => {
   const fetch = jest.fn(() => response(status, { error: { message: 'nope' } }));
-  await expect(transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, fetch))
+  await expect(transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, { fetch, readFile }))
     .rejects.toMatchObject({ kind });
 });
 
 it('reports a failed request as a network error', async () => {
   const fetch = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
-  const failure = transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, fetch);
+  const failure = transcribeWithGroq({ uri: 'file:///a.m4a', apiKey: 'k', prompt: '' }, { fetch, readFile });
   await expect(failure).rejects.toBeInstanceOf(TranscriptionError);
   await expect(failure).rejects.toMatchObject({ kind: 'network' });
 });
