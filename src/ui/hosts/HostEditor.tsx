@@ -9,8 +9,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ensureTailcatIdentity } from '../../services/hostProfiles';
+import { TailcatSettings } from './TailcatSettings';
 import { normalizePrivateKey } from '../../lib/privateKey';
 import { pickPrivateKeyFile } from '../../services/privateKeyFilePicker';
 import type { AuthMode, ConnectionProfile } from '../../types';
@@ -28,11 +31,26 @@ type Props = {
 
 /** Full-screen sheet for adding a host or changing how Aries reaches it. */
 export function HostEditor({ profile, existing, error, onSave, onCancel, onDelete }: Props) {
+  const { t } = useTranslation();
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const [draft, setDraft] = useState<ConnectionProfile | null>(profile);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [identityError, setIdentityError] = useState(false);
+  const [identityAttempt, setIdentityAttempt] = useState(0);
+
+  useEffect(() => {
+    setIdentityError(false);
+    if (!draft?.tailcatEnabled || (draft.tailcatPrivateKey && draft.tailcatPublicKey)) return;
+    let active = true;
+    ensureTailcatIdentity(draft).then(prepared => {
+      if (active) setDraft(current => current?.id === prepared.id ? {
+        ...current, tailcatPrivateKey: prepared.tailcatPrivateKey, tailcatPublicKey: prepared.tailcatPublicKey,
+      } : current);
+    }).catch(() => { if (active) setIdentityError(true); });
+    return () => { active = false; };
+  }, [draft, identityAttempt]);
 
   useEffect(() => {
     setDraft(profile);
@@ -44,23 +62,31 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
   const set = <K extends keyof ConnectionProfile>(field: K, value: ConnectionProfile[K]) =>
     setDraft(current => (current ? { ...current, [field]: value } : current));
 
+  const builtinSsh = Boolean(draft.tailcatEnabled && draft.tailcatSshServer);
+  const hostAlias = `tailcat-${draft.id}.invalid`;
+  const sshHost = draft.host === hostAlias ? '' : draft.host;
+  const address = draft.tailcatEnabled ? draft.tailcatAddress ?? '' : sshHost;
+  const identityReady = !draft.tailcatEnabled || Boolean(draft.tailcatPrivateKey && draft.tailcatPublicKey);
   const missing = [
-    !draft.host.trim() && 'address',
+    !address.trim() && 'address',
     !draft.username.trim() && 'username',
   ].filter(Boolean) as string[];
-  const portValid = /^\d{1,5}$/.test(draft.port.trim() || '22');
+  const portValid = builtinSsh || (/^\d{1,5}$/.test(draft.port.trim() || '22') && Number(draft.port.trim() || '22') > 0 && Number(draft.port.trim() || '22') <= 65535);
 
   const save = async () => {
     setTouched(true);
-    if (missing.length > 0 || !portValid) return;
+    if (missing.length > 0 || !portValid || !identityReady) return;
     setSaving(true);
     try {
-      const host = draft.host.trim();
+      const host = draft.tailcatEnabled ? sshHost.trim() || hostAlias : sshHost.trim();
       await onSave({
         ...draft,
-        name: draft.name.trim() || host,
+        name: draft.name.trim() || (draft.tailcatEnabled && !sshHost.trim() ? 'Tailcat' : host),
+        tailcatAddress: draft.tailcatAddress?.trim(),
+        ...(draft.tailcatEnabled ? { jumpHostId: undefined } : {}),
+        ...(builtinSsh ? { authMode: 'key', forwardAgent: false } : {}),
         host,
-        port: draft.port.trim() || '22',
+        port: builtinSsh ? '22' : draft.port.trim() || '22',
         username: draft.username.trim(),
         secret: draft.authMode === 'key' ? normalizePrivateKey(draft.secret) : draft.secret,
         updatedAt: new Date().toISOString(),
@@ -87,19 +113,21 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
               <Text style={s.cancel}>Cancel</Text>
             </Pressable>
             <Text style={s.heading} accessibilityRole="header">{existing ? 'Edit host' : 'Add host'}</Text>
-            <Pressable onPress={() => { void save(); }} disabled={saving} accessibilityRole="button" hitSlop={8}>
-              <Text style={[s.save, saving && s.dim]}>{saving ? 'Saving' : 'Save'}</Text>
+            <Pressable onPress={() => { void save(); }} disabled={saving || !identityReady} accessibilityState={{ disabled: saving || !identityReady }} accessibilityRole="button" hitSlop={8}>
+              <Text style={[s.save, (saving || !identityReady) && s.dim]}>{saving ? 'Saving' : 'Save'}</Text>
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={s.form} keyboardShouldPersistTaps="handled">
             {(problem ?? error) ? <Text style={s.error}>{problem ?? error}</Text> : null}
 
-            <Field label="Address" s={s}>
+            <Field label={draft.tailcatEnabled ? t('connection.tailcatAddress') : t('connection.hostOrIp')} hint={draft.tailcatEnabled ? t('connection.tailcatSetup') : undefined} s={s}>
               <TextInput
                 style={s.input}
-                value={draft.host}
-                onChangeText={value => set('host', value)}
-                placeholder="studio.tailnet.ts.net"
+                accessibilityLabel={draft.tailcatEnabled ? t('connection.tailcatAddress') : t('connection.hostOrIp')}
+                value={address}
+                onChangeText={value => set(draft.tailcatEnabled ? 'tailcatAddress' : 'host', value)}
+                secureTextEntry={Boolean(draft.tailcatEnabled)}
+                placeholder={draft.tailcatEnabled ? 'tc…' : 'studio.tailnet.ts.net'}
                 placeholderTextColor={palette.muted}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -121,7 +149,8 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
               <Field label="Port" s={s}>
                 <TextInput
                   style={[s.input, s.port]}
-                  value={draft.port}
+                  value={builtinSsh ? '22' : draft.port}
+                  editable={!builtinSsh}
                   onChangeText={value => set('port', value)}
                   placeholder="22"
                   placeholderTextColor={palette.muted}
@@ -134,7 +163,7 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
                 style={s.input}
                 value={draft.name}
                 onChangeText={value => set('name', value)}
-                placeholder={draft.host || 'studio'}
+                placeholder={sshHost || (draft.tailcatEnabled ? 'Tailcat' : 'studio')}
                 placeholderTextColor={palette.muted}
               />
             </Field>
@@ -146,10 +175,11 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
                 return (
                   <Pressable
                     key={mode}
-                    onPress={() => set('authMode', mode)}
+                    disabled={builtinSsh && mode === 'password'}
+                    onPress={() => setDraft(current => current && current.authMode !== mode ? { ...current, authMode: mode, secret: '', passphrase: '' } : current)}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    style={[s.segmentItem, active && s.segmentActive]}
+                    accessibilityState={{ selected: active, disabled: builtinSsh && mode === 'password' }}
+                    style={[s.segmentItem, active && s.segmentActive, builtinSsh && mode === 'password' && s.dim]}
                   >
                     <Text style={[s.segmentLabel, active && s.segmentLabelActive]}>
                       {mode === 'password' ? 'Password' : 'Private key'}
@@ -200,6 +230,21 @@ export function HostEditor({ profile, existing, error, onSave, onCancel, onDelet
                 </Field>
               </>
             )}
+
+            <TailcatSettings
+              profile={draft}
+              identityError={identityError}
+              onRetryIdentity={() => setIdentityAttempt(value => value + 1)}
+              onEnabledChange={enabled => setDraft(current => current ? {
+                ...current, tailcatEnabled: enabled,
+                ...(enabled ? { jumpHostId: undefined } : {}),
+                ...(enabled && current.tailcatSshServer && current.authMode !== 'key' ? { authMode: 'key', secret: '', passphrase: '' } : {}),
+              } : current)}
+              onSshServerChange={enabled => setDraft(current => current ? {
+                ...current, tailcatSshServer: enabled,
+                ...(enabled && current.authMode !== 'key' ? { authMode: 'key', secret: '', passphrase: '' } : {}),
+              } : current)}
+            />
 
             <View style={s.toggle}>
               <View style={s.toggleText}>
