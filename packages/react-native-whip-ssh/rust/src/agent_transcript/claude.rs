@@ -218,7 +218,9 @@ impl ClaudeTranscriptAdapter {
         else {
             return;
         };
-        let parent = string(record, "parentUuid");
+        // A compact boundary starts a new physical chain but names the record
+        // it continues, so the history before compaction stays reachable.
+        let parent = string(record, "parentUuid").or_else(|| string(record, "logicalParentUuid"));
         let root = record.get("parentUuid") == Some(&Value::Null);
         let at = timestamp_ms(record.get("timestamp"));
         let mut role = if kind == "assistant" {

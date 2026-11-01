@@ -425,6 +425,26 @@ fn ancestry_orders_late_parents_and_selects_latest_branch() {
 }
 
 #[test]
+fn compaction_keeps_history_before_the_boundary() {
+    let history = |logical_parent: &str| {
+        let mut summary = user("summary", Some("boundary"), json!("This session is being continued"));
+        summary["isCompactSummary"] = json!(true);
+        [
+            line(user("u", None, json!("Hi"))),
+            line(assistant("a", "u", json!([{"type":"text","text":"before"}]))),
+            line(json!({"type":"system", "subtype":"compact_boundary", "uuid":"boundary",
+                "parentUuid":null, "logicalParentUuid":logical_parent, "sessionId":SESSION})),
+            line(summary),
+            line(user("u2", Some("summary"), json!("Continue"))),
+            line(assistant("a2", "u2", json!([{"type":"text","text":"after"}]))),
+        ]
+        .concat()
+    };
+    assert_eq!(ids(&parse(&history("a")).state()), ["u", "a", "u2", "a2"]);
+    assert_eq!(ids(&parse(&history("missing")).state()), ["u2", "a2"]);
+}
+
+#[test]
 fn broken_missing_and_cyclic_parents_fall_back_without_losing_chat() {
     for parent in [json!("missing"), json!(42), json!("a")] {
         let mut a = assistant("a", "u", json!([{"type":"text","text":"answer"}]));
