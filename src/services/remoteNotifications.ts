@@ -342,9 +342,14 @@ export async function remoteNotificationTarget(
       .notificationTarget(JSON.stringify(data), notificationId)
       .target(),
   );
-  if (!opened) return null;
-  const { event: _event, ...target } = opened;
-  return target;
+  return opened
+    ? {
+        notificationId: opened.notificationId,
+        hostId: opened.hostId,
+        paneId: opened.paneId,
+        remoteDeviceId: opened.remoteDeviceId,
+      }
+    : null;
 }
 
 /** Authenticate a data push and commit its replay receipt before any device-side effect. */

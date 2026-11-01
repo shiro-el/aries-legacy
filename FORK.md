@@ -527,3 +527,80 @@ fork keeps the herding theme with the ram that leads the flock.
   iOS project settings (the In-App Purchase capability) and upstream's
   README, launch videos and release notes are left as they were (Q4).
 - **Validation:** `tsc`, the full Jest suite and ESLint on touched files pass.
+
+### 22. Upstream merge through 2026-11-01 (`edd52b5e`)
+
+- **What:** Merged 88 upstream commits: Tailcat, Herdr Core over SSH sockets,
+  local Phonon TTS, the GitHub viewer queries, rail long-press menus, per-session
+  Shizuku access, push toggles, larger browser downloads, and upstream's moves of
+  sessions, hosts, credentials, browser, composer submission, local alerts and
+  the remote notification lifecycle into Rust. The new shared crates
+  (`crates/*`) came in as is; Claude's compact-boundary fix moved with
+  `agent-transcript-core`.
+- **Why:** Keep the fork mergeable and pick up the features; the rebuilt UI
+  gets their screens separately.
+- **How:**
+  - Deleted again, as in entries 16 and 21: every upstream change or addition
+    under `src/components/`, `src/billing/`, the Rust `billing` module,
+    `feedback-worker/` and their tests. Upstream's versions stay in its history
+    as references for the new screens.
+  - Local alerts: Aries' delivery rule (a waiting agent sounds once, a finished
+    one is regular) is computed in JS and passed to upstream's Rust
+    `LocalAlertCoordinator`. V2 data pushes go through the same coordinator:
+    `LocalAlertRequest.remote` carries the device ID, call ID and reply choices,
+    so a pane that moves on dismisses its call like any other alert, and every
+    host push still reclaims dismissed call categories.
+  - Remote notifications: upstream's Rust `NotificationManager` now also
+    registers `envelope_version: 2` for v2 hosts, exposes `relay_revoked`,
+    returns the authenticated `event` with each target (for background
+    display), and owns call replies (`reply_to_call`, which re-verifies the
+    registration and pinned identity and reports a lost SSH answer as
+    `unconfirmed`, never retrying).
+  - The JS runtime registry is identity-only upstream, so the Calls tab reads
+    the host call log through `host_call_log_open/read/stop` by runtime ID.
+  - `whip-notify`: notification bodies carry the host name (upstream) for
+    approvals and v2 envelopes too, since Aries fills title and body while
+    parsing the hook. Its crate license follows upstream's MIT relicense; the
+    repository URL stays this fork's.
+  - Persistent alert dismissal keeps both native methods: upstream's
+    `dismissPersistentAlert(id?)`, which also removes the notification, and
+    Aries' `dismissPersistentAlertForNotification(id)`, which only stops the
+    ringing after a notification reply.
+  - App: `QueryClientProvider` wraps the rebuilt app for upstream's query-backed
+    hooks. Phonon's notices are registered with the license check.
+- **Validation:** `tsc`, the full Jest suite (212 suites), ESLint on hand-edited
+  files, the UniFFI binding check, Rust tests and `clippy -D warnings` for
+  `whip-ssh`, `whip-notify` and `agent-transcript-core`. `reverse_control`
+  tests pass single-threaded but are timing-sensitive under the parallel full
+  run. No device run yet.
+
+### 23. Upstream features in the rebuilt UI, and Reverse Control wiring
+
+- **What:** Screens for the features entry 22 brought in, in the `src/ui`
+  design: GitHub issues and pull requests (Workbench → GitHub), per-host
+  Tailcat settings (host editor), Phonon speech backend and voice pickers
+  (Hosts → Speech backend), Shizuku setup (Hosts → This phone) with a
+  per-session switch in the chat and terminal **···** menu, and long-press
+  menus on Herd workspace, tab and host labels and on terminal tabs (rename,
+  close, disconnect). Upstream's `src/components` versions were used only as
+  behavior references.
+- **Reverse Control:** the UI reset had dropped upstream's `BrowserSurface`,
+  which answered Reverse Control requests, and never mounted
+  `useReverseControlHosts`, which supplies the AGENTS.md that MCP `initialize`
+  now requires. Agents launched with Reverse Control failed to initialize and
+  every `device.*` call timed out. `useAppRuntime` mounts the hosts bridge and
+  `src/browser/useReverseControlRequests.ts` carries over the request
+  subscription and runtime registration. Browser tabs still have no surface in
+  Aries; `browser.*` tools are untested and likely unavailable.
+- **Restart:** Claude Code asks before exiting while it has background tasks;
+  restart now picks "Move to background and exit" from that prompt instead of
+  timing out (`agent_controls.rs`).
+- **Smaller fixes:** Add host passed the press event as its Tailcat flag (a
+  merge regression); GitHub rows showed the item number twice and raw ISO
+  dates; a missed latency probe logged at error level and raised the dev
+  overlay; Shizuku docs and tool text pointed at upstream's More screen.
+- **Validation:** `tsc`, the full Jest suite (218 suites), repo-wide ESLint,
+  Rust tests (single-threaded) and `clippy -D warnings`. On the emulator every
+  screen was opened against a live host; on the phone `device.info`,
+  `device.shizuku_status` and `device.shizuku_exec` answered through a
+  restarted Reverse Control session.
