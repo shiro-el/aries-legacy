@@ -3,7 +3,7 @@ import { DEFAULT_BROWSER_SEARCH_ENGINE } from '../../browser/search';
 import type { RemotePreviewKind } from '../../lib/remoteFiles';
 import { terminalWebLinkTarget } from '../../lib/terminalLinks';
 
-export type WorkbenchMode = 'files' | 'changes' | 'browser';
+export type WorkbenchMode = 'files' | 'changes' | 'github' | 'browser';
 
 /** How a file is shown once opened. */
 export type PreviewMode =

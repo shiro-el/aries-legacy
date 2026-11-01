@@ -272,6 +272,7 @@ function AppContent() {
                   initialMode={workbench.mode}
                   initialFile={workbench.file}
                   native={sessions.getClient(workbench.sessionId)?.activeNative ?? null}
+                  client={sessions.getClient(workbench.sessionId) ?? null}
                   cwd={workbenchPane?.foreground_cwd
                     ?? workbenchPane?.cwd
                     ?? workbenchSession?.snapshot.workspaces.find(item => item.workspace_id === workbenchPane?.workspace_id)?.worktree?.checkout_path

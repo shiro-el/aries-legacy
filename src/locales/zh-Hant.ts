@@ -1,4 +1,11 @@
 export const zhHant: Record<string, string> = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "GitHub 儲存庫無法使用",
+  "github.repositoryHelp": "請使用具有 GitHub 遠端位址的資料夾。在主機上安裝 GitHub CLI（gh），並透過 gh auth login 登入，以讀取私人儲存庫和發表留言。",
+  "github.prepareMerge": "檢查合併",
+  "github.mergeabilityUnknown": "尚未確定是否可以合併。",
+  "github.webLinksOnly": "只能開啟 HTTP 和 HTTPS 連結。",
+
   "newTask.title": "新增任務",
   "newTask.folder": "資料夾",
   "newTask.folderRequired": "請選擇或輸入資料夾。",

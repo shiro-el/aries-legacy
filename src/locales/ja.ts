@@ -1,4 +1,11 @@
 export const ja = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "GitHub リポジトリを利用できません",
+  "github.repositoryHelp": "GitHub リモートがあるフォルダを使用してください。ホストに GitHub CLI（gh）をインストールし、gh auth login でログインすると、非公開リポジトリの閲覧やコメントの投稿ができます。",
+  "github.prepareMerge": "マージを確認",
+  "github.mergeabilityUnknown": "マージ可能かどうかはまだ判定されていません。",
+  "github.webLinksOnly": "HTTP と HTTPS のリンクのみ開けます。",
+
   "newTask.title": "新しいタスク",
   "newTask.folder": "フォルダー",
   "newTask.folderRequired": "フォルダーを選択または入力してください。",

@@ -1,4 +1,11 @@
 export const zhHans = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "GitHub 仓库不可用",
+  "github.repositoryHelp": "请使用带有 GitHub 远程地址的文件夹。在主机上安装 GitHub CLI（gh），并通过 gh auth login 登录，以读取私有仓库和发表评论。",
+  "github.prepareMerge": "检查合并",
+  "github.mergeabilityUnknown": "尚未确定是否可以合并。",
+  "github.webLinksOnly": "只能打开 HTTP 和 HTTPS 链接。",
+
   "newTask.title": "新建任务",
   "newTask.folder": "文件夹",
   "newTask.folderRequired": "请选择或输入文件夹。",

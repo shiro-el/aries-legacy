@@ -1,4 +1,11 @@
 export const en = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "GitHub repository unavailable",
+  "github.repositoryHelp": "Use a folder with a GitHub remote. Install GitHub CLI (gh) on the host and sign in with gh auth login to read private repositories and post comments.",
+  "github.prepareMerge": "Review merge",
+  "github.mergeabilityUnknown": "Mergeability has not been determined.",
+  "github.webLinksOnly": "Only HTTP and HTTPS links can be opened.",
+
   'newTask.title': 'New task',
   'newTask.folder': 'Folder',
   'newTask.folderRequired': 'Choose or enter a folder.',

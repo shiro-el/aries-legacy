@@ -1,4 +1,11 @@
 export const es = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "Repositorio de GitHub no disponible",
+  "github.repositoryHelp": "Usa una carpeta con un remoto de GitHub. Instala GitHub CLI (gh) en el host e inicia sesión con gh auth login para leer repositorios privados y publicar comentarios.",
+  "github.prepareMerge": "Revisar fusión",
+  "github.mergeabilityUnknown": "Todavía no se ha determinado si se puede fusionar.",
+  "github.webLinksOnly": "Solo se pueden abrir enlaces HTTP y HTTPS.",
+
   "newTask.title": "Nueva tarea",
   "newTask.folder": "Carpeta",
   "newTask.folderRequired": "Elige o introduce una carpeta.",

@@ -1,6 +1,13 @@
 import type { en } from './en';
 
 export const fr = {
+  "github.title": "GitHub",
+  "github.repositoryUnavailable": "Dépôt GitHub indisponible",
+  "github.repositoryHelp": "Utilisez un dossier avec un dépôt distant GitHub. Installez GitHub CLI (gh) sur l’hôte et connectez-vous avec gh auth login pour lire les dépôts privés et publier des commentaires.",
+  "github.prepareMerge": "Vérifier la fusion",
+  "github.mergeabilityUnknown": "La possibilité de fusionner reste à déterminer.",
+  "github.webLinksOnly": "Seuls les liens HTTP et HTTPS peuvent être ouverts.",
+
   "newTask.title": "Nouvelle tâche",
   "newTask.folder": "Dossier",
   "newTask.folderRequired": "Choisissez ou saisissez un dossier.",
