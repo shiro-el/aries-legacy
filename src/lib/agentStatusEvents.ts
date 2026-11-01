@@ -6,14 +6,12 @@ export function isAgentAlertingStatus(status: AgentStatus): boolean {
   return status === 'blocked' || status === 'done';
 }
 
-/** A finished agent can wait, so only one that needs you rings or vibrates. */
-export function agentAlertDelivery(
-  status: AgentStatus,
-  level: AgentAlertLevel,
-  appHasFocus: boolean,
-): AgentAlertDelivery {
-  if (status !== 'blocked' || level === 'regular') return 'regular';
-  return appHasFocus ? 'brief' : 'persistent';
+/**
+ * A finished agent can wait, so only one that needs you sounds, and only once:
+ * ringing until dismissed is for emergency calls.
+ */
+export function agentAlertDelivery(status: AgentStatus, level: AgentAlertLevel): AgentAlertDelivery {
+  return status === 'blocked' && level !== 'regular' ? 'brief' : 'regular';
 }
 
 export function tabNameForAgent(

@@ -20,8 +20,6 @@ type Props = {
   onChange: SetPreference;
 };
 
-const DURATIONS = [10, 30, 60];
-
 /** How this phone alerts for agents on hosts it is connected to. */
 export function PhoneAlerts({ value, onChange }: Props) {
   const palette = usePalette();
@@ -43,7 +41,7 @@ export function PhoneAlerts({ value, onChange }: Props) {
     return () => subscription.remove();
   }, [check]);
 
-  const ringing = value.agentAlertLevel === 'persistent';
+  const sounding = value.agentAlertLevel === 'persistent';
 
   return (
     <View style={s.section}>
@@ -77,34 +75,13 @@ export function PhoneAlerts({ value, onChange }: Props) {
       />
       {value.alertsEnabled && (
         <Toggle
-          label="Keep ringing"
-          hint="Ring like an alarm, even on silent, until you open Aries or shake the phone."
-          value={ringing}
+          label="Sound when an agent waits"
+          hint="Sound and vibrate once when an agent needs you. Only emergency calls keep ringing."
+          value={sounding}
           onChange={next => onChange('agentAlertLevel', next ? 'persistent' : 'regular')}
           s={s}
           palette={palette}
         />
-      )}
-      {value.alertsEnabled && ringing && (
-        <View style={s.field}>
-          <Text style={s.hint}>Stop ringing after</Text>
-          <View style={s.chips} accessibilityRole="radiogroup">
-            {DURATIONS.map(seconds => {
-              const on = value.persistentAlertDurationSeconds === seconds;
-              return (
-                <Pressable
-                  key={seconds}
-                  onPress={() => onChange('persistentAlertDurationSeconds', seconds)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: on }}
-                  style={({ pressed }) => [s.chip, on && s.chipOn, pressed && !on && s.pressed]}
-                >
-                  <Text style={[s.chipLabel, on && s.chipLabelOn]}>{seconds} s</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
       )}
       <Pressable
         onPress={() => reportBackgroundFailure(openNotificationSettings(), 'phone-alerts-settings')}
@@ -156,12 +133,6 @@ function makeStyles(p: Palette) {
     solidLabel: { ...type.bodyBold, color: p.bg },
     toggle: { flexDirection: 'row', alignItems: 'center', gap: space.md },
     toggleText: { flex: 1, gap: 2 },
-    field: { gap: space.xs },
-    chips: { flexDirection: 'row', gap: space.sm },
-    chip: { paddingVertical: 6, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1.5, borderColor: p.seam },
-    chipOn: { backgroundColor: p.text, borderColor: p.text },
-    chipLabel: { ...type.caption, color: p.text },
-    chipLabelOn: { color: p.bg, fontFamily: type.bodyBold.fontFamily },
     pressed: { backgroundColor: p.surface },
     link: { alignSelf: 'flex-start', paddingVertical: space.xs, borderRadius: 8 },
     linkLabel: { ...type.bodyMedium, color: p.text, textDecorationLine: 'underline' },

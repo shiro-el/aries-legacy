@@ -1,6 +1,5 @@
 import { verifyRemoteNotificationHost } from '../services/remoteNotifications';
 import { useCallback, useEffect, useEffectEvent, useRef } from 'react';
-import { AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import type { RuntimeAgentStatusTransition } from 'react-native-whip-ssh';
 
@@ -74,11 +73,7 @@ export function useAgentNotificationSideEffects({
           alertsEnabledRef.current &&
           isAgentAlertingStatus(status)
         ) {
-          const delivery = agentAlertDelivery(
-            status,
-            agentAlertLevelRef.current,
-            AppState.currentState === 'active',
-          );
+          const delivery = agentAlertDelivery(status, agentAlertLevelRef.current);
           reportBackgroundFailure(
             alertAgent(
               agent,

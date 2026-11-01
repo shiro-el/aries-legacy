@@ -25,12 +25,11 @@ describe('agent status events', () => {
     expect(isAgentAlertingStatus('idle')).toBe(false);
   });
 
-  test('only an agent that needs you can raise a persistent or brief alert', () => {
-    expect(agentAlertDelivery('blocked', 'persistent', false)).toBe('persistent');
-    expect(agentAlertDelivery('blocked', 'persistent', true)).toBe('brief');
-    expect(agentAlertDelivery('blocked', 'regular', false)).toBe('regular');
-    expect(agentAlertDelivery('done', 'persistent', false)).toBe('regular');
-    expect(agentAlertDelivery('done', 'persistent', true)).toBe('regular');
+  test('an agent that needs you sounds once, and no agent status keeps ringing', () => {
+    expect(agentAlertDelivery('blocked', 'persistent')).toBe('brief');
+    expect(agentAlertDelivery('blocked', 'regular')).toBe('regular');
+    expect(agentAlertDelivery('done', 'persistent')).toBe('regular');
+    expect(agentAlertDelivery('done', 'regular')).toBe('regular');
   });
 
   test('uses the tab name and agent name in notification titles', () => {
