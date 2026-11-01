@@ -9,6 +9,8 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import type { SessionAccessActions } from './src/ui/shizuku/SessionAccessMenu';
 import { chatAgentForPane } from './src/lib/agentChatSession';
+import { connectedBrowserRuntimes } from './src/browser/registry';
+import { useReverseControlRequests } from './src/browser/useReverseControlRequests';
 import { useAppQueryLifecycle } from './src/hooks/useAppQueryLifecycle';
 import { appQueryClient } from './src/services/appQueryClient';
 import { reportBackgroundFailure } from './src/services/backgroundOperations';
@@ -79,6 +81,11 @@ function AppContent() {
     if (tab === 'calls' && unseen > 0) markSeen();
   }, [markSeen, tab, unseen]);
 
+  const reverseControlRuntimes = useMemo(
+    () => connectedBrowserRuntimes(presentationSessions, id => sessions.getClient(id)?.native),
+    [presentationSessions, sessions],
+  );
+  useReverseControlRequests(reverseControlRuntimes);
   const sections = useMemo(() => presentationSessions.map(herdSection), [presentationSessions]);
   const itemActions = (sessionId: string, kind: 'workspace' | 'tab', id: string): ItemAction[] => {
     const session = presentationSessions.find(item => item.id === sessionId);

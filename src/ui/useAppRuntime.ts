@@ -8,6 +8,7 @@ import { useApplicationSecurity } from '../hooks/useApplicationSecurity';
 import { useDevicePreferences } from '../hooks/useDevicePreferences';
 import { useHostManagement } from '../hooks/useHostManagement';
 import { useLiveHostTelemetry } from '../hooks/useLiveHostTelemetry';
+import { useReverseControlHosts } from '../hooks/useReverseControlHosts';
 import { useSessionRuntimeManager } from '../hooks/useSessionRuntimeManager';
 import { useStartupStorage } from '../hooks/useStartupStorage';
 import { useTerminalHistory } from '../hooks/useTerminalHistory';
@@ -91,6 +92,7 @@ export function useAppRuntime() {
       (openNotificationPaneRef.current ?? sessions.openPaneTerminal)(sessionId, pane);
     },
   });
+  useReverseControlHosts(hosts, sessions, preferences, security);
   closeHostRef.current = hostId => {
     void sessions.closeHostById(hostId);
   };
