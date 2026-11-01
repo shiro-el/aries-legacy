@@ -388,15 +388,6 @@ export const GENERATED_OPEN_SOURCE_LICENSES = [
     licenseAsset: require("../../assets/licenses/generated/fb3ca4a837f5779e.txt"),
   },
   {
-    id: "npm-expo-speech-recognition-58-0-0",
-    category: "npm",
-    projectName: "expo-speech-recognition",
-    sourceUrl: "https://github.com/jamsch/expo-speech-recognition",
-    attribution: "Direct npm dependency · version 58.0.0",
-    licenseName: "MIT",
-    licenseAsset: require("../../assets/licenses/generated/d3ee89fbcdb9592f.txt"),
-  },
-  {
     id: "npm-expo-status-bar-58-0-4",
     category: "npm",
     projectName: "expo-status-bar",

@@ -16,6 +16,8 @@ module.exports = {
   // jsdom's encoding, HTML parser, and CSS dependencies now ship ES modules.
   transform: {
     '^.+\\.mjs$': 'babel-jest',
+    // UI tokens register their fonts; tests only need an asset ID.
+    '^.+\\.(ttf|otf)$': require.resolve('@react-native/jest-preset/jest/assetFileTransformer.js'),
   },
   // Match the innermost node_modules to transform nested ES modules while
   // leaving jsdom's CommonJS internals untouched.

@@ -1388,6 +1388,23 @@ impl HostRuntime {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
+    /// Runs a command with private text on stdin, never in a process argument.
+    pub async fn execute_with_input(
+        &self,
+        command: String,
+        input: String,
+    ) -> Result<String, HostRuntimeError> {
+        let ssh = current_ssh(&self.inner)?;
+        let output = crate::runtime()
+            .map_err(HostRuntimeError::SshTransportFailure)?
+            .spawn(async move { ssh.execute_with_input(&command, input.as_bytes()).await })
+            .await
+            .map_err(|error| {
+                HostRuntimeError::SshTransportFailure(format!("SSH command task failed: {error}"))
+            })??;
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
     pub async fn remote_home(&self) -> Result<String, HostRuntimeError> {
         let ssh = current_ssh(&self.inner)?;
         let home = crate::runtime()

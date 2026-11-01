@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 
 import type { LiveHostConnectionStatus } from '../../liveHostSessions';
 import type { HostProfile } from '../../types';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { PhoneAlerts, type PhoneAlertPreferences, type SetPreference } from './PhoneAlerts';
+import { VoiceInputSetting } from './VoiceInputSetting';
 
 export type HostRow = {
   host: HostProfile;
@@ -24,13 +25,21 @@ type Props = {
   onNotifications: (host: HostProfile) => void;
   alerts: PhoneAlertPreferences;
   onAlertsChange: SetPreference;
+  /** Bumped when the composer needs a Groq key; scrolls to and opens its editor. */
+  voiceKeyRequest?: number;
 };
 
 export function HostsScreen({
   rows, loaded, error, onAdd, onEdit, onConnect, onDisconnect, onNotifications, alerts, onAlertsChange,
+  voiceKeyRequest = 0,
 }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
+  const scroll = useRef<ScrollViewInstance>(null);
+
+  useEffect(() => {
+    if (voiceKeyRequest > 0 && loaded) scroll.current?.scrollToEnd({ animated: true });
+  }, [loaded, voiceKeyRequest]);
 
   return (
     <View style={s.screen}>
@@ -41,7 +50,7 @@ export function HostsScreen({
         </Pressable>
       </View>
       {error ? <Text style={[s.notice, s.inset]}>{error}</Text> : null}
-      <ScrollView contentContainerStyle={s.scroll}>
+      <ScrollView ref={scroll} contentContainerStyle={s.scroll}>
         {loaded && rows.length === 0 && (
           <View style={s.empty}>
             <Text style={s.notice}>
@@ -64,6 +73,7 @@ export function HostsScreen({
           />
         ))}
         {loaded && <PhoneAlerts value={alerts} onChange={onAlertsChange} />}
+        {loaded && <VoiceInputSetting editRequest={voiceKeyRequest} />}
       </ScrollView>
     </View>
   );

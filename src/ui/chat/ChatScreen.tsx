@@ -17,10 +17,12 @@ import type { HerdrClient } from '../../services/HerdrClient';
 import type { PaneInfo } from '../../types';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
-import { Composer } from './Composer';
+import { Composer, type ComposerVoice } from './Composer';
 import type { FileLink } from './fileLinks';
 import { Markdown } from './Markdown';
+import { polishTranscript } from '../../services/transcriptPolish';
 import { useAgentChat } from './useAgentChat';
+import { recentMessages } from './voiceText';
 
 type Props = {
   hostSessionId: string;
@@ -36,12 +38,15 @@ type Props = {
   onOpenFile: (link: FileLink) => void;
   /** This chat is the one on screen, not a retained hidden one. */
   active: boolean;
+  /** Voice input found no Groq key; opens the phone's key setting. */
+  onNeedVoiceKey: () => void;
   /** Put the caret in the composer, as after starting a new task. */
   focusComposer?: boolean;
 };
 
 export function ChatScreen({
   hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, onOpenProject, onOpenFile, active, focusComposer,
+  onNeedVoiceKey,
 }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -71,6 +76,28 @@ export function ChatScreen({
       return next;
     });
   }, []);
+
+  // Read at the tap, so the composer does not re-render with every message.
+  const messagesRef = useRef(chat.state.transcript.messages);
+  messagesRef.current = chat.state.transcript.messages;
+  const needKeyRef = useRef(onNeedVoiceKey);
+  needKeyRef.current = onNeedVoiceKey;
+  const polishTarget = useRef({ native, where });
+  polishTarget.current = { native, where };
+  const voice = useMemo<ComposerVoice | undefined>(() => (agent ? {
+    recentMessages: () => recentMessages(messagesRef.current, VOICE_CONTEXT_MESSAGES).map(message => message.text),
+    onNeedKey: () => needKeyRef.current(),
+    // Claude and Codex panes share one engine: Claude Haiku on the same host.
+    polish: passage => {
+      const target = polishTarget.current;
+      if (!target.native) return Promise.reject(new Error('This pane is not connected.'));
+      const runtime = target.native;
+      return polishTranscript(
+        { ...passage, cwd: target.where ?? '~', recent: recentMessages(messagesRef.current, POLISH_CONTEXT_MESSAGES) },
+        (command, stdin, signal) => runtime.executeWithInput(command, stdin, signal),
+      );
+    },
+  } : undefined), [agent]);
 
   const data = useMemo(() => [...chat.blocks].reverse(), [chat.blocks]);
 
@@ -138,10 +165,16 @@ export function ChatScreen({
         palette={palette}
         onSend={chat.send}
         onOpenTerminal={onOpenTerminal}
+        voice={voice}
       />
     </View>
   );
 }
+
+/** Context words come from as many messages as the old recognizer used. */
+const VOICE_CONTEXT_MESSAGES = 10;
+/** Polish reads the last few messages to resolve references like "그거". */
+const POLISH_CONTEXT_MESSAGES = 6;
 
 type Chat = ReturnType<typeof useAgentChat>;
 

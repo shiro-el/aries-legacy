@@ -178,6 +178,15 @@ export default function App() {
   };
 
   const [alertsHost, setAlertsHost] = useState<HostProfile | null>(null);
+  // Counts the composer's requests for a Groq key; cleared when Hosts is left.
+  const [voiceKeyRequest, setVoiceKeyRequest] = useState(0);
+  const openVoiceKey = () => {
+    setVoiceKeyRequest(current => current + 1);
+    selectTab('hosts');
+  };
+  useEffect(() => {
+    if (tab !== 'hosts') setVoiceKeyRequest(0);
+  }, [tab]);
   const alertsHostConnected = alertsHost !== null && hostRows.some(row =>
     row.host.id === alertsHost.id && (row.status === 'connected' || row.status === 'ready'));
 
@@ -230,6 +239,7 @@ export default function App() {
                       }}
                       onOpenProject={() => setWorkbench({ ...entry, mode: 'files' })}
                       onOpenFile={file => setWorkbench({ ...entry, mode: 'files', file })}
+                      onNeedVoiceKey={openVoiceKey}
                     />
                   </View>
                 );
@@ -274,6 +284,7 @@ export default function App() {
                   onNotifications={setAlertsHost}
                   alerts={preferences}
                   onAlertsChange={setPreference}
+                  voiceKeyRequest={voiceKeyRequest}
                 />
               )}
               {terminalShown && (

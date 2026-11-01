@@ -3551,6 +3551,10 @@ export class NativeHostRuntime {
     return this.runtime.execute(command);
   }
 
+  executeWithInput(command: string, input: string, signal?: AbortSignal): Promise<string> {
+    return this.runtime.executeWithInput(command, input, signal ? { signal } : undefined);
+  }
+
   remoteHome(): Promise<string> {
     return this.runtime.remoteHome();
   }

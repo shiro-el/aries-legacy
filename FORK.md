@@ -459,3 +459,50 @@ fork keeps the herding theme with the ram that leads the flock.
   releases. Upstream never published 0.1.7, the first version with the call
   log, so hosts on upstream 0.1.4 update from here. The app needs a native
   rebuild to pick up the new source.
+
+### 19. Device speech recognition removed
+
+- **What:** The Android/iOS recognizer path is gone: `expo-speech-recognition`
+  and its config plugin, `composerSpeechInput`, `useComposerSpeechInput`, the
+  native `ComposerDictation` state machine and `append_composer_dictation`.
+  Context-word extraction survives as Rust `transcription_context`.
+- **Why:** An exception to keeping upstream code hidden rather than deleted:
+  the recognizer misheard Korean mixed with English identifiers, and a second
+  microphone path beside Groq Whisper (entry 20) would compete for the same
+  button and audio session.
+- **How:** `expo-audio`'s config plugin now owns `RECORD_AUDIO`
+  (`enableBackgroundPlayback: false`, so no media service is added). The
+  read-aloud focus flag `speechInputFocus` stays; recording sets it. UniFFI
+  bindings are regenerated. `chatSpeech` is untouched.
+
+### 20. Groq Whisper voice input and Haiku polish
+
+- **What:** The agent composer has a Voice button. Tap to record (AAC, 16 kHz
+  mono, ten-minute limit), tap Stop, and the phone sends the file to Groq
+  `whisper-large-v3` (`language=ko`). The text lands at the caret and is never
+  sent automatically. The latest transcript can be polished by Claude Haiku on
+  the pane's host and restored to what was said. Hosts → This phone holds the
+  Groq API key.
+- **Why:** Round 8 of the design notes (V1–V12): typing on a phone is slow,
+  and dictated thoughts carry fillers and misheard identifiers that blur what
+  the agent receives.
+- **How:** `services/voiceInput.ts` is the record → transcribe state machine;
+  a failed transcription keeps its one recording for Retry/Discard, and
+  leftover `voice-input-*` files are deleted on the first composer of a
+  process. The prompt is the context words of the draft and the last ten
+  messages, cut to Whisper's 224-token window by a byte-based estimate. The
+  key lives only in the keychain (`aries.groq-api-key.v1`). Polish runs
+  `claude -p --model haiku` in the pane's folder through the login shell with
+  `--tools Read,Grep,Glob`, `--strict-mcp-config` and `--setting-sources ''`
+  (so user hooks do not report it as an agent turn). The passage, the rest of
+  the draft and the last six messages go over stdin through the new
+  `HostRuntime.execute_with_input`; the reply must be one `<polished>` block,
+  and anything else, a missing `claude`, or 30 seconds without an answer
+  leaves the transcript unchanged. Editing inside the passage, sending, or
+  dictating again withdraws Polish and Original; edits elsewhere move it.
+- **Validation:** Jest covers the Groq client, the state machine (fake
+  recorder and fetch), the key setting, composer insertion, recording bar,
+  key and permission notices, retry/discard, passage tracking, restore and
+  polish failures, and runs the polish command through `/bin/sh` with a stub
+  `claude`. Three representative dictations were polished by real Haiku
+  without being carried out.

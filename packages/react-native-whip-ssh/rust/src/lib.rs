@@ -12,7 +12,6 @@ mod chat_rows;
 mod chat_search;
 mod chat_speech;
 mod codex;
-mod composer_dictation;
 mod git_review;
 mod herdr_api;
 mod herdr_codec;
@@ -39,6 +38,7 @@ mod terminal_delivery;
 #[cfg(test)]
 mod test_allocations;
 mod transcript_database;
+mod transcription_context;
 mod usage;
 
 pub use agent_catalog::*;
@@ -52,7 +52,6 @@ pub use browser_search_history::*;
 pub use chat_rows::*;
 pub use chat_search::*;
 pub use chat_speech::*;
-pub use composer_dictation::*;
 pub use git_review::*;
 pub use herdr_api::*;
 pub use herdr_events::*;
@@ -72,6 +71,7 @@ pub use transcript_database::{
     SavedAgentTranscript, agent_transcript_cache_size, clear_agent_transcript_cache,
     delete_agent_transcripts_for_host, list_saved_agent_transcripts, read_saved_agent_transcript,
 };
+pub use transcription_context::*;
 pub use usage::*;
 
 use std::sync::OnceLock;

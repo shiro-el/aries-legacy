@@ -39,19 +39,20 @@
           "faceIDPermission": "Allow Aries to use Face ID to protect SSH keys and app access."
         }
       ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Aries to record voice input for the message composer.",
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": false
+        }
+      ],
       "expo-video",
       "expo-web-browser",
       [
         "expo-sensors",
         {
           "motionPermission": "Allow an agent launched with Reverse Control to request a single motion or pressure sensor reading while Aries is open."
-        }
-      ],
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Allow Aries to use the microphone for voice input in the message composer.",
-          "speechRecognitionPermission": "Allow Aries to turn your speech into text in the message composer."
         }
       ],
       [

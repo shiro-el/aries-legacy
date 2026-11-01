@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AgentCatalogEntry } from 'react-native-whip-ssh';
+import { transcriptionContext } from 'react-native-whip-ssh/src/transcriptionContext';
 
 import { useAgentCatalog, type AgentCatalogSource } from '../../hooks/useAgentCatalog';
 import type { ChatAgent } from '../../lib/agentChatSession';
@@ -14,7 +15,21 @@ import {
   terminalOnlyCommand,
   type Selection,
 } from './composerCatalog';
+import { transcriptionPrompt } from '../../services/groqTranscription';
+import { PolishBar, RecordingBar, useVoiceInput, VoiceStatus, type VoiceNotice } from './ComposerVoice';
 import { SkillSheet } from './SkillSheet';
+import { useDictatedPassage, type PolishPassage } from './useDictatedPassage';
+import { insertTranscript } from './voiceText';
+
+/** Voice input for an agent's composer. Shell panes have none. */
+export type ComposerVoice = {
+  /** Recent chat text, newest last, for context words. */
+  recentMessages: () => string[];
+  /** Opens the phone's Groq key setting. */
+  onNeedKey: () => void;
+  /** Rewrites the latest transcript on the pane's host. */
+  polish?: (passage: PolishPassage) => Promise<string>;
+};
 
 type Props = {
   name: string;
@@ -29,6 +44,7 @@ type Props = {
   palette: Palette;
   onSend: (text: string) => Promise<void>;
   onOpenTerminal: () => void;
+  voice?: ComposerVoice;
 };
 
 /**
@@ -36,7 +52,7 @@ type Props = {
  * skills have a separate button so the two never share one list.
  */
 export function Composer({
-  name, agent, catalogSource, paneContext, active, disabled, autoFocus, palette, onSend, onOpenTerminal,
+  name, agent, catalogSource, paneContext, active, disabled, autoFocus, palette, onSend, onOpenTerminal, voice,
 }: Props) {
   const s = useMemo(() => makeStyles(palette), [palette]);
   const [text, setText] = useState('');
@@ -46,6 +62,11 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<VoiceNotice | null>(null);
+  const dictation = useVoiceInput(voice !== undefined && active);
+  // A transcript lands where the caret is when it arrives, not when recording began.
+  const latest = useRef({ text, selection });
+  latest.current = { text, selection };
 
   const catalog = useAgentCatalog(catalogSource, active, paneContext);
   const commands = catalog.catalog?.commands ?? [];
@@ -55,11 +76,37 @@ export function Composer({
   const ready = !disabled && !sending && text.trim().length > 0;
 
   const apply = (next: { text: string; caret: number }) => {
+    dictated.edited(latest.current.text, next.text);
+    latest.current = { text: next.text, selection: { start: next.caret, end: next.caret } };
     setText(next.text);
     const caret = { start: next.caret, end: next.caret };
     setSelection(caret);
     setPlaced(caret);
   };
+  const dictated = useDictatedPassage(voice?.polish, () => latest.current.text, apply);
+  const edit = (next: string) => {
+    dictated.edited(latest.current.text, next);
+    latest.current = { ...latest.current, text: next };
+    setText(next);
+  };
+
+  const record = async () => {
+    if (!voice) return;
+    setVoiceNotice(null);
+    const { text: draft } = latest.current;
+    const prompt = transcriptionPrompt(transcriptionContext(draft, voice.recentMessages()));
+    const result = await dictation.input.start({
+      prompt,
+      onText: transcript => {
+        const inserted = insertTranscript(latest.current.text, latest.current.selection, transcript);
+        apply(inserted);
+        dictated.dictated(inserted.range);
+      },
+    });
+    if (result !== 'started' && result !== 'busy') setVoiceNotice(result);
+  };
+  const phase = dictation.snapshot.phase;
+  const shownNotice = dictation.snapshot.phase === 'failed' ? dictation.snapshot.error : voiceNotice;
 
   const pickCommand = (command: AgentCatalogEntry) => apply(insertCommand(text, command.name));
   const pickSkill = (skill: AgentCatalogEntry) => {
@@ -75,6 +122,8 @@ export function Composer({
     setError(null);
     try {
       await onSend(message);
+      dictated.end();
+      latest.current = { text: '', selection: { start: 0, end: 0 } };
       setText('');
       setSelection({ start: 0, end: 0 });
       // This command opens a menu only the terminal can show.
@@ -110,40 +159,76 @@ export function Composer({
         </ScrollView>
       )}
       {error ? <Text style={s.error}>{error}</Text> : null}
-      <View style={s.row}>
-        <Pressable
-          onPress={() => setSkillsOpen(true)}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel={`${name} skills`}
-          style={({ pressed }) => [s.quiet, pressed && s.pressed, disabled && s.dim]}
-        >
-          <Text style={s.quietLabel}>Skills</Text>
-        </Pressable>
-        <TextInput
-          style={s.input}
-          value={text}
-          selection={placed}
-          onChangeText={setText}
-          onSelectionChange={event => {
-            setSelection(event.nativeEvent.selection);
-            if (placed) setPlaced(undefined);
-          }}
-          placeholder={`Message ${name}`}
-          placeholderTextColor={palette.muted}
-          multiline
-          autoFocus={autoFocus}
-          editable={!disabled}
+      {voice && (
+        <VoiceStatus
+          notice={shownNotice}
+          failed={phase === 'failed'}
+          transcribing={phase === 'transcribing'}
+          palette={palette}
+          onSetUpKey={() => { setVoiceNotice(null); voice.onNeedKey(); }}
+          onRetry={() => { void dictation.input.retry(); }}
+          onDiscard={() => dictation.input.discard()}
+          onDismiss={() => setVoiceNotice(null)}
         />
-        <Pressable
-          onPress={() => { void send(); }}
-          disabled={!ready}
-          accessibilityRole="button"
-          style={({ pressed }) => [s.solid, !ready && s.dim, pressed && s.solidPressed]}
-        >
-          <Text style={s.solidLabel}>{sending ? 'Sending' : 'Send'}</Text>
-        </Pressable>
-      </View>
+      )}
+      {dictated.passage && phase === 'idle' && (
+        <PolishBar
+          passage={dictated.passage}
+          palette={palette}
+          onPolish={() => { void dictated.polish(); }}
+          onRestore={() => dictated.restore()}
+        />
+      )}
+      {dictation.snapshot.phase === 'recording' ? (
+        <RecordingBar input={dictation.input} startedAt={dictation.snapshot.startedAt} palette={palette} />
+      ) : (
+        <View style={s.row}>
+          <Pressable
+            onPress={() => setSkillsOpen(true)}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={`${name} skills`}
+            style={({ pressed }) => [s.quiet, pressed && s.pressed, disabled && s.dim]}
+          >
+            <Text style={s.quietLabel}>Skills</Text>
+          </Pressable>
+          <TextInput
+            style={s.input}
+            value={text}
+            selection={placed}
+            onChangeText={edit}
+            onSelectionChange={event => {
+              setSelection(event.nativeEvent.selection);
+              if (placed) setPlaced(undefined);
+            }}
+            placeholder={`Message ${name}`}
+            placeholderTextColor={palette.muted}
+            multiline
+            autoFocus={autoFocus}
+            editable={!disabled}
+          />
+          {voice && (
+            <Pressable
+              onPress={() => { void record(); }}
+              disabled={disabled || phase === 'transcribing'}
+              accessibilityRole="button"
+              accessibilityLabel="Record voice"
+              style={({ pressed }) => [s.quiet, pressed && s.pressed, (disabled || phase === 'transcribing') && s.dim]}
+            >
+              <Text style={s.quietLabel}>Voice</Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => { void send(); }}
+            disabled={!ready}
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+            style={({ pressed }) => [s.solid, !ready && s.dim, pressed && s.solidPressed]}
+          >
+            <Text style={s.solidLabel}>{sending ? 'Sending' : 'Send'}</Text>
+          </Pressable>
+        </View>
+      )}
       <SkillSheet
         visible={skillsOpen}
         name={name}
