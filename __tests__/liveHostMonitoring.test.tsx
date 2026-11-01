@@ -17,7 +17,10 @@ jest.mock('../src/services/networkDiagnostics', () => ({
   recordNetworkDiagnostic: jest.fn(),
 }));
 
-test('FGS toggle and background/unmount send policy signals without destroying a host', async () => {
+beforeEach(() => jest.clearAllMocks());
+afterEach(() => jest.restoreAllMocks());
+
+test('live hosts keep execution protection through background, lock and UI detach without an alerts preference', async () => {
   const disconnect = jest.fn();
   const setRuntimeMonitoringState = jest.fn();
   const client = { disconnect, setMonitoringState: setRuntimeMonitoringState };
@@ -29,13 +32,12 @@ test('FGS toggle and background/unmount send policy signals without destroying a
       change = handler as typeof change;
       return { remove };
     });
-  function Harness({ enabled }: { enabled: boolean }) {
+  function Harness({ locked = false }: { locked?: boolean }) {
     useLiveHostMonitoring({
       liveHostCount: 1,
-      alertsEnabled: enabled,
       restoreComplete: true,
       hostsVisible: true,
-      appAccessLocked: false,
+      appAccessLocked: locked,
       setRuntimeMonitoringState: client.setMonitoringState,
       onBackgroundMonitoringError: error => {
         throw error;
@@ -45,7 +47,7 @@ test('FGS toggle and background/unmount send policy signals without destroying a
   }
   let renderer!: ReactTestRenderer;
   await act(async () => {
-    renderer = create(<Harness enabled />);
+    renderer = create(<Harness />);
   });
   expect(startBackgroundMonitoring).toHaveBeenCalledWith(1);
   await act(async () => {
@@ -57,17 +59,54 @@ test('FGS toggle and background/unmount send policy signals without destroying a
     false,
   );
   await act(async () => {
-    renderer.update(<Harness enabled={false} />);
+    renderer.update(<Harness locked />);
   });
-  expect(stopBackgroundMonitoring).toHaveBeenCalledTimes(1);
+  expect(stopBackgroundMonitoring).not.toHaveBeenCalled();
   await act(async () => {
     change('active');
   });
-  expect(setRuntimeMonitoringState).toHaveBeenLastCalledWith(true, true, false);
+  expect(setRuntimeMonitoringState).toHaveBeenLastCalledWith(true, true, true);
   await act(async () => {
     renderer.unmount();
   });
   expect(disconnect).not.toHaveBeenCalled();
+  expect(stopBackgroundMonitoring).not.toHaveBeenCalled();
   expect(remove).toHaveBeenCalled();
-  jest.restoreAllMocks();
+});
+
+test('starts after restore, updates host count and stops when the last host closes', async () => {
+  function Harness({ count, restored }: { count: number; restored: boolean }) {
+    useLiveHostMonitoring({
+      liveHostCount: count,
+      restoreComplete: restored,
+      hostsVisible: false,
+      appAccessLocked: false,
+      setRuntimeMonitoringState: jest.fn(),
+      onBackgroundMonitoringError: error => {
+        throw error;
+      },
+    });
+    return null;
+  }
+  let renderer!: ReactTestRenderer;
+  await act(async () => {
+    renderer = create(<Harness count={1} restored={false} />);
+  });
+  expect(startBackgroundMonitoring).not.toHaveBeenCalled();
+  expect(stopBackgroundMonitoring).not.toHaveBeenCalled();
+  await act(async () => {
+    renderer.update(<Harness count={1} restored />);
+  });
+  expect(startBackgroundMonitoring).toHaveBeenLastCalledWith(1);
+  await act(async () => {
+    renderer.update(<Harness count={2} restored />);
+  });
+  expect(startBackgroundMonitoring).toHaveBeenLastCalledWith(2);
+  await act(async () => {
+    renderer.update(<Harness count={0} restored />);
+  });
+  expect(stopBackgroundMonitoring).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    renderer.unmount();
+  });
 });

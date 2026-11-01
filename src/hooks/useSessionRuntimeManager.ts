@@ -244,7 +244,6 @@ export function useSessionRuntimeManager({
 
   useLiveHostMonitoring({
     liveHostCount: state.sessions.length,
-    alertsEnabled,
     restoreComplete,
     hostsVisible,
     appAccessLocked,

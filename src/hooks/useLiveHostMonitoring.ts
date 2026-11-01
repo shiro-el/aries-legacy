@@ -11,7 +11,6 @@ import {
 
 interface LiveHostMonitoringOptions {
   liveHostCount: number;
-  alertsEnabled: boolean;
   restoreComplete: boolean;
   hostsVisible: boolean;
   appAccessLocked: boolean;
@@ -23,10 +22,9 @@ interface LiveHostMonitoringOptions {
   onBackgroundMonitoringError: (error: unknown) => void;
 }
 
-/** UI visibility only. Android service lifecycle supplies background health policy directly. */
+/** Protect live SSH sessions independently of agent notification preferences. */
 export function useLiveHostMonitoring({
   liveHostCount,
-  alertsEnabled,
   restoreComplete,
   hostsVisible,
   appAccessLocked,
@@ -38,12 +36,14 @@ export function useLiveHostMonitoring({
 
   useEffect(() => {
     if (!restoreComplete) return;
+    // Reverse Control still crosses the JS/native bridge while the UI is hidden.
+    // Muting agent alerts must not withdraw the service's execution protection.
     const operation =
-      alertsEnabled && liveHostCount > 0
+      liveHostCount > 0
         ? startBackgroundMonitoring(liveHostCount)
         : stopBackgroundMonitoring();
     operation.catch(reportBackgroundError);
-  }, [alertsEnabled, liveHostCount, restoreComplete]);
+  }, [liveHostCount, restoreComplete]);
 
   useEffect(() => {
     if (liveHostCount === 0) return;
