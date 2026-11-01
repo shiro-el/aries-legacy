@@ -390,6 +390,9 @@ pub(super) fn pane_submission_requests(
     pane_id: String,
     parts: Vec<String>,
 ) -> Vec<(HerdrControlRequest, bool)> {
+    // Parts after the message are attachments: pasted paths the agent reads
+    // before it takes Enter, so Enter follows separately once it has settled.
+    let separate_enter = parts.iter().skip(1).any(|part| !part.is_empty());
     let parts = parts
         .into_iter()
         .filter(|part| !part.is_empty())
@@ -405,7 +408,7 @@ pub(super) fn pane_submission_requests(
     }
 
     let part_count = parts.len();
-    let mut requests = Vec::with_capacity(part_count.saturating_mul(2).saturating_sub(1));
+    let mut requests = Vec::with_capacity(part_count.saturating_mul(2));
     for (index, text) in parts.into_iter().enumerate() {
         if index > 0 {
             requests.push((
@@ -420,7 +423,7 @@ pub(super) fn pane_submission_requests(
             HerdrControlRequest::PaneSendInput {
                 pane_id: pane_id.clone(),
                 text,
-                keys: if index + 1 == part_count {
+                keys: if index + 1 == part_count && !separate_enter {
                     vec!["enter".to_owned()]
                 } else {
                     Vec::new()
@@ -429,8 +432,20 @@ pub(super) fn pane_submission_requests(
             true,
         ));
     }
+    if separate_enter {
+        requests.push((
+            HerdrControlRequest::PaneSendKeys {
+                pane_id,
+                keys: vec!["enter".to_owned()],
+            },
+            false,
+        ));
+    }
     requests
 }
+
+/// Long enough for Claude Code to turn a pasted image path into an attachment.
+const ATTACHMENT_SETTLE: Duration = Duration::from_millis(600);
 
 pub(super) async fn submit_pastes_inner(
     inner: Arc<RuntimeInner>,
@@ -439,6 +454,9 @@ pub(super) async fn submit_pastes_inner(
 ) -> Result<(), HostRuntimeError> {
     let mut submitted_parts = 0_u32;
     for (request, completes_part) in pane_submission_requests(pane_id, parts) {
+        if submitted_parts > 0 && matches!(request, HerdrControlRequest::PaneSendKeys { .. }) {
+            tokio::time::sleep(ATTACHMENT_SETTLE).await;
+        }
         control_request_inner(inner.clone(), request)
             .await
             .map_err(|error| HostRuntimeError::PaneSubmissionFailure {

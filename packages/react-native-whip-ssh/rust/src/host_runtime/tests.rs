@@ -1316,7 +1316,7 @@ fn pane_submission_sequence_is_one_semantic_native_operation() {
             "/tmp/image.png".to_owned(),
         ],
     );
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 4);
     assert!(matches!(
         &requests[0],
         (
@@ -1333,7 +1333,23 @@ fn pane_submission_sequence_is_one_semantic_native_operation() {
         (
             HerdrControlRequest::PaneSendInput { text, keys, .. },
             true
-        ) if text == "/tmp/image.png" && keys == &["enter"]
+        ) if text == "/tmp/image.png" && keys.is_empty()
+    ));
+    // An agent reads a pasted image path before it accepts Enter.
+    assert!(matches!(
+        &requests[3],
+        (HerdrControlRequest::PaneSendKeys { keys, .. }, false) if keys == &["enter"]
+    ));
+    assert!(matches!(
+        pane_submission_requests("pane-1".to_owned(), vec![String::new(), "/tmp/a.png".to_owned()]).as_slice(),
+        [
+            (HerdrControlRequest::PaneSendInput { keys, .. }, true),
+            (HerdrControlRequest::PaneSendKeys { .. }, false),
+        ] if keys.is_empty()
+    ));
+    assert!(matches!(
+        pane_submission_requests("pane-1".to_owned(), vec!["hi".to_owned()]).as_slice(),
+        [(HerdrControlRequest::PaneSendInput { text, keys, .. }, true)] if text == "hi" && keys == &["enter"]
     ));
 
     assert!(matches!(
