@@ -73,7 +73,9 @@ export function useSessionRuntimeTelemetry({
     ) => {
       recordNetworkDiagnostic(
         diagnostic.outcome === 'failed'
-          ? 'error'
+          ? // A missed latency probe is a transient sample; the connection
+            // state reports real failures, so it must not raise a dev error overlay.
+            diagnostic.operation === 'application-latency-probe' ? 'warn' : 'error'
           : diagnostic.durationMs >= SLOW_HOST_LATENCY_MS
           ? 'warn'
           : 'info',
