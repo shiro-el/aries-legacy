@@ -5,6 +5,7 @@ import type { LiveHostConnectionStatus } from '../../liveHostSessions';
 import type { HostProfile } from '../../types';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { PhoneAlerts, type PhoneAlertPreferences, type SetPreference } from './PhoneAlerts';
+import { ShizukuSection } from '../shizuku/ShizukuSection';
 import { VoiceInputSetting } from './VoiceInputSetting';
 
 export type HostRow = {
@@ -73,6 +74,7 @@ export function HostsScreen({
           />
         ))}
         {loaded && <PhoneAlerts value={alerts} onChange={onAlertsChange} />}
+        {loaded && <ShizukuSection />}
         {loaded && <VoiceInputSetting editRequest={voiceKeyRequest} />}
       </ScrollView>
     </View>

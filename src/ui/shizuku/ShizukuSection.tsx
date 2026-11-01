@@ -1,0 +1,135 @@
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
+
+import { radius, space, type, usePalette } from '../theme/tokens';
+import {
+  downloadShizuku,
+  getShizukuStatus,
+  openShizukuManager,
+  pairShizuku,
+  subscribeToShizukuStatus,
+  type ShizukuStatus,
+} from '../../services/shizuku';
+
+const SHIZUKU_PROJECT_URL = 'https://github.com/RikkaApps/Shizuku';
+
+function AndroidShizukuSection() {
+  const { t } = useTranslation();
+  const p = usePalette();
+  const [status, setStatus] = useState<ShizukuStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const updateStatus = (next: ShizukuStatus) => {
+      if (active) {
+        setStatus(next);
+        setError(false);
+      }
+    };
+    const refresh = () => {
+      getShizukuStatus()
+        .then(updateStatus)
+        .catch(() => {
+          if (active) {
+            setStatus(null);
+            setError(true);
+          }
+        });
+    };
+    const unsubscribe = subscribeToShizukuStatus(updateStatus);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    refresh();
+    return () => {
+      active = false;
+      unsubscribe();
+      subscription.remove();
+    };
+  }, []);
+
+  const connect = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      // Recheck before acting: Shizuku can stop or revoke access at any time.
+      const current = await getShizukuStatus();
+      setStatus(current);
+      switch (current) {
+        case 'permission_required':
+          if (status === 'denied') await openShizukuManager();
+          else setStatus(await pairShizuku());
+          break;
+        case 'not_installed':
+          await downloadShizuku();
+          break;
+        case 'unavailable':
+          break;
+        case 'stopped':
+        case 'unsupported':
+        case 'denied':
+        case 'ready':
+          await openShizukuManager();
+      }
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actionKey =
+    status === 'not_installed'
+      ? 'shizuku.install'
+      : status === 'ready' ||
+          status === 'denied' ||
+          status === 'unsupported' ||
+          status === 'stopped'
+        ? 'shizuku.open'
+        : 'shizuku.pair';
+
+  return (
+    <View style={styles.section}>
+      <Text style={[type.bodyBold, { color: p.text }]} accessibilityRole="header">{t('shizuku.title')}</Text>
+      <Text style={[type.caption, { color: p.muted }]}>{t('shizuku.copy')}</Text>
+      <Text accessibilityLiveRegion="polite" style={[type.body, { color: p.text }]}>
+        {t(status ? `shizuku.status.${status}` : 'shizuku.checking')}
+      </Text>
+      {error ? <Text accessibilityLiveRegion="polite" style={[type.caption, { color: p.removed }]}>{t('shizuku.error')}</Text> : null}
+      <Pressable
+        disabled={busy || (!status && !error) || status === 'unavailable'}
+        accessibilityRole="button"
+        accessibilityLabel={t(actionKey)}
+        onPress={() => { void connect(); }}
+        style={({ pressed }) => [styles.button, { borderColor: p.seam, opacity: busy || status === 'unavailable' ? 0.5 : 1, backgroundColor: pressed ? p.surface : p.bg }]}
+      >
+        {busy ? <ActivityIndicator size="small" color={p.text} /> : null}
+        <Text style={[type.bodyMedium, { color: p.text }]}>{t(busy ? 'shizuku.pairing' : actionKey)}</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={t('shizuku.github')}
+        onPress={() => { void Linking.openURL(SHIZUKU_PROJECT_URL).catch(linkError => {
+          Alert.alert(t('about.githubError'), String(linkError));
+        }); }}
+        style={styles.link}
+      >
+        <Text style={[type.caption, { color: p.muted }]}>{t('shizuku.github')}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export function ShizukuSection() {
+  return Platform.OS === 'android' ? <AndroidShizukuSection /> : null;
+}
+
+const styles = StyleSheet.create({
+  section: { paddingTop: space.lg, gap: space.sm },
+  button: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm, paddingHorizontal: space.md, borderWidth: 1.5, borderRadius: radius.sm },
+  link: { alignSelf: 'flex-start', paddingVertical: space.sm },
+});

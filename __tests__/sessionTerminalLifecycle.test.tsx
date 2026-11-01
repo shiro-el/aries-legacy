@@ -340,3 +340,22 @@ test.each(['agent', 'shell', 'failed'] as const)('new %s task opens the original
     }
   } finally { alert.mockRestore(); }
 });
+
+
+test('session access forwards Shizuku grants and revocation to the selected runtime and publishes state', async () => {
+  const client = new HerdrClient();
+  const runtime = nativeRuntime();
+  const setAgentReverseControl = jest.fn().mockResolvedValue(undefined);
+  Object.assign(runtime, { setAgentReverseControl });
+  await client.connect(profile);
+  const update = setup(client);
+  await update();
+  jest.mocked(update.options.commitAppCore).mockClear();
+  for (const shizukuAccess of [true, false]) {
+    await act(async () => {
+      await lifecycle.setAgentReverseControl(profile.id, 'terminal', true, shizukuAccess);
+    });
+    expect(setAgentReverseControl).toHaveBeenLastCalledWith('terminal', true, shizukuAccess);
+    expect(update.options.commitAppCore).toHaveBeenCalledWith(update.options.state);
+  }
+});
