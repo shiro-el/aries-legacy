@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SessionPresentation } from '../../liveHostSessions';
 import type { TerminalRenderTarget } from '../../lib/terminalRenderer';
 import type { TerminalSessionStatus } from '../../terminalSessions';
+import { ItemMenu, type ItemAction } from '../menus/ItemMenu';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, palettes, radius, space, type } from '../theme/tokens';
 import { TerminalSurface, type TerminalSurfaceHandle } from './TerminalSurface';
@@ -19,11 +20,11 @@ type Props = {
   fontSize: number;
   onBack: () => void;
   onSelectTerminal: (terminalId: string) => void;
-  onCloseTerminal: (terminalId: string) => void;
+  terminalActions: (terminalId: string) => ItemAction[];
   onStatus: (terminalId: string, status: TerminalSessionStatus, error?: string) => void;
 };
 
-export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerminal, onCloseTerminal, onStatus }: Props) {
+export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerminal, terminalActions, onStatus }: Props) {
   const surface = useRef<TerminalSurfaceHandle>(null);
   // Ctrl and Alt latch for the next key, typed or tapped, then let go.
   const [modifiers, setModifiers] = useState<Modifiers>(NO_MODIFIERS);
@@ -73,22 +74,23 @@ export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerm
         {session && <Text style={s.host} numberOfLines={1}>{session.host.name}</Text>}
       </View>
 
-      {terminals.length > 1 && (
+      {terminals.length > 0 && (
         <ScrollView horizontal style={s.rail} contentContainerStyle={s.railContent} showsHorizontalScrollIndicator={false}>
           {terminals.map(entry => {
             const active = entry.terminalId === activeId;
             return (
-              <Pressable
+              <ItemMenu
+                label={entry.title}
+                palette={p}
+                actions={terminalActions(entry.terminalId)}
                 key={entry.terminalId}
                 onPress={() => onSelectTerminal(entry.terminalId)}
-                onLongPress={() => onCloseTerminal(entry.terminalId)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
-                accessibilityHint="Long press to close"
                 style={[s.railItem, active && s.railItemActive]}
               >
                 <Text style={[s.railLabel, active && s.railLabelActive]} numberOfLines={1}>{entry.title}</Text>
-              </Pressable>
+              </ItemMenu>
             );
           })}
         </ScrollView>
