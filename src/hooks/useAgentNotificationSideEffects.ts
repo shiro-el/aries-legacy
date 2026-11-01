@@ -109,7 +109,7 @@ export function useAgentNotificationNavigation({
   restoreComplete,
   getState,
   hosts,
-  openPaneTerminal,
+  openPane,
   connectSavedHost,
   runtimesRef,
 }: {
@@ -119,7 +119,7 @@ export function useAgentNotificationNavigation({
   hosts: HostManagementController;
   connectSavedHost: (host: import('../types').HostProfile) => Promise<void>;
   runtimesRef: SessionRuntimeStore['runtimesRef'];
-  openPaneTerminal: (sessionId: string, pane: PaneInfo) => void;
+  openPane: (sessionId: string, pane: PaneInfo) => void;
 }): void {
   const openNotificationTarget = useEffectEvent(async () => {
     if (!notifications.response) return;
@@ -154,7 +154,7 @@ export function useAgentNotificationNavigation({
       });
       hosts.closeEditor();
       hosts.setError(null);
-      openPaneTerminal(resolved.sessionId, resolved.pane);
+      openPane(resolved.sessionId, resolved.pane);
       notifications.consume(target.notificationId);
     } catch (error) { hosts.setError(String(error)); }
   });

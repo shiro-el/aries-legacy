@@ -12,6 +12,7 @@ import { useSessionRuntimeManager } from '../hooks/useSessionRuntimeManager';
 import { useStartupStorage } from '../hooks/useStartupStorage';
 import { useTerminalHistory } from '../hooks/useTerminalHistory';
 import { useTerminalSessions } from '../hooks/useTerminalSessions';
+import type { PaneInfo } from '../types';
 
 /**
  * Composition root for the headless app core: storage, preferences, saved
@@ -65,6 +66,8 @@ export function useAppRuntime() {
   const terminals = useTerminalSessions();
   const telemetry = useLiveHostTelemetry();
 
+  // Whether a pane opens as a chat is decided by the screen, which mounts later.
+  const openNotificationPaneRef = useRef<((sessionId: string, pane: PaneInfo) => void) | null>(null);
   const sessions = useSessionRuntimeManager({
     startupStorage,
     deferredHydrationReady,
@@ -84,6 +87,9 @@ export function useAppRuntime() {
     notifications,
     terminals,
     telemetry,
+    openNotificationPane: (sessionId, pane) => {
+      (openNotificationPaneRef.current ?? sessions.openPaneTerminal)(sessionId, pane);
+    },
   });
   closeHostRef.current = hostId => {
     void sessions.closeHostById(hostId);
@@ -95,6 +101,7 @@ export function useAppRuntime() {
     security,
     navigation,
     terminals,
+    openNotificationPaneRef,
     preferences: prefs,
     setPreference: preferences.setPreference,
   };

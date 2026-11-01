@@ -69,6 +69,8 @@ interface SessionRuntimeManagerOptions {
   notifications: ReturnType<typeof useAgentNotifications>;
   terminals: ReturnType<typeof useTerminalSessions>;
   telemetry: ReturnType<typeof useLiveHostTelemetry>;
+  /** Opens the pane a tapped notification names, as a chat or a terminal. */
+  openNotificationPane: (sessionId: string, pane: PaneInfo) => void;
 }
 
 export interface SessionRuntimeController {
@@ -163,6 +165,7 @@ export function useSessionRuntimeManager({
   notifications,
   terminals,
   telemetry,
+  openNotificationPane,
 }: SessionRuntimeManagerOptions): SessionRuntimeController {
   const [appCore] = useState(() => new NativeAppCore());
   const { state, project } = useAppCoreSessions(() => appCore.view());
@@ -261,7 +264,7 @@ export function useSessionRuntimeManager({
     restoreComplete,
     getState,
     hosts,
-    openPaneTerminal: terminal.openPaneTerminal,
+    openPane: openNotificationPane,
     connectSavedHost: connection.connectSavedHost,
     runtimesRef,
   });

@@ -42,7 +42,7 @@ function hideLaunchScreen() {
 export default function App() {
   const [fontsLoaded] = useFonts(fontAssets);
   const palette = usePalette();
-  const { hosts, sessions, security, navigation, terminals, preferences, setPreference } = useAppRuntime();
+  const { hosts, sessions, security, navigation, terminals, openNotificationPaneRef, preferences, setPreference } = useAppRuntime();
   const calls = useHostCalls();
   const { presentationSessions, activeSession, terminalTargets } = sessions;
 
@@ -142,6 +142,16 @@ export default function App() {
     if (!pane) return;
     if (chatAgentForPane(pane)) setChat({ sessionId, paneId });
     else sessions.openPaneTerminal(sessionId, pane);
+  };
+  // A notification names a pane that may only just have been restored.
+  openNotificationPaneRef.current = (sessionId, pane) => {
+    if (!chatAgentForPane(pane)) {
+      sessions.openPaneTerminal(sessionId, pane);
+      return;
+    }
+    setWorkbench(null);
+    setChat({ sessionId, paneId: pane.pane_id });
+    navigation.selectTab('herd');
   };
 
   const activeTerminalId = activeSession?.terminalRail.activeTerminalId;
