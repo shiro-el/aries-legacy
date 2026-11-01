@@ -186,11 +186,26 @@ pub(crate) fn preview_text(value: &str, max_bytes: usize) -> String {
     text
 }
 
+/// The host's name labels notifications instead of internal session IDs.
+pub fn hostname() -> String {
+    let mut name = [0u8; 256];
+    // SAFETY: name is writable for the full length passed to gethostname.
+    if unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len()) } != 0 {
+        return String::new();
+    }
+    let end = name
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(name.len());
+    String::from_utf8_lossy(&name[..end]).into_owned()
+}
+
 /// Only use pane-specific context when it belongs to the event's pane.
 pub fn notification_preview(
     event: &NotificationEvent,
     json: &str,
     context: &str,
+    hostname: &str,
 ) -> Result<NotificationPreview> {
     if let (Some(title), Some(body)) = (&event.title, &event.body) {
         return Ok(NotificationPreview {
@@ -210,26 +225,16 @@ pub fn notification_preview(
                 .then(|| context["focused_pane_agent"].as_str())
                 .flatten()
         })
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or(&event.pane_id);
-    let name = preview_text(name, PREVIEW_LABEL_BYTES);
-    let name = if name.is_empty() {
-        preview_text(&event.pane_id, PREVIEW_LABEL_BYTES)
-    } else {
-        name
-    };
+        .map(|name| preview_text(name, PREVIEW_LABEL_BYTES))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Agent".into());
     let action = if event.status == "blocked" {
         "needs you"
     } else {
         "finished"
     };
     let tab = pane_context
-        .then(|| {
-            context["tab_label"]
-                .as_str()
-                .filter(|label| !label.trim().is_empty())
-                .or_else(|| context["tab_id"].as_str())
-        })
+        .then(|| context["tab_label"].as_str())
         .flatten();
     let tab = tab
         .map(|tab| preview_text(tab, PREVIEW_LABEL_BYTES))
@@ -244,12 +249,13 @@ pub fn notification_preview(
         .filter(|title| !title.trim().is_empty())
         .map(|title| preview_text(title, PREVIEW_BODY_BYTES))
         .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| {
-            format!(
-                "Agent is {} · {} · {}",
-                event.status, event.workspace_id, event.pane_id
-            )
-        });
+        .unwrap_or_else(|| format!("Agent is {}", event.status));
+    let hostname = preview_text(hostname, PREVIEW_LABEL_BYTES);
+    let body = if hostname.is_empty() {
+        body
+    } else {
+        format!("{hostname} · {body}")
+    };
     Ok(NotificationPreview {
         title: preview_text(&title, PREVIEW_TITLE_BYTES),
         body: preview_text(&body, PREVIEW_BODY_BYTES),
@@ -455,7 +461,7 @@ pub fn parse_event(json: &str, context: &str, session: &str) -> Result<Option<No
         title: hook.data.title.map(|s| s.chars().take(80).collect()),
         ..Default::default()
     };
-    let preview = notification_preview(&event, json, context)?;
+    let preview = notification_preview(&event, json, context, &hostname())?;
     event.title = Some(preview.title);
     event.body = Some(preview.body);
     Ok(Some(event))

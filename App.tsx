@@ -1,3 +1,4 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -6,6 +7,8 @@ import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-co
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { chatAgentForPane } from './src/lib/agentChatSession';
+import { useAppQueryLifecycle } from './src/hooks/useAppQueryLifecycle';
+import { appQueryClient } from './src/services/appQueryClient';
 import { reportBackgroundFailure } from './src/services/backgroundOperations';
 import { ChatScreen } from './src/ui/chat/ChatScreen';
 import { DeleteHostPrompt, HostKeyPrompt, LockScreen } from './src/ui/Gate';
@@ -40,6 +43,15 @@ function hideLaunchScreen() {
 }
 
 export default function App() {
+  useAppQueryLifecycle();
+  return (
+    <QueryClientProvider client={appQueryClient}>
+      <AppContent />
+    </QueryClientProvider>
+  );
+}
+
+function AppContent() {
   const [fontsLoaded] = useFonts(fontAssets);
   const palette = usePalette();
   const { hosts, sessions, security, navigation, terminals, openNotificationPaneRef, preferences, setPreference } = useAppRuntime();

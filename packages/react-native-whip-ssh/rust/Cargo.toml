@@ -9,14 +9,22 @@ description = "Private WP4 pairing transport for Whip"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+herdr-protocol = { version = "0.2.0", path = "../../../crates/herdr-protocol" }
+agent-transcript-core = { version = "0.1.0", path = "../../../crates/agent-transcript-core" }
+agent-browser-control = { version = "0.1.0", path = "../../../crates/agent-browser-control" }
+whipair-protocol = { version = "0.1.0", path = "../../../crates/whipair-protocol" }
+async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 base64 = "0.22"
 whip-notify = { path = "../../../whip-notify", default-features = false }
+tailcat-client = { version = "0.1.1", path = "../../../crates/tailcat-client" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 futures = "0.3"
 hmac = "0.12"
 html5ever = "0.39"
 parking_lot = "0.12"
+rayon = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 resvg = { version = "0.48.1", default-features = false, features = ["text", "raster-images"] }
 russh = { version = "0.64.1", default-features = false, features = ["flate2", "ring"] }
 russh-sftp = "2.4"
@@ -37,7 +45,15 @@ uniffi = "=0.31"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+ptts = { version = "=0.6.0", default-features = false, features = ["hf"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+ptts-ffi = { git = "https://github.com/gradium-ai/xn-ptts", rev = "cf90537f4599fb5ae6b09ac88258ce69e8e2f133" }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
+
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util", "process"] }
 tempfile = "3"
 
 [lints.clippy]

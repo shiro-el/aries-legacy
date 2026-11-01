@@ -5,6 +5,25 @@ app restarts. Opening Chat in one terminal does not change another terminal's
 selection. Offline hosts restore cached Chat when available. Closing a terminal
 discards its selection; new terminals start in Terminal.
 
+Chat hides terminal key and modifier buttons. Paste, History, and Scan links
+remain available, with the usual keyboard visibility rules. When the composer
+is open, Paste and History insert into its draft at the cursor or replace the
+selected text without submitting. Opening History keeps the composer open.
+With the composer closed, Paste and History send input to the terminal.
+
+Chat also hides the keyboard toggle. Its composer always allows the keyboard
+when focused, including after dismissal, app backgrounding, or draft restoration.
+Restoring Chat does not focus the input. Native keyboard dismissal or blurring
+the composer cancels pending focus requests without closing the draft. Dragging
+the transcript dismisses the keyboard on Android and interactively on iOS.
+
+Terminal remembers keyboard eligibility separately for each tab while the app
+is running, including navigation to Herd and remounting the terminal screen.
+Entering a tab always leaves the keyboard down. When enabled, tapping the
+terminal or composer opens it. Scrolling the terminal or dragging its scrollbar
+dismisses the keyboard, and tapping terminal output dismisses an open composer’s
+keyboard. These actions preserve the tab’s enabled setting and draft.
+
 # Pinned chat context
 
 Chat keeps a compact preview of the most recent user prompt above the visible

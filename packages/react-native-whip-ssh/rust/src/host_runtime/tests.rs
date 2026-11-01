@@ -22,8 +22,7 @@ use crate::host_runtime::connection::{
     RecoveryScope, complete_herdr_startup_sync, herdr_readiness_timeout, idempotent_replay,
     initial_connect, poll_herdr_readiness, readiness_probe_error, reconnect_attempt,
     record_reconnect_failure, recovery_scope_for_transport_state, safe_control_replay,
-    start_herdr_server_command, validate_herdr_protocol, wait_for_reconnect,
-    wait_for_reconnect_delay,
+    validate_herdr_protocol, wait_for_reconnect, wait_for_reconnect_delay,
 };
 use crate::host_runtime::events::apply_herdr_event_batch;
 use crate::host_runtime::monitoring::set_monitoring_state;
@@ -92,6 +91,9 @@ fn config() -> HostRuntimeConfig {
     HostRuntimeConfig {
         runtime_id: "test".to_owned(),
         ssh: HostSshConfig {
+            tailcat_address: None,
+            tailcat_private_key: None,
+            tailcat_ssh_server: false,
             host: "host.test".to_owned(),
             port: 22,
             username: "user".to_owned(),
@@ -102,6 +104,7 @@ fn config() -> HostRuntimeConfig {
         },
         jump_hosts: Vec::new(),
         herdr_enabled: true,
+        herdr_backend: crate::HostHerdrBackend::Legacy,
         session_name: "main".to_owned(),
         herdr_command: "herdr".to_owned(),
         socket_path: None,
@@ -706,17 +709,6 @@ fn disconnected_integration_methods_return_control_transport_errors() {
 }
 
 #[test]
-fn server_start_command_is_native_owned_and_supports_profile_values() {
-    let command = start_herdr_server_command("/opt/herdr current/herdr", "team's session");
-    assert!(command.starts_with("exec /bin/sh -c "));
-    assert!(command.contains("nohup"));
-    assert!(command.contains("/opt/herdr current/herdr"));
-    assert!(command.contains("team"));
-    assert!(command.contains("server"));
-    assert!(command.contains("/tmp/whip-herdr-server.log"));
-}
-
-#[test]
 fn readiness_retries_transient_socket_failures_until_snapshot_is_ready() {
     crate::runtime().unwrap().block_on(async {
         let attempts = Arc::new(AtomicU64::new(0));
@@ -1070,9 +1062,15 @@ fn cancelled_reverse_control_launch_preserves_existing_session_across_reconnect(
             "params": {"protocolVersion": "2025-06-18"}
         });
         assert_eq!(
-            wire(port, &info_a.session_id, &token_a, "POST", &initialize, "")
-                .await?
-                .status,
+            crate::reverse_control::tests::metadata(
+                owner,
+                port,
+                &info_a.session_id,
+                &token_a,
+                &initialize
+            )
+            .await?
+            .status,
             200
         );
         owner.reconcile(std::slice::from_ref(&pane_a));
@@ -4193,6 +4191,9 @@ fn status_is_one_coherent_runtime_record() {
 fn valid_jump_chain_configuration_is_accepted() {
     let mut value = config();
     value.jump_hosts.push(HostSshConfig {
+        tailcat_address: None,
+        tailcat_private_key: None,
+        tailcat_ssh_server: false,
         host: "jump.test".to_owned(),
         port: 2222,
         username: "jump".to_owned(),
@@ -4206,9 +4207,44 @@ fn valid_jump_chain_configuration_is_accepted() {
 }
 
 #[test]
+fn tailcat_requires_an_address_and_must_be_the_first_hop() {
+    let mut value = config();
+    value.ssh.tailcat_address = Some(String::new());
+    assert!(validate_config(&value).is_err());
+    value.ssh.tailcat_address = Some("tc-address".into());
+    assert!(validate_config(&value).is_err());
+    value.ssh.tailcat_private_key = Some("privkey:test".into());
+    assert!(validate_config(&value).is_ok());
+    let mut jump = value.ssh.clone();
+    jump.tailcat_address = None;
+    value.jump_hosts.push(jump);
+    assert!(validate_config(&value).is_err());
+    value.jump_hosts[0].tailcat_address = value.ssh.tailcat_address.take();
+    assert!(validate_config(&value).is_ok());
+}
+
+#[test]
+fn builtin_tailcat_ssh_requires_the_tunnel_and_ssh_key_authentication() {
+    let mut value = config();
+    value.ssh.tailcat_ssh_server = true;
+    assert!(validate_config(&value).is_err());
+    value.ssh.tailcat_address = Some("tc-address".into());
+    value.ssh.tailcat_private_key = Some("privkey:test".into());
+    assert!(validate_config(&value).is_err());
+    value.ssh.credential = HostSshCredential::Key {
+        private_key: "ssh-key".into(),
+        passphrase: None,
+    };
+    assert!(validate_config(&value).is_ok());
+}
+
+#[test]
 fn malformed_jump_host_is_rejected_before_transport_creation() {
     let mut value = config();
     value.jump_hosts.push(HostSshConfig {
+        tailcat_address: None,
+        tailcat_private_key: None,
+        tailcat_ssh_server: false,
         host: String::new(),
         port: 22,
         username: "jump".to_owned(),

@@ -41,16 +41,40 @@ def generatedRustBindings = files(
   file("../cpp/generated/whip_ssh.hpp"),
 )
 
+def appSourceRoot = rootProject.projectDir.parentFile
+def readAppSources = {
+  def output = providers.exec {
+    workingDir appSourceRoot
+    commandLine 'node', new File(appSourceRoot, 'scripts/native-app-source-snapshot.cjs').absolutePath
+  }.standardOutput.asText.get()
+  new groovy.json.JsonSlurper().parseText(output)
+}
+def appSourceSnapshot = [files: null]
+def captureAppSources = tasks.register('captureAppSources') {
+  description = 'Captures application and native source inputs before compiling the Rust bridge'
+  doLast { appSourceSnapshot.files = readAppSources() }
+}
+def verifyAppSources = {
+  def current = readAppSources()
+  def original = appSourceSnapshot.files
+  if (original == null) throw new GradleException('Application source snapshot was not captured')
+  def changed = (original.keySet() + current.keySet()).unique().findAll { original[it] != current[it] }.sort()
+  if (!changed.isEmpty()) {
+    throw new GradleException('Application or native sources changed during this build. Rebuild from stable sources to avoid packaging incompatible JavaScript and Rust bindings. Changed files:\n' + changed.join('\n'))
+  }
+}
+
 def buildRustArm64 = tasks.register("buildRustArm64", Exec) {
   description = "Builds the arm64 Rust static library"
   group = "build"
+  dependsOn captureAppSources
 
   workingDir rustDirectory
   commandLine "bash", rustBuildScript.absolutePath
 
   inputs.files(
     fileTree("${rustDirectory}/src") {
-      include "**/*.rs"
+      include "**/*.rs", "**/*.json"
     },
     fileTree("${rustDirectory}/../../../whip-notify/src") { include "**/*.rs" },
     file("${rustDirectory}/../../../whip-notify/Cargo.toml"),
@@ -63,7 +87,16 @@ def buildRustArm64 = tasks.register("buildRustArm64", Exec) {
     file("../../../scripts/instrument-terminal-bindings.ts"),
     file("../../../patches/uniffi-bindgen-react-native+0.31.0-3.patch"),
   )
+  ["agent-browser-control", "agent-transcript-core", "herdr-protocol", "tailcat-client", "whipair-protocol"].each { crate ->
+    def crateDirectory = file("${rustDirectory}/../../../crates/${crate}")
+    inputs.files(
+      fileTree("${crateDirectory}/src") { include "**/*.rs", "**/*.js" },
+      file("${crateDirectory}/Cargo.toml"),
+      file("${crateDirectory}/README.md"),
+    )
+  }
   outputs.files(rustArchive, generatedRustBindings)
+  doLast { verifyAppSources() }
 }
 
 tasks.named("preBuild").configure {
@@ -77,6 +110,13 @@ tasks.named("generateCodegenSchemaFromJavaScript").configure {
 rootProject.project(":app").tasks.configureEach { task ->
   if (task.name.startsWith("createBundle") && task.name.endsWith("JsAndAssets")) {
     task.dependsOn buildRustArm64
+    task.doFirst { verifyAppSources() }
+    task.doLast { verifyAppSources() }
+  }
+  if (task.name == 'packageRelease' || task.name == 'assembleRelease' || task.name == 'bundleRelease') {
+    task.dependsOn captureAppSources
+    task.doFirst { verifyAppSources() }
+    task.doLast { verifyAppSources() }
   }
 }
 

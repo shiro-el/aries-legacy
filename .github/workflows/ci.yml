@@ -3,12 +3,46 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
+    paths: &app-paths
+      - '**'
+      - '!whipair/**'
+      - '!whip-notify/**'
+      - '!launch-videos/**'
+      - '!assets/screenshots/**'
+      - '!fastlane/metadata/**'
+      - '!feedback-worker/**'
+      - '!notify-relay/**'
+      - '!__tests__/feedbackWorker*.test.ts'
+      - '!__tests__/notifyRelay*.test.ts'
+      - '!jest.workers.config.js'
+      - '!.github/workflows/ci-feedback-worker.yml'
+      - '!.github/workflows/ci-notify-relay.yml'
+      - '!.github/workflows/ci-whipair.yml'
+      - '!.github/workflows/ci-whip-notify.yml'
+      - '!.github/workflows/publish-whipair.yml'
+      - '!.github/workflows/publish-whipair-packages.yml'
+      - '!.github/workflows/publish-tailcat-client.yml'
+      - '!.github/workflows/publish-whipair-protocol.yml'
+      - '!.github/workflows/publish-agent-browser-control.yml'
+      - '!.github/workflows/ci-agent-browser-control.yml'
+      - '!.github/workflows/ci-agent-transcript-core.yml'
+      - '!.github/workflows/publish-agent-transcript-core.yml'
+      - '!.github/workflows/ci-herdr-protocol.yml'
+      - '!.github/workflows/publish-herdr-protocol.yml'
+      - '!.github/workflows/release-whip-notify.yml'
+      - '!scripts/prepare-notify-install-tag.sh'
+      - '!scripts/publish-crate-github-release.sh'
+      # The app imports this library and embeds its platform detection script.
+      - 'whip-notify/Cargo.toml'
+      - 'whip-notify/src/**'
+      - '!whip-notify/src/main.rs'
+      - '!whip-notify/src/host.rs'
+      - '!whip-notify/src/host/**'
+      - 'whip-notify/platform.sh'
+      - '!**/*.md'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
+    paths: *app-paths
   schedule:
     - cron: '17 9 * * 1'
   workflow_dispatch:
@@ -24,8 +58,13 @@ jobs:
   rust:
     name: Whip Rust core checks
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
+    # xn-gemm-f16 uses AArch64 FP16 SIMD inline asm; the runner supports FEAT_FP16,
+    # but Rust's baseline AArch64 target does not enable it by default.
+    # Keep this flag in the ARM64 test job, not in shipped mobile builds.
+    env:
+      RUSTFLAGS: -C target-feature=+fp16
     permissions:
       checks: write
       contents: read
@@ -40,6 +79,15 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install
 
+      - name: Install Go for Tailcat interoperability tests
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: crates/tailcat-client/tests/reference/go.mod
+          cache-dependency-path: crates/tailcat-client/tests/reference/go.sum
+
+      - name: Install local SSH fixture tools
+        run: sudo apt-get update && sudo apt-get install --yes openssh-server netcat-openbsd
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
@@ -51,16 +99,45 @@ jobs:
       - name: Lint Whip Rust core
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      - name: Check independent notification plugin
-        working-directory: ${{ github.workspace }}/whip-notify
+      - name: Check Tailcat client library
+        working-directory: crates/tailcat-client
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/packages/react-native-whip-ssh/rust/target
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          bash tests/interop.sh
+
+      - name: Check shared pairing protocol
+        working-directory: crates/whipair-protocol
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/packages/react-native-whip-ssh/rust/target
         run: |
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
 
-      - name: Lint WhipAir
-        working-directory: ${{ github.workspace }}/whipair
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Check shared agent transcript library
+        working-directory: crates/agent-transcript-core
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/packages/react-native-whip-ssh/rust/target
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo run --locked --example ingest
+
+      - name: Check shared Herdr protocol
+        working-directory: crates/herdr-protocol
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/packages/react-native-whip-ssh/rust/target
+        run: |
+          node scripts/generate-hc.cjs --check
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo run --locked --example messages
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -73,7 +150,21 @@ jobs:
         run: npm ci --ignore-scripts --include=dev
 
       - name: Test Whip Rust core
-        run: cargo test --locked
+        # Host-runtime tests share process-wide event sinks.
+        run: cargo test --locked -- --test-threads=1
+
+      - name: Test real Herdr Core over SSH
+        env:
+          CORE_TEST_DIRECTORY: ${{ runner.temp }}/herdr-core-0.1.16
+        run: |
+          export WHIP_HC_TEST_BINARY="$(bash ../../../scripts/fetch-herdr-core-test.sh "$CORE_TEST_DIRECTORY")"
+          cargo test --locked --lib hc_transport::tests::real_core_socket_multiplex_documents_reconnect_and_exec_fallback -- --ignored --test-threads=1
+
+      - name: Test Tailcat against a local upstream relay and server
+        run: bash tests/test-tailcat.sh
+
+      - name: Test Tailcat-first-hop ProxyJump and recovery
+        run: bash tests/test-tailcat-proxyjump.sh
 
       - name: Check generated UniFFI bindings
         working-directory: ${{ github.workspace }}
@@ -120,14 +211,6 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run check:scripts
-
-      - name: Check feedback Worker
-        run: npm run worker:check
-
-      - name: Check encrypted notification relay
-        run: |
-          npm ci --prefix notify-relay
-          npm run notify:check
 
       - name: Lint
         run: npm run lint
@@ -346,19 +429,17 @@ jobs:
           CURL
           bundle exec pod install
 
-      - name: Test native terminal input on iPhone simulator
-        id: ios-input-tests
+      - name: Test native browser, clipboard, and terminal input on iPhone simulator
+        id: ios-native-tests
         run: |
           defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool NO
-          nix develop .#default -c ruby scripts/test-ios-browser.rb \
-            -only-testing:BrowserTests/WhipTerminalInputTests \
-            -only-testing:TerminalInputUITests
+          nix develop .#default -c ruby scripts/test-ios-browser.rb
 
-      - name: Upload failed iOS input test results
-        if: failure() && steps.ios-input-tests.conclusion == 'failure'
+      - name: Upload failed iOS native test results
+        if: failure() && steps.ios-native-tests.conclusion == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: whip-ios-input-test-results
+          name: whip-ios-native-test-results
           path: build/ios-browser-tests/DerivedData/Logs/Test/*.xcresult
           if-no-files-found: warn
           retention-days: 7

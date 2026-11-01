@@ -8,8 +8,10 @@ mod agents;
 mod catalog;
 mod chat_identity;
 mod connection;
+#[cfg(test)]
+mod tailcat_proxyjump_tests;
 pub use connection::herdr_protocol_label;
-mod diagnostics;
+pub(crate) mod diagnostics;
 mod directory_cache;
 
 pub(crate) fn record_transcript_cache_failure(message: &str) {
@@ -17,6 +19,7 @@ pub(crate) fn record_transcript_cache_failure(message: &str) {
 }
 mod events;
 mod git_discovery;
+mod github;
 mod herdr_setup;
 mod host_latency;
 pub use herdr_setup::{HerdrInstallOutcome, HerdrInstallationStatus, HerdrSetup};
@@ -30,7 +33,9 @@ mod remote_text;
 pub use remote_text::{RemoteTextAnchor, RemoteTextPage, RemoteTextReader, RemoteTextRow};
 mod selection;
 pub use selection::TerminalSelectionSnapshot;
+mod submissions;
 mod terminal;
+pub(crate) use submissions::submission_transport;
 
 use std::collections::HashMap;
 use std::sync::{
@@ -73,7 +78,7 @@ use events::{
     refresh_host_state_inner, schedule_event_retry, schedule_state_resync, start_desired_events,
 };
 pub(crate) use events::{
-    deliver_herdr_events, event_subscription_closed, terminal_bridge_closed,
+    core_state_changed, deliver_herdr_events, event_subscription_closed, terminal_bridge_closed,
     terminal_kitty_keyboard_report_all_changed,
 };
 use host_latency::{
@@ -132,6 +137,9 @@ pub enum HostSshCredential {
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct HostSshConfig {
+    pub tailcat_address: Option<String>,
+    pub tailcat_private_key: Option<String>,
+    pub tailcat_ssh_server: bool,
     pub host: String,
     pub port: u16,
     pub username: String,
@@ -145,6 +153,7 @@ pub struct HostRuntimeConfig {
     pub ssh: HostSshConfig,
     pub jump_hosts: Vec<HostSshConfig>,
     pub herdr_enabled: bool,
+    pub herdr_backend: crate::host_profiles::HostHerdrBackend,
     pub session_name: String,
     pub herdr_command: String,
     pub socket_path: Option<String>,
@@ -770,6 +779,7 @@ pub fn clear_host_runtime_event_sink() {
 // React bridge invalidation detaches foreign callbacks, never SSH transports.
 #[unsafe(no_mangle)]
 pub extern "C" fn whip_detach_runtime_ui() {
+    crate::app_database::detach_known_host_repository();
     crate::terminal_delivery::clear();
     crate::reverse_control::detach_ui();
     crate::set_usage_foreground(false);
@@ -914,6 +924,7 @@ pub fn create_host_runtime(
         config.cached_socket_path.clone(),
         config.herdr_enabled,
     );
+    herdr.configure_backend(config.herdr_backend, config.herdr_command.clone());
     let inner = Arc::new(RuntimeInner {
         catalog_cache: Mutex::new(catalog::CatalogCache::default()),
         catalog_operation: AsyncMutex::new(()),
@@ -994,28 +1005,6 @@ impl HostRuntime {
         self.inner.state.lock().host_state.projection()
     }
 
-    pub async fn export_offline_cache(
-        &self,
-        last_revision: Option<u64>,
-    ) -> Result<Option<HostOfflineCache>, HostRuntimeError> {
-        let inner = self.inner.clone();
-        crate::runtime()
-            .map_err(HostRuntimeError::SshTransportFailure)?
-            .spawn_blocking(move || {
-                inner
-                    .state
-                    .lock()
-                    .host_state
-                    .export_offline_cache(last_revision)
-            })
-            .await
-            .map_err(|error| {
-                HostRuntimeError::SshTransportFailure(format!(
-                    "Offline cache export failed: {error}"
-                ))
-            })
-    }
-
     pub fn set_monitoring_state(&self, app_active: bool, hosts_visible: bool, access_locked: bool) {
         monitoring::set_monitoring_state(&self.inner, app_active, hosts_visible, access_locked);
     }
@@ -1036,10 +1025,42 @@ impl HostRuntime {
     }
 }
 
+// Snapshot serialization is internal to the Rust persistence worker.
+impl HostRuntime {
+    pub(crate) async fn export_offline_cache(
+        &self,
+        last_revision: Option<u64>,
+    ) -> Result<Option<HostOfflineCache>, HostRuntimeError> {
+        let inner = self.inner.clone();
+        crate::runtime()
+            .map_err(HostRuntimeError::SshTransportFailure)?
+            .spawn_blocking(move || {
+                inner
+                    .state
+                    .lock()
+                    .host_state
+                    .export_offline_cache(last_revision)
+            })
+            .await
+            .map_err(|error| {
+                HostRuntimeError::SshTransportFailure(format!(
+                    "Offline cache export failed: {error}"
+                ))
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 pub(crate) fn terminal_delivery_test_guard() -> parking_lot::MutexGuard<'static, ()> {
     tests::EVENT_SINK_TEST_LOCK.lock()
+}
+
+#[cfg(test)]
+pub(crate) fn register_connected_test_runtime(id: &str) -> Arc<HostRuntime> {
+    let inner = tests::connected_runtime_inner(id);
+    runtimes().write().insert(id.to_owned(), inner.clone());
+    Arc::new(HostRuntime { inner })
 }

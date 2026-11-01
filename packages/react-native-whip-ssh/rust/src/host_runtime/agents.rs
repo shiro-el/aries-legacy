@@ -250,7 +250,7 @@ pub(super) async fn create_tab_with_launch_inner(
         let state = inner.state.lock();
         (state.generation, state.herdr_recovery_revision)
     };
-    create_tab_with_launch_using(workspace_id, label, launch, |request| {
+    let mut outcome = create_tab_with_launch_using(workspace_id, label, launch, |request| {
         let inner = inner.clone();
         async move {
             {
@@ -264,7 +264,20 @@ pub(super) async fn create_tab_with_launch_inner(
             control_request_inner(inner, request).await
         }
     })
-    .await
+    .await?;
+    if inner.herdr.is_core()
+        && let HerdrTabLaunchResult::Created { root_pane, .. } = &mut outcome
+        && let HerdrControlResult::PaneInfo { pane } = control_request_inner(
+            inner.clone(),
+            HerdrControlRequest::PaneGet {
+                pane_id: root_pane.pane_id.clone(),
+            },
+        )
+        .await?
+    {
+        *root_pane = pane;
+    }
+    Ok(outcome)
 }
 
 pub(super) async fn create_tab_with_launch_using<F, Fut>(
@@ -607,6 +620,7 @@ impl HostRuntime {
                 &root_pane.terminal_id,
                 &remembered_launch,
                 false,
+                false,
             );
         }
         Ok(outcome)
@@ -637,6 +651,7 @@ impl HostRuntime {
                 &root_pane.terminal_id,
                 &remembered_launch,
                 false,
+                false,
             );
         }
         Ok(outcome)
@@ -663,6 +678,9 @@ impl HostRuntime {
         &self,
         kind: HerdrAgentKind,
     ) -> Result<AgentIntegrationStatus, HerdrControlError> {
+        if self.inner.herdr.backend().await? == crate::HostHerdrBackend::Core {
+            return Ok(AgentIntegrationStatus::Current);
+        }
         integration_status_with_request(kind, |request| self.control_request(request)).await
     }
 
@@ -682,6 +700,7 @@ impl HostRuntime {
         workspace_id: String,
         label: String,
         launch: HerdrTabLaunch,
+        shizuku_access: bool,
     ) -> Result<HerdrTabLaunchResult, HerdrControlError> {
         let remembered_launch = launch.clone();
         let launch = crate::reverse_control::agent_launch(normalize_tab_launch(launch)?)
@@ -704,8 +723,9 @@ impl HostRuntime {
                         "tab.create returned a non-tab result".to_owned(),
                     ));
                 };
-                let info = crate::reverse_control::new_session(&inner.id, &root_pane)
+                let mut info = crate::reverse_control::new_session(&inner.id, &root_pane)
                     .map_err(HerdrControlError::InvalidField)?;
+                info.shizuku_access = shizuku_access;
                 let session_id = info.session_id.clone();
                 let prepare = async {
                     let ssh = current_ssh(&inner).map_err(|error| {
@@ -733,6 +753,7 @@ impl HostRuntime {
                 &root_pane.terminal_id,
                 &remembered_launch,
                 true,
+                shizuku_access,
             );
         }
         Ok(outcome)

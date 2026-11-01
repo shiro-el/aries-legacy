@@ -11,8 +11,10 @@ mod browser_search_history;
 mod chat_rows;
 mod chat_search;
 mod chat_speech;
-mod codex;
+mod credential_transactions;
 mod git_review;
+mod github;
+mod hc_transport;
 mod herdr_api;
 mod herdr_codec;
 mod herdr_connection;
@@ -25,6 +27,7 @@ mod host_state;
 mod markdown_images;
 mod notification_crypto;
 mod pairing;
+mod phonon;
 mod public_keys;
 mod remote_ops;
 mod remote_preview;
@@ -35,6 +38,7 @@ mod speech_playback;
 mod ssh;
 mod syntax_highlighting;
 mod terminal_delivery;
+mod terminal_submissions;
 #[cfg(test)]
 mod test_allocations;
 mod transcript_database;
@@ -52,7 +56,9 @@ pub use browser_search_history::*;
 pub use chat_rows::*;
 pub use chat_search::*;
 pub use chat_speech::*;
+pub use credential_transactions::*;
 pub use git_review::*;
+pub use github::*;
 pub use herdr_api::*;
 pub use herdr_events::*;
 pub use herdr_terminal::*;
@@ -65,8 +71,12 @@ pub use remote_ops::*;
 pub use reverse_control::*;
 pub use rich_text_html::*;
 pub use secure_id::*;
+pub use ssh::tailcat::{
+    TailcatIdentity, TailcatIdentityError, generate_tailcat_identity, tailcat_server_command,
+};
 pub use syntax_highlighting::*;
 pub use terminal_delivery::*;
+pub use terminal_submissions::*;
 pub use transcript_database::{
     SavedAgentTranscript, agent_transcript_cache_size, clear_agent_transcript_cache,
     delete_agent_transcripts_for_host, list_saved_agent_transcripts, read_saved_agent_transcript,
@@ -141,6 +151,8 @@ impl From<pairing::PairingError> for PairHostError {
             pairing::PairingError::BadPrefix => Self::BadPrefix,
             pairing::PairingError::BadEncoding => Self::BadEncoding,
             pairing::PairingError::BadPayload => Self::BadPayload,
+            error @ (pairing::PairingError::TailcatJumpHost
+            | pairing::PairingError::TailcatConnection) => Self::SshFailure(error.to_string()),
             pairing::PairingError::ConnectionTimeout => Self::ConnectionTimeout,
             pairing::PairingError::ApprovalTimeout => Self::ApprovalTimeout,
             pairing::PairingError::AuthenticationFailed => Self::AuthenticationFailed,
@@ -193,8 +205,6 @@ mod tests {
 
     use super::{pair_host, ssh};
 
-    const BASE45_ALPHABET: &[u8; 45] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
-
     struct ThreadWaker(thread::Thread);
 
     impl Wake for ThreadWaker {
@@ -215,31 +225,16 @@ mod tests {
         }
     }
 
-    fn base45_encode(bytes: &[u8]) -> String {
-        let mut encoded = String::new();
-        for chunk in bytes.chunks(2) {
-            let value = if chunk.len() == 2 {
-                usize::from(chunk[0]) * 256 + usize::from(chunk[1])
-            } else {
-                usize::from(chunk[0])
-            };
-            encoded.push(char::from(BASE45_ALPHABET[value % 45]));
-            encoded.push(char::from(BASE45_ALPHABET[(value / 45) % 45]));
-            if chunk.len() == 2 {
-                encoded.push(char::from(BASE45_ALPHABET[value / (45 * 45)]));
-            }
-        }
-        encoded
-    }
-
     fn unreachable_pairing_code() -> String {
-        let mut payload = vec![1, 127, 0, 0, 1];
-        payload.extend_from_slice(&1_u16.to_be_bytes());
-        payload.push(4);
-        payload.extend_from_slice(b"test");
-        payload.extend_from_slice(&[7; 32]);
-        payload.extend_from_slice(&[9; 32]);
-        format!("WP4:{}", base45_encode(&payload))
+        whipair_protocol::encode_pairing_code(&whipair_protocol::PairingPayload {
+            ssh_host: "127.0.0.1".into(),
+            tailcat: false,
+            ssh_port: 1,
+            ssh_user: "test".into(),
+            temporary_private_key_seed: [7; whipair_protocol::ED25519_SEED_BYTES],
+            ssh_host_key_sha256: [9; whipair_protocol::SHA256_BYTES],
+        })
+        .unwrap()
     }
 
     #[test]

@@ -1,7 +1,6 @@
 import {
   agentAlertDelivery,
   agentNotificationTitle,
-  isAgentAlertingStatus,
   tabNameForAgent,
 } from '../src/lib/agentStatusEvents';
 import type { AgentInfo } from '../src/types';
@@ -18,13 +17,6 @@ const agent: AgentInfo = {
 };
 
 describe('agent status events', () => {
-  test('treats public idle as already seen and done as completion', () => {
-    expect(isAgentAlertingStatus('blocked')).toBe(true);
-    expect(isAgentAlertingStatus('done')).toBe(true);
-    expect(isAgentAlertingStatus('working')).toBe(false);
-    expect(isAgentAlertingStatus('idle')).toBe(false);
-  });
-
   test('an agent that needs you sounds once, and no agent status keeps ringing', () => {
     expect(agentAlertDelivery('blocked', 'persistent')).toBe('brief');
     expect(agentAlertDelivery('blocked', 'regular')).toBe('regular');

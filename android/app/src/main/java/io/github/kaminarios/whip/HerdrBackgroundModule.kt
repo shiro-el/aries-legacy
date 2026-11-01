@@ -66,6 +66,11 @@ class HerdrBackgroundModule(
   }
 
   @ReactMethod
+  fun speechBackendCommand(action: String, promise: Promise) {
+    mainHandler.post { PhononPlayback.command(context, action, promise) }
+  }
+
+  @ReactMethod
   fun startChatSpeech(token: String, label: String, promise: Promise) {
     mainHandler.post {
       try {
@@ -100,6 +105,11 @@ class HerdrBackgroundModule(
   @ReactMethod
   fun speakAnnouncement(token: String, text: String, language: String?, promise: Promise) {
     mainHandler.post { SpeechPlayback.announce(context, token, text, language, promise) }
+  }
+
+  @ReactMethod
+  fun speakPreview(token: String, text: String, language: String?, promise: Promise) {
+    mainHandler.post { SpeechPlayback.announce(context, token, text, language, promise, preview = true) }
   }
 
   @ReactMethod
@@ -191,9 +201,14 @@ class HerdrBackgroundModule(
   }
 
   @ReactMethod
-  fun dismissPersistentAlert(promise: Promise) {
+  fun dismissPersistentAlert(notificationIdentifier: String?, promise: Promise) {
     mainHandler.post {
       try {
+        // A late cleanup must not cancel a newer alert's sound or vibration.
+        if (notificationIdentifier != null && activeAlertIdentifier != notificationIdentifier) {
+          promise.resolve(null)
+          return@post
+        }
         activeAlertIdentifier?.let { identifier ->
           notificationManager.cancel(identifier, EXPO_NOTIFICATION_ID)
         }

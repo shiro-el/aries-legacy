@@ -6,8 +6,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_SSH_PORT: &str = "22";
-const DEFAULT_HERDR_COMMAND: &str = "herdr";
+pub(crate) const DEFAULT_SSH_PORT: &str = "22";
+pub(crate) const DEFAULT_HERDR_COMMAND: &str = "herdr";
 const fn default_herdr_enabled() -> bool {
     true
 }
@@ -18,6 +18,15 @@ pub(crate) const MAX_AGENT_INSTRUCTIONS: usize = 32 * 1024;
 pub enum HostAuthMode {
     Password,
     Key,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+#[serde(rename_all = "lowercase")]
+pub enum HostHerdrBackend {
+    Auto,
+    #[default]
+    Legacy,
+    Core,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
@@ -31,9 +40,15 @@ pub struct HostProfileRecord {
     pub jump_host_id: Option<String>,
     #[serde(default)]
     pub forward_agent: bool,
+    #[serde(default)]
+    pub tailcat_enabled: bool,
+    #[serde(default)]
+    pub tailcat_ssh_server: bool,
     pub auth_mode: HostAuthMode,
     #[serde(default = "default_herdr_enabled")]
     pub herdr_enabled: bool,
+    #[serde(default)]
+    pub herdr_backend: HostHerdrBackend,
     pub herdr_command: String,
     #[serde(default)]
     pub herdr_socket_path: String,
@@ -264,8 +279,11 @@ impl HostProfileStore {
                 username,
                 jump_host_id: None,
                 forward_agent: false,
+                tailcat_enabled: false,
+                tailcat_ssh_server: false,
                 auth_mode: legacy.auth_mode.unwrap_or(HostAuthMode::Password),
                 herdr_enabled: default_herdr_enabled(),
+                herdr_backend: crate::HostHerdrBackend::Legacy,
                 herdr_command: legacy
                     .herdr_command
                     .unwrap_or_else(|| DEFAULT_HERDR_COMMAND.to_owned()),
@@ -372,7 +390,7 @@ fn display_name(host: &HostProfileRecord) -> &str {
     }
 }
 
-fn sort_hosts(hosts: &mut [HostProfileRecord]) {
+pub(crate) fn sort_hosts(hosts: &mut [HostProfileRecord]) {
     hosts.sort_by(|left, right| {
         right
             .last_connected_at
@@ -388,7 +406,7 @@ fn sort_hosts(hosts: &mut [HostProfileRecord]) {
     });
 }
 
-fn resolve_chain(
+pub(crate) fn resolve_chain(
     hosts: &[HostProfileRecord],
     profile_id: &str,
     jump_host_id: Option<&str>,
@@ -445,6 +463,25 @@ fn view(state: &HostProfileState) -> Result<HostProfileStoreView, HostProfileSto
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tailcat_defaults_off_and_round_trips_per_host() -> Result<(), Box<dyn std::error::Error>> {
+        let mut enabled = host("tunnel", None);
+        enabled.tailcat_enabled = true;
+        let mut legacy = serde_json::to_value(host("direct", None))?;
+        legacy
+            .as_object_mut()
+            .ok_or("missing profile")?
+            .remove("tailcatEnabled");
+        let saved = HostProfileStore::new().hydrate(Some(serde_json::to_string(&vec![
+            serde_json::to_value(enabled)?,
+            legacy,
+        ])?))?;
+        let restored = HostProfileStore::new().hydrate(Some(saved.persisted_value))?;
+        assert!(!restored.hosts[0].tailcat_enabled);
+        assert!(restored.hosts[1].tailcat_enabled);
+        Ok(())
+    }
 
     #[test]
     fn host_instructions_round_trip_and_old_profiles_default_to_empty()
@@ -513,8 +550,11 @@ mod tests {
             username: "user".to_owned(),
             jump_host_id: jump_host_id.map(str::to_owned),
             forward_agent: false,
+            tailcat_enabled: false,
+            tailcat_ssh_server: false,
             auth_mode: HostAuthMode::Key,
             herdr_enabled: default_herdr_enabled(),
+            herdr_backend: crate::HostHerdrBackend::Legacy,
             herdr_command: "herdr".to_owned(),
             herdr_socket_path: String::new(),
             session_name: String::new(),

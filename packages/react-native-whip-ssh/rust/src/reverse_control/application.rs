@@ -9,12 +9,12 @@ use super::browser::model::{BrowserError, ErrorCode, MAX_INPUT, MAX_REQUEST, MAX
 use crate::herdr_api::{HerdrControlError, HerdrControlRequest, HerdrTabLaunchResult};
 use crate::host_profiles::{HostProfileRecord, MAX_AGENT_INSTRUCTIONS};
 
-const LIST: &str = "hosts.list";
-const INSTRUCTIONS: &str = "hosts.instructions";
-const SAVE: &str = "hosts.save";
-const DELETE: &str = "hosts.delete";
-const CONNECT: &str = "hosts.connect";
-const DISCONNECT: &str = "hosts.disconnect";
+pub(super) const LIST: &str = "hosts.list";
+pub(super) const INSTRUCTIONS: &str = "hosts.instructions";
+pub(super) const SAVE: &str = "hosts.save";
+pub(super) const DELETE: &str = "hosts.delete";
+pub(super) const CONNECT: &str = "hosts.connect";
+pub(super) const DISCONNECT: &str = "hosts.disconnect";
 const SNAPSHOT: &str = "herdr.snapshot";
 const REQUEST: &str = "herdr.request";
 const START_SERVER: &str = "herdr.start_server";
@@ -55,14 +55,45 @@ struct AgentArgs {
 }
 
 pub(super) enum Action {
-    Host {
-        name: String,
-        arguments: Value,
-    },
+    Host(super::hosts::HostAction),
     Herdr {
         host_id: Option<String>,
         operation: HerdrOperation,
     },
+}
+
+#[derive(Deserialize, serde::Serialize)]
+struct AgentInstructions {
+    host_id: String,
+    global: String,
+    host: String,
+}
+
+impl AgentInstructions {
+    fn decode(value: Value) -> Result<Self, BrowserError> {
+        let instructions: Self = decode_reply(value)?;
+        identifier(&instructions.host_id)?;
+        if instructions.global.len() > MAX_AGENT_INSTRUCTIONS
+            || instructions.host.len() > MAX_AGENT_INSTRUCTIONS
+        {
+            return Err(BrowserError::new(
+                ErrorCode::InvalidResult,
+                "AGENTS.md exceeds the instruction limit",
+            ));
+        }
+        Ok(instructions)
+    }
+
+    fn global_text(&self) -> String {
+        if self.global.trim().is_empty() {
+            String::new()
+        } else {
+            format!(
+                "# AGENTS.md instructions from Whip (global)\n\n<INSTRUCTIONS>\n{}\n</INSTRUCTIONS>",
+                self.global
+            )
+        }
+    }
 }
 
 pub(super) enum HerdrOperation {
@@ -121,6 +152,10 @@ fn bounded(value: &Value) -> Result<(), BrowserError> {
 }
 
 impl Action {
+    pub(super) fn is_instructions(&self) -> bool {
+        matches!(self, Self::Host(action) if action.is_instructions())
+    }
+
     pub(super) fn parse(name: &str, arguments: &Value) -> Result<Self, BrowserError> {
         let mut arguments = if arguments.is_null() {
             json!({})
@@ -237,10 +272,9 @@ impl Action {
                 ));
             }
         }
-        Ok(Self::Host {
-            name: name.to_owned(),
-            arguments,
-        })
+        Ok(Self::Host(super::hosts::HostAction::from_validated(
+            name, &arguments,
+        )?))
     }
 
     pub(super) async fn run(
@@ -251,19 +285,7 @@ impl Action {
         caller_host: String,
     ) -> Result<Value, BrowserError> {
         match self {
-            Self::Host {
-                name,
-                mut arguments,
-            } => {
-                if name == INSTRUCTIONS && arguments["host_id"].is_null() {
-                    arguments["host_id"] = json!(caller_host);
-                }
-                let value = owner
-                    .begin_wire_step(&session, &parent, &name, arguments)?
-                    .receive()
-                    .await?;
-                host_result(&name, value)
-            }
+            Self::Host(action) => action.run(owner, &session, &parent, &caller_host).await,
             Self::Herdr { host_id, operation } => {
                 let host_id = host_id.unwrap_or(caller_host);
                 let runtime =
@@ -382,13 +404,54 @@ fn result(kind: &str, value: Value) -> Result<Value, BrowserError> {
     )
 }
 
+impl ReverseControl {
+    /// Fetch the documents while the MCP client builds its initial context;
+    /// the model must not have to discover a tool to learn its instructions.
+    pub(super) async fn instruction_text(
+        self: &Arc<Self>,
+        session: &str,
+        rpc_id: Value,
+    ) -> Result<String, Value> {
+        let receiver = self.start_action(
+            session,
+            rpc_id,
+            &json!({"params":{"name":INSTRUCTIONS,"arguments":{}}}),
+        )?;
+        let mut result = receiver.await.map_err(|_| {
+            BrowserError::new(
+                ErrorCode::SessionClosed,
+                "Whip instruction loading cancelled",
+            )
+            .mcp()
+        })?;
+        if result["isError"] != false {
+            return Err(result);
+        }
+        let instructions = AgentInstructions::decode(result["structuredContent"]["value"].take())
+            .map_err(|error| error.mcp())?;
+        let matches_host = self
+            .sessions
+            .lock()
+            .get(session)
+            .is_some_and(|session| session.info.runtime_id == instructions.host_id);
+        if !matches_host {
+            return Err(BrowserError::new(
+                ErrorCode::InvalidResult,
+                "Whip instructions do not belong to this session's host",
+            )
+            .mcp());
+        }
+        Ok(instructions.global_text())
+    }
+}
+
 #[derive(Deserialize, serde::Serialize)]
 struct Connection {
     host_id: String,
     status: String,
 }
 
-fn host_result(name: &str, value: Value) -> Result<Value, BrowserError> {
+pub(super) fn host_result(name: &str, value: Value) -> Result<Value, BrowserError> {
     // Re-encode only typed metadata. Credentials and unexpected adapter fields
     // must never be reflected to a remote agent.
     let value = match name {
@@ -406,7 +469,6 @@ fn host_result(name: &str, value: Value) -> Result<Value, BrowserError> {
                     let has_instructions = !host.agent_instructions.is_empty();
                     let mut host = json!(host);
                     if let Some(fields) = host.as_object_mut() {
-                        fields.remove("agentInstructions");
                         fields.insert("has_agent_instructions".into(), json!(has_instructions));
                     }
                     host
@@ -414,24 +476,7 @@ fn host_result(name: &str, value: Value) -> Result<Value, BrowserError> {
                 .collect();
             json!({"hosts":hosts,"connections":reply.connections})
         }
-        INSTRUCTIONS => {
-            #[derive(Deserialize, serde::Serialize)]
-            struct Reply {
-                host_id: String,
-                global: String,
-                host: String,
-            }
-            let reply: Reply = decode_reply(value)?;
-            if reply.global.len() > MAX_AGENT_INSTRUCTIONS
-                || reply.host.len() > MAX_AGENT_INSTRUCTIONS
-            {
-                return Err(BrowserError::new(
-                    ErrorCode::InvalidResult,
-                    "AGENTS.md exceeds the instruction limit",
-                ));
-            }
-            json!(reply)
-        }
+        INSTRUCTIONS => json!(AgentInstructions::decode(value)?),
         SAVE => {
             #[derive(Deserialize)]
             struct Reply {
@@ -575,14 +620,14 @@ pub(super) fn tools() -> Vec<Value> {
     profile["forwardAgent"] = json!({"type":"boolean"});
     profile["authMode"] = json!({"type":"string","enum":["password","key"]});
     [
-        (LIST, "List Whip's saved host metadata and connection status. No credentials or instruction contents are returned. Read hosts.instructions before using a host.", json!({}), vec![], true),
+        (LIST, "List Whip's saved hosts, connection status and each host's AGENTS.md in agentInstructions. Read the target host's instructions before connecting or operating on it. No credentials are returned.", json!({}), vec![], true),
         (INSTRUCTIONS, "Read the user's global AGENTS.md and this host's optional AGENTS.md, stored in Whip. Read global first, then host instructions before connecting or operating on a host. Empty strings mean none configured. Available for disconnected hosts.", host_schema(), vec![], true),
         (SAVE, "Create or update saved host metadata with a partial profile. Omit host_id to create; new hosts require host and username. Existing credentials and user AGENTS.md are preserved. Optionally copy a saved credential locally using credential_from_host_id. No secrets accepted or returned. Editing a connected profile takes effect on its next connection.", { let mut p = host_schema(); p["profile"] = object(profile, &[]); p["credential_from_host_id"] = string(); p }, vec!["profile"], false),
         (DELETE, "Disconnect a saved host and delete its profile, local credentials and host caches. Deleting this agent's host ends its MCP session.", host_schema(), vec!["host_id"], false),
-        (CONNECT, "Connect a saved host using Whip's stored credentials, jump hosts, biometric protection and host-key checks. Whip may prompt locally. Read hosts.instructions first. Does not navigate the UI.", host_schema(), vec!["host_id"], false),
+        (CONNECT, "Connect a saved host using Whip's stored credentials, jump hosts, biometric protection and host-key checks. Whip may prompt locally. Read its AGENTS.md from hosts.list first. Does not navigate the UI.", host_schema(), vec!["host_id"], false),
         (DISCONNECT, "Disconnect a host's Whip SSH session. Disconnecting this agent's host ends its MCP session.", host_schema(), vec!["host_id"], false),
-        (SNAPSHOT, "Read live Herdr workspaces, tabs, panes and agents over Whip's existing SSH connection. Read hosts.instructions first. IDs from this snapshot target herdr.request.", host_schema(), vec![], true),
-        (REQUEST, "Call Herdr on a connected saved host; returns its tagged result (type). Read hosts.instructions and herdr.snapshot first. Creation requires cwd and defaults focus=false. Reads default recent_unwrapped text, 120 lines. agent_start waits for interactive readiness (default 30s); agent_prompt without wait acknowledges submission, with wait:{} uses atomic lifecycle waiting (default 120s, max 300s). agent_get/read/wait/send_keys, startup readiness, prompt waits and explicit tab/split cwd require protocol 22; unsupported hosts return unsupported_feature before input. Agent targets are names or pane IDs, never terminal IDs. New agents do not receive Reverse Control automatically. Inspect blocked or ambiguous outcomes before sending more input.", { let mut p = host_schema(); p["request"] = json!({"oneOf":request_variants}); p }, vec!["request"], false),
+        (SNAPSHOT, "Read live Herdr workspaces, tabs, panes and agents over Whip's existing SSH connection. Read its AGENTS.md from hosts.list first. IDs from this snapshot target herdr.request.", host_schema(), vec![], true),
+        (REQUEST, "Call Herdr on a connected saved host; returns its tagged result (type). Read its AGENTS.md from hosts.list and inspect herdr.snapshot first. Creation requires cwd and defaults focus=false. Reads default recent_unwrapped text, 120 lines. agent_start waits for interactive readiness (default 30s); agent_prompt without wait acknowledges submission, with wait:{} uses atomic lifecycle waiting (default 120s, max 300s). agent_get/read/wait/send_keys, startup readiness, prompt waits and explicit tab/split cwd require protocol 22; unsupported hosts return unsupported_feature before input. Agent targets are names or pane IDs, never terminal IDs. New agents do not receive Reverse Control automatically. Inspect blocked or ambiguous outcomes before sending more input.", { let mut p = host_schema(); p["request"] = json!({"oneOf":request_variants}); p }, vec!["request"], false),
         (START_SERVER, "Start Herdr using the saved host's configured command over its existing SSH connection.", host_schema(), vec![], false),
         (RESTART_AGENT, "Restart an existing agent using Whip's conversation-preserving restart. May interrupt its current task. Restarting yourself ends this MCP session.", { let mut p = host_schema(); p["terminal_id"] = string(); p }, vec!["terminal_id"], false),
         (COPY_AGENT, "Copy an agent into a background tab in its current directory with its saved launch options and Reverse Control preference, starting a fresh conversation. Requires protocol 22 and preserves user focus.", { let mut p = host_schema(); p["terminal_id"] = string(); p["label"] = string(); p }, vec!["terminal_id"], false),
@@ -625,18 +670,18 @@ mod tests {
     #[test]
     fn host_creation_and_herdr_input_keep_typed_arguments() -> Result<(), Box<dyn std::error::Error>>
     {
-        let Action::Host { arguments, .. } = Action::parse(
+        let Action::Host(crate::reverse_control::hosts::HostAction::Save {
+            host_id, patch, ..
+        }) = Action::parse(
             SAVE,
             &json!({"profile":{"host":"mini","username":"kosumi"}}),
         )?
         else {
             return Err("missing host action".into());
         };
-        assert!(
-            arguments["host_id"]
-                .as_str()
-                .is_some_and(|id| id.starts_with("host-"))
-        );
+        assert!(host_id.starts_with("host-"));
+        assert_eq!(patch.host.as_deref(), Some("mini"));
+        assert_eq!(patch.username.as_deref(), Some("kosumi"));
         let literal = "printf '%s' \"quotes; $(do-not-run)\"\n";
         let Action::Herdr {
             host_id,
@@ -663,13 +708,24 @@ mod tests {
     fn host_results_strip_secrets_and_return_both_instruction_scopes()
     -> Result<(), Box<dyn std::error::Error>> {
         let host = json!({"id":"mini","name":"Mini","host":"mini.local","port":"22","username":"kosumi","authMode":"key","herdrCommand":"herdr","sessionName":"","createdAt":"today","updatedAt":"today","agentInstructions":"# Mini\nUse system Xcode.\n","secret":"private key","passphrase":"private"});
+        let mut workstation = host.clone();
+        workstation["id"] = json!("workstation");
+        workstation["agentInstructions"] = json!("# Workstation\nUse nix develop.\n");
         let result = host_result(
             LIST,
-            json!({"hosts":[host],"connections":[],"secret":"private"}),
+            json!({"hosts":[host,workstation],"connections":[],"secret":"private"}),
         )?;
         let value = &result["structuredContent"]["value"];
         assert_eq!(value["hosts"][0]["has_agent_instructions"], true);
-        assert!(value["hosts"][0].get("agentInstructions").is_none());
+        assert_eq!(
+            value["hosts"][0]["agentInstructions"],
+            "# Mini\nUse system Xcode.\n"
+        );
+        assert_eq!(value["hosts"][1]["id"], "workstation");
+        assert_eq!(
+            value["hosts"][1]["agentInstructions"],
+            "# Workstation\nUse nix develop.\n"
+        );
         assert!(!result.to_string().contains("private"));
         let global = "# Global\nAsk before deleting data.\n";
         let host = "# Mini\nUse system Xcode.\n";

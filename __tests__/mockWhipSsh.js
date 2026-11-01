@@ -22,6 +22,8 @@ class MockNativeHostProfileStore {
       port: profile.port.trim() || '22', username: profile.username.trim(),
       jumpHostId: profile.jumpHostId?.trim() || undefined,
       forwardAgent: profile.authMode === 'key' && Boolean(profile.forwardAgent),
+      tailcatEnabled: Boolean(profile.tailcatEnabled),
+      tailcatSshServer: Boolean(profile.tailcatSshServer),
       herdrEnabled: profile.herdrEnabled !== false,
       herdrCommand: profile.herdrCommand.trim() || 'herdr',
       herdrSocketPath: profile.herdrSocketPath.trim(), sessionName: profile.sessionName.trim(),
@@ -92,50 +94,6 @@ class MockNativeHostProfileStore {
       herdrCommand: parsed.herdrCommand || 'herdr', herdrSocketPath: parsed.herdrSocketPath || '',
       sessionName: parsed.sessionName || '', createdAt: now, updatedAt: now,
     }, undefined, now);
-  }
-}
-
-class MockNativeKnownHostStore {
-  constructor() { this.hosts = []; this.pending = undefined; this.token = 0n; }
-  result(hosts = this.hosts) {
-    return { revision: 1, hosts, persistedValue: JSON.stringify(hosts) };
-  }
-  hydrate(value) {
-    const parsed = value === undefined ? [] : JSON.parse(value);
-    if (!Array.isArray(parsed)) throw new Error('malformed known hosts');
-    this.hosts = parsed;
-    this.pending = undefined;
-    return this.result();
-  }
-  view() { return this.result(); }
-  prepareAdd(challenge, id, createdAt) {
-    if (this.hosts.some(host => host.host.toLowerCase() === challenge.host.toLowerCase()
-      && host.port === challenge.port && host.keyType === challenge.keyType
-      && host.fingerprint === challenge.fingerprint)) {
-      return { token: 0n, changed: false, view: this.result() };
-    }
-    const hosts = [...this.hosts, { ...challenge, id, createdAt }];
-    const token = ++this.token;
-    this.pending = { token, hosts };
-    return { token, changed: true, view: this.result(hosts) };
-  }
-  prepareRemove(id) {
-    const hosts = this.hosts.filter(host => host.id !== id);
-    if (hosts.length === this.hosts.length) return { token: 0n, changed: false, view: this.result() };
-    const token = ++this.token;
-    this.pending = { token, hosts };
-    return { token, changed: true, view: this.result(hosts) };
-  }
-  commit(token) {
-    if (this.pending?.token !== token) throw new Error('invalid mutation');
-    this.hosts = this.pending.hosts;
-    this.pending = undefined;
-    return this.result();
-  }
-  rollback(token) {
-    if (this.pending?.token !== token) throw new Error('invalid mutation');
-    this.pending = undefined;
-    return this.result();
   }
 }
 
@@ -241,6 +199,11 @@ function createMockWhipSshModule() {
       cachedAgentCatalog: paneId => api.agentCatalogs.get(paneId),
       refreshAgentCatalog: paneId => api.refreshAgentCatalog(paneId),
       herdrEnabled: config.herdrEnabled !== false,
+      herdrBackend: config.herdrBackend ?? 'legacy',
+      localTerminalScrollback: config.herdrBackend === 'core',
+      herdrBridgeFocus:jest.fn(),
+      tailcatEnabled: config.ssh.tailcatAddress !== undefined,
+      matchesSshConfig: value => [...new Set([...Object.keys(config.ssh), ...Object.keys(value)])].every(key => config.ssh[key] === value[key]),
       controlClient: undefined,
       async connect() {
         await connectChain();
@@ -613,6 +576,10 @@ function createMockWhipSshModule() {
       return `${prefix}-00000000-0000-4000-8000-${nextUuid.toString().padStart(12, '0')}`;
     }),
     publicKeyVerificationCode: jest.fn(),
+    generateTailcatIdentity: jest.fn(() => {
+      nextUuid += 1;
+      return { privateKey: `privkey:${nextUuid.toString(16).padStart(64, '0')}`, publicKey: `nodekey:${nextUuid.toString(16).padStart(64, '0')}` };
+    }),
     createHostRuntime: api.createHostRuntime,
     getHostRuntime: api.getHostRuntime,
     disconnectHostRuntime: api.disconnectHostRuntime,
@@ -626,7 +593,25 @@ function createMockWhipSshModule() {
     ReverseControlState: { Off: 0, RestartRequired: 1, Recovering: 2, Connected: 3 },
     subscribeReverseControlEvents: jest.fn(() => () => {}),
     NativeHostProfileStore: MockNativeHostProfileStore,
-    NativeKnownHostStore: MockNativeKnownHostStore,
+    KnownHostRepositoryStatus: { Loading: 0, Loaded: 1, ReadFailed: 2, InvalidData: 3 },
+    KnownHostRepositoryError: {
+      NotLoaded: class NotLoaded extends Error {}, Cancelled: class Cancelled extends Error {},
+      StorageRead: class StorageRead extends Error {}, StorageWrite: class StorageWrite extends Error {},
+      InvalidData: class InvalidData extends Error {}, InvalidKey: class InvalidKey extends Error {},
+    },
+    KnownHostCommand: {
+      Load: class Load {},
+      Trust: class Trust { constructor(inner) { this.inner = inner; } },
+      Revoke: class Revoke { constructor(inner) { this.inner = inner; } },
+    },
+    // UI suites supply outcomes, never a JS trust transaction engine.
+    KnownHostRepository: jest.fn(() => {
+      const repository = {
+        view: jest.fn(() => ({ status: 1, revision: 1n, generation: 1n, hosts: [] })),
+        begin: jest.fn(() => ({ result: jest.fn(async () => repository.view()), cancel: jest.fn() })),
+      };
+      return repository;
+    }),
   };
 }
 

@@ -104,7 +104,12 @@ fn default_main_block_is_logged_as_urgent_approval_before_delivery_failure() {
     assert_eq!(log[0]["pane_id"], "main");
     assert_eq!(log[0]["workspace_id"], "w1");
     assert_eq!(log[0]["title"], "codex needs you");
-    assert_eq!(log[0]["body"], "Review command");
+    assert!(
+        log[0]["body"]
+            .as_str()
+            .is_some_and(|body| body.ends_with("Review command")),
+        "approval body keeps the task title after the host name"
+    );
     assert!(
         log[0]["options"].is_null(),
         "approvals have no reply buttons"

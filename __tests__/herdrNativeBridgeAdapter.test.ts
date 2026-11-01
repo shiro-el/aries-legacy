@@ -1,5 +1,7 @@
 jest.mock('../packages/react-native-whip-ssh/src/generated-entry', () => ({
+  ...require('../test-support/nativeGithubEnums').nativeGithubEnums,
   closeHerdrEventSubscription: jest.fn(),
+  HostHerdrBackend:{Auto:0,Legacy:1,Core:2},
   closeAllHerdrTerminalBridges: jest.fn(),
   closeHerdrTerminalBridge: jest.fn(),
   herdrTerminalInput: jest.fn(),
@@ -289,8 +291,64 @@ const mockAgentEventSink =
   mockGenerated.setAgentTranscriptEventSink.mock.calls[0][0];
 
 describe('native HostRuntime adapter', () => {
+  it.each([
+    ['discoverGithubRepository', ['/repo']],
+    ['githubRepositoryDetails', [{}]],
+    ['githubPage', [{}, 'commits', 1]],
+    ['githubEntry', [{}, 'commits', 'abc']],
+    ['githubFiles', [{}, 'abc', false, 1]],
+    ['githubResource', [{}, 'commitChecks', 'abc', 1]],
+    ['githubComments', [{}, 7, 1]],
+    ['githubPrepareAsset', [{}, '1', 'app.apk']],
+    ['githubPostComment', [{}, 7, 'reply']],
+    ['githubMutate', [{}, 'createIssue', '', 'title', 'body']],
+  ] as const)('preserves SSH diagnostics for %s without replaying the call', async (operation, args) => {
+    const call = jest.fn().mockRejectedValue({
+      tag: 'SshConnectionFailure',
+      inner: { code: mockGenerated.SshErrorCode.ChannelUnavailable, message: 'server refused session channel' },
+    });
+    const native = {
+      runtimeId: () => 'github-errors',
+      status: () => ({ generation: 4n }),
+      [operation]: call,
+    };
+    mockGenerated.createHostRuntime.mockReturnValueOnce(native);
+    const runtime = createHostRuntime({
+      runtimeId: 'github-errors',
+      ssh: { host: 'host.test', port: 22, username: 'me', authMode: 'password', secret: 'secret' },
+      jumpHosts: [], sessionName: 'main', herdrCommand: 'herdr',
+    });
+    const invoke = runtime[operation] as (...values: readonly unknown[]) => Promise<unknown>;
+    await expect(invoke.apply(runtime, [...args])).rejects.toMatchObject({
+      name: 'HostRuntimeError',
+      nativeTag: 'SshConnectionFailure',
+      code: 'CHANNEL_UNAVAILABLE',
+      message: `${operation} [CHANNEL_UNAVAILABLE]: server refused session channel`,
+      operation, runtimeId: 'github-errors', generation: 4n,
+    });
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it.each([undefined, 'tc-secret-address'])('passes the Tailcat transport to Rust while preserving SSH identity: %s', address => {
+    const rustRuntime = {
+      runtimeId: () => `tailcat-mode-${Boolean(address)}`,
+      runtimeIncarnation: () => 1n,
+      tailcatEnabled: () => address !== undefined,
+    };
+    mockGenerated.createHostRuntime.mockReturnValueOnce(rustRuntime);
+    const runtime = createHostRuntime({
+      runtimeId: rustRuntime.runtimeId(),
+      ssh: { host: 'host.test', port: 2222, username: 'me', authMode: 'password', secret: 'secret', tailcatAddress: address },
+      jumpHosts: [], sessionName: '', herdrCommand: 'herdr',
+    });
+    expect(mockGenerated.createHostRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      ssh: expect.objectContaining({ host: 'host.test', port: 2222, username: 'me', tailcatAddress: address }),
+    }));
+    expect(runtime.tailcatEnabled).toBe(address !== undefined);
   });
 
   it.each([undefined, true, false])('passes the Herdr mode to Rust with an enabled default: %s', enabled => {
@@ -328,38 +386,11 @@ describe('native HostRuntime adapter', () => {
     expect(rustRuntime.installHerdr).toHaveBeenCalledWith('install-one');
     expect(rustRuntime.installHerdr).toHaveBeenCalledTimes(1);
   });
-  it('preserves the notification installer error detail without retrying installation', async () => {
-    const detail = 'Plugin installation failed: No prebuilt Whip notification plugin for Linux/x86_64.';
-    const notificationCommand = jest.fn().mockRejectedValueOnce(Object.assign(
-      new Error('HostRuntimeError.InvalidConfiguration'),
-      { tag: 'InvalidConfiguration', inner: Object.freeze([detail]) },
-    ));
-    mockGenerated.createHostRuntime.mockReturnValueOnce({
-      runtimeId: () => 'notification-install-host',
-      runtimeIncarnation: () => 1n,
-      notificationCommand,
-    });
-    const runtime = createHostRuntime({
-      runtimeId: 'notification-install-host',
-      ssh: { host: 'host.test', port: 22, username: 'me', authMode: 'password', secret: 'secret' },
-      jumpHosts: [], sessionName: 'main', herdrCommand: 'herdr',
-    });
-    try {
-      await expect(runtime.notificationCommand('plugin-install', '{}')).rejects.toMatchObject({
-        name: 'HostRuntimeError', message: detail, nativeTag: 'InvalidConfiguration',
-      });
-      expect(notificationCommand).toHaveBeenCalledTimes(1);
-      expect(notificationCommand).toHaveBeenCalledWith('plugin-install', '{}');
-    } finally {
-      runtime.detach();
-    }
-  });
-
   it('passes pairing jump credentials through the typed bridge and preserves host trust challenges', async () => {
     const challenge = { host: 'jump.test', port: 22, keyType: 'ssh-ed25519', publicKey: 'ssh-ed25519 AAAA', fingerprint: 'SHA256:test' };
     mockGenerated.pairHost.mockRejectedValueOnce({ tag: 'HostKeyUnknown', inner: [challenge] });
     await expect(pairHost('code', 'key', 'phone', [{ host: 'jump.test', port: 22, username: 'alice', authMode: 'password', secret: 'password' }])).rejects.toMatchObject({ code: 'HOST_KEY_UNKNOWN', details: challenge });
-    expect(mockGenerated.pairHost).toHaveBeenCalledWith('code', 'key', 'phone', [{ host: 'jump.test', port: 22, username: 'alice', credential: { tag: 'Password', inner: { password: 'password' } }, forwardAgent: false }]);
+    expect(mockGenerated.pairHost).toHaveBeenCalledWith('code', 'key', 'phone', [{ host: 'jump.test', port: 22, username: 'alice', credential: { tag: 'Password', inner: { password: 'password' } }, forwardAgent: false, tailcatSshServer: false }]);
   });
 
   it('preserves the underlying Git failure when opening a changed file', async () => {
@@ -529,7 +560,6 @@ describe('native HostRuntime adapter', () => {
       controlRequest: jest.fn().mockResolvedValue({ tag: 'Ok' }),
       resolveControlSocket: jest.fn().mockResolvedValue('/tmp/herdr.sock'),
       hostState: jest.fn(() => nativeState),
-      exportOfflineCache: jest.fn().mockResolvedValue({ revision: 7n, blob: 'opaque native cache' }),
       refreshState: jest.fn().mockResolvedValue(nativeState),
     };
     mockGenerated.createHostRuntime.mockReturnValueOnce(rustRuntime);
@@ -614,11 +644,6 @@ describe('native HostRuntime adapter', () => {
       },
     });
 
-    expect(await runtime.exportOfflineCache(6)).toEqual({ revision: 7, blob: 'opaque native cache' });
-    expect(rustRuntime.exportOfflineCache).toHaveBeenCalledWith(6n);
-    rustRuntime.exportOfflineCache.mockResolvedValueOnce(undefined);
-    expect(await runtime.exportOfflineCache(7)).toBeUndefined();
-    expect(rustRuntime.exportOfflineCache).toHaveBeenLastCalledWith(7n);
     expect(rustRuntime.connect).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenNthCalledWith(1, {
       type: 'connection-state',
@@ -1366,7 +1391,7 @@ describe('native HostRuntime adapter', () => {
 test('AppCore and Herd retain typed native agent controls in their projections', () => {
   const control = {
     terminalId: 'terminal-1', kind: HerdrAgentKind.Codex, sessionId: 'conversation',
-    reverseControl: true, connected: false,
+    reverseControl: true, shizukuAccess: false, connected: false,
     reverseControlState: ReverseControlState.Recovering,
   };
   const nativeCore = {

@@ -26,6 +26,7 @@ import { agentTranscriptService } from './NativeTranscriptService';
 import { reportBackgroundFailure } from './backgroundOperations';
 import { herdrSnapshotCache } from './herdrSnapshotCache';
 import { settledPromise } from '../lib/promises';
+import { ensureTailcatIdentity } from './hostProfiles';
 
 const HOST_KEY_CHALLENGE_CODES = new Set([
   'HOST_KEY_UNKNOWN',
@@ -61,10 +62,14 @@ export class HerdrClient {
     return this.runtime;
   }
 
-  async connect(profile: ConnectionProfile, jumpProfiles: ConnectionProfile[] = []): Promise<void> {
+  async connect(profile: ConnectionProfile, jumpProfiles: ConnectionProfile[] = [], isCurrent: () => boolean = () => true): Promise<void> {
     const attachmentEpoch = ++this.attachmentEpoch;
     await this.disconnecting;
-    if (attachmentEpoch !== this.attachmentEpoch) return;
+    if (attachmentEpoch !== this.attachmentEpoch || !isCurrent()) return;
+    if (profile.tailcatEnabled) profile = await ensureTailcatIdentity(profile);
+    if (attachmentEpoch !== this.attachmentEpoch || !isCurrent()) return;
+    if (jumpProfiles.some(value => value.tailcatEnabled)) jumpProfiles = await Promise.all(jumpProfiles.map(ensureTailcatIdentity));
+    if (attachmentEpoch !== this.attachmentEpoch || !isCurrent()) return;
     const port = Number(profile.port);
     validateSshPort(port);
     jumpProfiles.forEach(jumpProfile => validateSshPort(Number(jumpProfile.port)));
@@ -77,6 +82,9 @@ export class HerdrClient {
       secret: value.authMode === 'password' ? value.secret : normalizePrivateKey(value.secret),
       passphrase: value.passphrase || undefined,
       forwardAgent: value.forwardAgent,
+      tailcatAddress: value.tailcatEnabled ? value.tailcatAddress?.trim() ?? '' : undefined,
+      tailcatPrivateKey: value.tailcatEnabled ? value.tailcatPrivateKey : undefined,
+      tailcatSshServer: Boolean(value.tailcatEnabled && value.tailcatSshServer),
     } as const);
     const herdrEnabled = profile.herdrEnabled !== false;
     const cachedSocketPath = !herdrEnabled || profile.herdrSocketPath?.trim()
@@ -95,7 +103,8 @@ export class HerdrClient {
       explicitSocketPath: Boolean(profile.herdrSocketPath?.trim()),
       cachedSocketPath: Boolean(cachedSocketPath),
     });
-    const retryRuntime = this.runtimeAwaitingHostKeyTrust && this.profile === profile
+    const retryRuntime = this.runtimeAwaitingHostKeyTrust && this.profile?.id === profile.id
+      && this.runtime?.matchesSshConfig(sshConfig(profile))
       ? this.runtime
       : null;
     if (this.runtimeAwaitingHostKeyTrust && !retryRuntime) {
@@ -104,6 +113,7 @@ export class HerdrClient {
       });
       this.runtime = null;
       this.runtimeAwaitingHostKeyTrust = false;
+      if (attachmentEpoch !== this.attachmentEpoch || !isCurrent()) return;
     }
     let runtime: HostRuntimeConnection | null = null;
     const handleEvent = (event: HostRuntimeLifecycleEvent) => {
@@ -118,9 +128,11 @@ export class HerdrClient {
       this.runtimeEventHandler?.(event);
     };
     let existingRuntime = retryRuntime ?? getHostRuntime(profile.id, handleEvent);
-    if (existingRuntime && existingRuntime.herdrEnabled !== herdrEnabled) {
+    if (existingRuntime && (existingRuntime.herdrEnabled !== herdrEnabled
+      || existingRuntime.herdrBackend !== (profile.herdrBackend ?? 'legacy')
+      || !existingRuntime.matchesSshConfig(sshConfig(profile)))) {
       await existingRuntime.disconnect();
-      if (attachmentEpoch !== this.attachmentEpoch) return;
+      if (attachmentEpoch !== this.attachmentEpoch || !isCurrent()) return;
       existingRuntime = null;
     }
     runtime = existingRuntime ?? createHostRuntime({
@@ -128,6 +140,7 @@ export class HerdrClient {
       ssh: sshConfig(profile),
       jumpHosts: jumpProfiles.map(sshConfig),
       herdrEnabled,
+      herdrBackend:profile.herdrBackend,
       sessionName: profile.sessionName.trim(),
       herdrCommand: profile.herdrCommand.trim() || DEFAULT_HERDR_COMMAND,
       socketPath: herdrEnabled ? profile.herdrSocketPath?.trim() || undefined : undefined,

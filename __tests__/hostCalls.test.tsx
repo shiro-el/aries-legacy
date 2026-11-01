@@ -11,6 +11,35 @@ import {
 import { formatCallTime } from '../src/ui/calls/callView';
 import { useHostCalls } from '../src/ui/calls/useHostCalls';
 
+type HostCommand = (operation: string, payload: string) => Promise<string>;
+type FakeRuntime = NotificationRuntime & { notificationCommand: jest.Mock<Promise<string>, [string, string]> };
+
+// Rust resolves a runtime by ID and runs the host's notification commands.
+const mockHosts = new Map<string, HostCommand>();
+let mockRuntimeIds = 0;
+jest.mock('react-native-whip-ssh', () => {
+  const host = (runtimeId: string) => {
+    const command = mockHosts.get(runtimeId);
+    if (!command) throw new Error('The host connection closed');
+    return command;
+  };
+  return {
+    hostCallLogOpen: async (runtimeId: string) => {
+      const discovery = JSON.parse(await host(runtimeId)('discover', '{}')) as { paths: unknown };
+      return host(runtimeId)('calls-open', JSON.stringify({ paths: discovery.paths }));
+    },
+    hostCallLogRead: (runtimeId: string) => host(runtimeId)('calls-read', '{}'),
+    hostCallLogStop: async (runtimeId: string) => { await host(runtimeId)('calls-stop', '{}'); },
+  };
+});
+
+function runtimeWith(command: HostCommand): FakeRuntime {
+  const runtimeId = `runtime-${++mockRuntimeIds}`;
+  const notificationCommand = jest.fn(command);
+  mockHosts.set(runtimeId, notificationCommand);
+  return { runtimeId, runtimeIncarnation: 1, notificationCommand };
+}
+
 jest.mock('../src/services/appStorage', () => ({
   appStorage: {
     getItem: jest.fn().mockResolvedValue(null),
@@ -34,28 +63,26 @@ function fakeRuntime(history: unknown[]) {
   const pending: unknown[][] = [];
   let failRead = false;
   const commands: string[] = [];
-  const runtime: NotificationRuntime = {
-    notificationCommand: jest.fn(async (operation: string, payload: string) => {
-      commands.push(operation);
-      switch (operation) {
-        case 'discover':
-          return JSON.stringify({ paths: { state: '/state', config: '/config', binary: '/bin' } });
-        case 'calls-open':
-          expect(JSON.parse(payload)).toEqual({ paths: { state: '/state', config: '/config', binary: '/bin' } });
-          return JSON.stringify(history);
-        case 'calls-read':
-          if (failRead) {
-            failRead = false;
-            throw new Error('Call log stream disconnected; reconnecting');
-          }
-          return JSON.stringify(pending.shift() ?? []);
-        case 'calls-stop':
-          return '[]';
-        default:
-          throw new Error(`unexpected ${operation}`);
-      }
-    }),
-  };
+  const runtime = runtimeWith(async (operation: string, payload: string) => {
+    commands.push(operation);
+    switch (operation) {
+      case 'discover':
+        return JSON.stringify({ paths: { state: '/state', config: '/config', binary: '/bin' } });
+      case 'calls-open':
+        expect(JSON.parse(payload)).toEqual({ paths: { state: '/state', config: '/config', binary: '/bin' } });
+        return JSON.stringify(history);
+      case 'calls-read':
+        if (failRead) {
+          failRead = false;
+          throw new Error('Call log stream disconnected; reconnecting');
+        }
+        return JSON.stringify(pending.shift() ?? []);
+      case 'calls-stop':
+        return '[]';
+      default:
+        throw new Error(`unexpected ${operation}`);
+    }
+  });
   return {
     runtime,
     commands,
@@ -151,12 +178,10 @@ describe('useHostCalls', () => {
   });
 
   it('marks a host unavailable when it has no plugin, and stops following on detach', async () => {
-    const runtime: NotificationRuntime = {
-      notificationCommand: jest.fn(async (operation: string) => {
-        if (operation === 'calls-stop') return '[]';
-        throw new Error('Notification plugin unavailable');
-      }),
-    };
+    const runtime = runtimeWith(async (operation: string) => {
+      if (operation === 'calls-stop') return '[]';
+      throw new Error('Notification plugin unavailable');
+    });
     bindNotificationRuntime('h3', runtime);
     await act(async () => { root = renderer.create(<Harness />); });
     await flush();

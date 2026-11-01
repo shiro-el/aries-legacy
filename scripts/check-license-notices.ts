@@ -25,6 +25,10 @@ const unknownLicenseValues = new Set(['', 'n/a', 'none', 'unknown', 'unlicensed'
 
 const noticeSources = [
   {
+    id: 'tailcat',
+    asset: 'assets/licenses/tailcat-dependencies.txt',
+  },
+  {
     id: 'shizuku-api',
     asset: 'assets/licenses/shizuku-MIT.txt',
     sha256: '64870037f294b6f2b75c8ebe77cc0702acb3b64f86b4b0e58bf8558525303686',
@@ -92,6 +96,17 @@ const noticeSources = [
     id: 'pdfjs',
     asset: 'assets/licenses/pdfjs-Apache-2.0.txt',
     sha256: '0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594',
+  },
+  {
+    // Apache-2.0 text shared by the optional Phonon model and voice downloads.
+    id: 'phonon-31m-en',
+    asset: 'assets/licenses/phonon-Apache-2.0.txt',
+    sha256: 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
+  },
+  {
+    id: 'phonon-voices',
+    asset: 'assets/licenses/phonon-Apache-2.0.txt',
+    sha256: 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
   },
 ];
 

@@ -388,6 +388,17 @@ test('legacy apps must update instead of enabling an unverified route', async ()
 test('public registration requires a proof delivered only to the receiving push token', async () => {
   const response = await begin();
   expect(response.status).toBe(202);
+  expect(provider).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(provider.mock.calls[0][1].body as string)).toMatchObject({
+    title: 'Whip',
+    body: 'Setting up push notifications.',
+    data: {
+      whip_notify_registration: {
+        device_id: DEVICE,
+        challenge: expect.any(String),
+      },
+    },
+  });
   const challenge = proof();
   expect(JSON.stringify(await response.json())).not.toContain(challenge);
   expect(database.prepare('SELECT * FROM devices').all()).toHaveLength(0);
@@ -492,6 +503,16 @@ test('failed provider verification leaves no route and can be retried', async ()
   expect(
     database.prepare('SELECT * FROM pending_registrations').all(),
   ).toHaveLength(0);
+  expect(database.prepare('SELECT * FROM devices').all()).toHaveLength(0);
+  expect((await enroll()).status).toBe(200);
+});
+
+test.each([401, 403])('provider HTTP %s identifies relay credentials without exposing provider details', async status => {
+  provider.mockResolvedValueOnce(Response.json({ errors: [{ message: 'private-provider-detail' }] }, { status }));
+  const response = await begin();
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ error: 'Request rejected', code: 'PUSH_PROVIDER_AUTH_FAILED' });
+  expect(database.prepare('SELECT * FROM pending_registrations').all()).toHaveLength(0);
   expect(database.prepare('SELECT * FROM devices').all()).toHaveLength(0);
   expect((await enroll()).status).toBe(200);
 });

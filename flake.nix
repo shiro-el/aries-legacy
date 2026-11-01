@@ -71,12 +71,20 @@
         rustc = rustToolchain;
       }).buildRustPackage {
         pname = "whipair";
-        version = "0.1.3";
+        version = "0.1.5";
         src = pkgs.lib.cleanSourceWith {
-          src = ./whipair;
+          src = ./.;
           filter = path: type:
-            type != "directory" || builtins.baseNameOf path != "target";
+            let
+              relative = pkgs.lib.removePrefix "${toString ./.}/" (toString path);
+              sources = ["whipair" "crates/tailcat-client" "crates/whipair-protocol"];
+            in
+              (toString path == toString ./. || relative == "crates"
+                || builtins.any (source: relative == source || pkgs.lib.hasPrefix "${source}/" relative) sources)
+              && (type != "directory" || !builtins.elem (builtins.baseNameOf path) ["target" "node_modules" "dist"]);
         };
+        cargoRoot = "whipair";
+        buildAndTestSubdir = "whipair";
         cargoLock.lockFile = ./whipair/Cargo.lock;
         nativeBuildInputs = [pkgs.makeWrapper];
 
@@ -87,7 +95,7 @@
 
         meta = {
           description = "Direct, QR-based SSH public-key enrollment prototype for Whip";
-          license = pkgs.lib.licenses.agpl3Plus;
+          license = pkgs.lib.licenses.mit;
           mainProgram = "whipair";
           platforms = pkgs.lib.platforms.unix;
         };
@@ -115,41 +123,52 @@
       meta.description = "Run the Whip SSH pairing prototype";
     };
 
-    devShells.${androidSystem}.default = androidPkgs.mkShell {
-      packages = [
-        androidSdk
-        linuxCargoAbout
-        androidPkgs.jdk17_headless
-        androidPkgs.libwebp
-        androidPkgs.nodejs_24
-        androidRustToolchain
-      ];
+    devShells.${androidSystem} = rec {
+      default = androidPkgs.mkShell {
+        packages = [
+          androidSdk
+          linuxCargoAbout
+          androidPkgs.jdk17_headless
+          androidPkgs.libwebp
+          androidPkgs.nodejs_24
+          androidRustToolchain
+        ];
 
-      ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
-      ANDROID_SDK_ROOT = "${androidSdk}/libexec/android-sdk";
-      ANDROID_NDK_ROOT = "${androidSdk}/libexec/android-sdk/ndk-bundle";
-      JAVA_HOME = androidPkgs.jdk17_headless.home;
-      GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdk}/libexec/android-sdk/build-tools/37.0.0/aapt2";
-      CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "${androidNdkTools}/aarch64-linux-android24-clang";
-      CC_aarch64_linux_android = "${androidNdkTools}/aarch64-linux-android24-clang";
-      AR_aarch64_linux_android = "${androidNdkTools}/llvm-ar";
-      CFLAGS_aarch64_linux_android = "--target=aarch64-none-linux-android24";
+        ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
+        ANDROID_SDK_ROOT = "${androidSdk}/libexec/android-sdk";
+        ANDROID_NDK_ROOT = "${androidSdk}/libexec/android-sdk/ndk-bundle";
+        JAVA_HOME = androidPkgs.jdk17_headless.home;
+        GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdk}/libexec/android-sdk/build-tools/37.0.0/aapt2";
+        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "${androidNdkTools}/aarch64-linux-android24-clang";
+        CC_aarch64_linux_android = "${androidNdkTools}/aarch64-linux-android24-clang";
+        AR_aarch64_linux_android = "${androidNdkTools}/llvm-ar";
+        CFLAGS_aarch64_linux_android = "--target=aarch64-none-linux-android24";
+      };
+      # Optional interoperability fixtures need Go and SSH server tools.
+      tailcat-tests = default.overrideAttrs (previous: {
+        nativeBuildInputs = previous.nativeBuildInputs ++ [androidPkgs.go_1_27 androidPkgs.openssh androidPkgs.netcat-openbsd];
+      });
     };
 
-    devShells.${darwinSystem}.default = darwinPkgs.mkShell {
-      packages = with darwinPkgs; [
-        darwinCargoAbout
-        nodejs_24
-        watchman
-        (ruby_3_4.withPackages (gems: [ gems.xcodeproj ]))
-        bundler
-        cocoapods
-        fastlane
-        libwebp
-        darwinRustToolchain
-      ];
+    devShells.${darwinSystem} = rec {
+      default = darwinPkgs.mkShell {
+        packages = with darwinPkgs; [
+          darwinCargoAbout
+          nodejs_24
+          watchman
+          (ruby_3_4.withPackages (gems: [ gems.xcodeproj ]))
+          bundler
+          cocoapods
+          fastlane
+          libwebp
+          darwinRustToolchain
+        ];
 
-      DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
+        DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
+      };
+      tailcat-tests = default.overrideAttrs (previous: {
+        nativeBuildInputs = previous.nativeBuildInputs ++ [darwinPkgs.go_1_27];
+      });
     };
   };
 }
