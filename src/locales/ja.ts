@@ -28,6 +28,8 @@ export const ja = {
   "connection.herdrBackend.core": "Herdr Core",
   "connection.herdrBackend.legacy": "従来の Herdr",
   "connection.socketAuto": "自動検出",
+  'speech.retry': '再試行',
+  'speech.noVoices': '検索に一致する音声はありません。',
   'speech.systemVoice': 'システムの声',
   'speech.phononVoice': 'Phonon の声',
   'speech.defaultVoice': 'デフォルトの声',

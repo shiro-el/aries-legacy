@@ -28,6 +28,8 @@ export const zhHant: Record<string, string> = {
   "connection.herdrBackend.core": "Herdr Core",
   "connection.herdrBackend.legacy": "舊版 Herdr",
   "connection.socketAuto": "自動偵測",
+  'speech.retry': '重試',
+  'speech.noVoices': '沒有符合搜尋的語音。',
   'speech.systemVoice': '系統聲音',
   'speech.phononVoice': 'Phonon 聲音',
   'speech.defaultVoice': '預設聲音',
