@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 
 import {
   watchComposerImagePaste,
-  uploadPastedComposerImage,
+  uploadComposerImage,
 } from '../src/services/composerImagePaste';
 import {
   discardClipboardAttachment,
@@ -175,7 +175,7 @@ describe('pasted image upload lifecycle', () => {
       })),
       cancelTransfer: jest.fn(),
     };
-    const operation = uploadPastedComposerImage(runtime, picked);
+    const operation = uploadComposerImage(runtime, () => stageClipboardAttachment(picked));
     const attachment = await operation.result;
     expect(stageClipboardAttachment).toHaveBeenCalledWith(picked);
     expect(runtime.startAttachmentUpload).toHaveBeenCalledWith(
@@ -198,7 +198,7 @@ describe('pasted image upload lifecycle', () => {
       startAttachmentUpload: jest.fn(),
       cancelTransfer: jest.fn(),
     };
-    const operation = uploadPastedComposerImage(runtime, picked);
+    const operation = uploadComposerImage(runtime, () => stageClipboardAttachment(picked));
     operation.cancel();
     staged.resolve(local);
     await expect(operation.result).resolves.toBeNull();
@@ -217,7 +217,7 @@ describe('pasted image upload lifecycle', () => {
         })),
         cancelTransfer: jest.fn(),
       };
-      const operation = uploadPastedComposerImage(runtime, picked);
+      const operation = uploadComposerImage(runtime, () => stageClipboardAttachment(picked));
       await flush();
       operation.cancel();
       expect(runtime.cancelTransfer).toHaveBeenCalledWith('upload');
@@ -241,7 +241,7 @@ describe('pasted image upload lifecycle', () => {
       cancelTransfer: jest.fn(),
     };
     await expect(
-      uploadPastedComposerImage(runtime, picked).result,
+      uploadComposerImage(runtime, () => stageClipboardAttachment(picked)).result,
     ).rejects.toThrow('Disconnected');
     expect(dispose).toHaveBeenCalledTimes(1);
   });

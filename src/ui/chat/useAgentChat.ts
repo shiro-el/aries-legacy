@@ -8,6 +8,7 @@ import type { ChatRowsSource } from 'react-native-whip-ssh/src/chatRows';
 import { emptyTranscript, type AgentChatState } from '../../agentChat';
 import { useAgentChatOpen } from '../../hooks/useAgentChatOpen';
 import { useNativeChatRows } from '../../hooks/useNativeChatRows';
+import { freeTextChoice } from '../../lib/menuAnswer';
 import { resolveChatRow } from '../../lib/nativeChatRows';
 import type { HerdrClient } from '../../services/HerdrClient';
 import { agentTranscriptService } from '../../services/NativeTranscriptService';
@@ -124,10 +125,15 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh }: Options
     });
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  // Each image path is its own paste, so the agent attaches the image it names.
+  const answerMenu = prompt.answerInText;
+  const send = useCallback(async (text: string, images: readonly string[] = []) => {
     if (!client || !pane) throw new Error('This pane is not connected.');
-    await client.native.submitPastes(pane.pane_id, [text]);
-  }, [client, pane]);
+    const parts = [text, ...images];
+    // A menu swallows pasted text, so a message has to go through its free-text row.
+    if (await answerMenu(parts)) return;
+    await client.native.submitPastes(pane.pane_id, parts);
+  }, [answerMenu, client, pane]);
 
   return {
     binding,
@@ -232,5 +238,23 @@ function useInteractionPrompt(
     }
   }, [client, prompt, read, terminalId, token]);
 
-  return { prompt, busy, error, respond };
+  /** False when no menu is waiting, so the message goes to the agent as usual. */
+  const answerInText = useCallback(async (parts: readonly string[]): Promise<boolean> => {
+    if (!client || !terminalId || !token || prompt?.kind !== 'menu') return false;
+    const field = freeTextChoice(prompt);
+    if (!field) throw new Error('choose one of the options above.');
+    let current = prompt;
+    if (!field.selected) {
+      await client.native.respondAgentInteraction(terminalId, token, current.token, `choice:${field.index}`);
+      // The row becomes a text field once selected; answer against that screen.
+      current = (await read()) ?? current;
+    }
+    // Typed as one line: a pasted answer would cancel the question.
+    const answer = parts.filter(Boolean).join(' ');
+    await client.native.respondAgentInteraction(terminalId, token, current.token, 'answer', answer);
+    await read();
+    return true;
+  }, [client, prompt, read, terminalId, token]);
+
+  return { prompt, busy, error, respond, answerInText };
 }

@@ -21,6 +21,8 @@ let transcribe: jest.Mock;
 let mockVoiceInput: VoiceInput;
 
 jest.mock('../src/services/voiceRecorder', () => ({ createVoiceInput: () => mockVoiceInput }));
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
+jest.mock('react-native-reanimated', () => require('../test-support/reanimatedFade').reanimatedFadeMock);
 jest.mock('react-native-whip-ssh/src/transcriptionContext', () => ({
   transcriptionContext: jest.fn((draft: string, recent: string[]) => [draft, ...recent].filter(Boolean)),
 }));
@@ -92,10 +94,10 @@ it('has no microphone where the screen gives it no voice input', async () => {
   expect(findButton('Record voice')).toBeUndefined();
 });
 
-it('replaces the input with a recording bar while recording', async () => {
+it('covers the input with a recording bar, keeping the input and its keyboard', async () => {
   await render();
   await press('Record voice');
-  expect(root.root.findAllByType(TextInput)).toHaveLength(0);
+  expect(root.root.findAllByType(TextInput)).toHaveLength(1);
   expect(findButton('Cancel recording')).toBeDefined();
   expect(findButton('Stop recording')).toBeDefined();
   expect(texts().some(text => /^0:0\d$/.test(text))).toBe(true);
@@ -252,7 +254,7 @@ describe('polish', () => {
     await render();
     await dictate();
     await press('Send');
-    expect(onSend).toHaveBeenCalledWith('음성으로 쓴 글');
+    expect(onSend).toHaveBeenCalledWith('음성으로 쓴 글', []);
     expect(findButton('Polish transcript')).toBeUndefined();
   });
 
@@ -286,4 +288,24 @@ describe('polish', () => {
     await act(async () => { finish('다듬은 글'); });
     expect(input().props.value).toBe('음성으로 고친 글');
   });
+});
+
+it('sends the transcript as soon as it lands when the recording is sent', async () => {
+  await render();
+  await press('Record voice');
+  await press('Send recording');
+  expect(onSend).toHaveBeenCalledWith('음성으로 쓴 글', []);
+  expect(input().props.value).toBe('');
+});
+
+it('keeps a failed recording instead of sending it', async () => {
+  transcribe.mockRejectedValue(new TranscriptionError('network', 'offline'));
+  await render();
+  await press('Record voice');
+  await press('Send recording');
+  expect(onSend).not.toHaveBeenCalled();
+  transcribe.mockResolvedValue('다시 쓴 글');
+  await press('Retry transcription');
+  expect(onSend).not.toHaveBeenCalled();
+  expect(input().props.value).toBe('다시 쓴 글');
 });

@@ -8,6 +8,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Pencil } from 'lucide-react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import type { NativeAgentInteractionPrompt } from 'react-native-whip-ssh';
 
 import type { TranscriptToolPart, TranscriptTurn } from '../../agentChat';
@@ -18,10 +20,14 @@ import type { PaneInfo } from '../../types';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { Composer, type ComposerVoice } from './Composer';
+import type { ComposerImageSource } from './useComposerImages';
+import { discardClipboardAttachment, pickLocalAttachment, stageClipboardAttachment } from '../../services/attachmentPaste';
+import { uploadComposerImage, watchComposerImagePaste } from '../../services/composerImagePaste';
 import type { FileLink } from './fileLinks';
 import { Markdown } from './Markdown';
 import { polishTranscript } from '../../services/transcriptPolish';
 import { useAgentChat } from './useAgentChat';
+import { freeTextChoice } from '../../lib/menuAnswer';
 import { recentMessages } from './voiceText';
 
 type Props = {
@@ -52,6 +58,7 @@ export function ChatScreen({
   const s = useMemo(() => makeStyles(palette), [palette]);
   const chat = useAgentChat({ hostSessionId, pane, client, onRefresh });
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(() => new Set());
+  const [focusRequest, setFocusRequest] = useState(0);
   const agent = chatAgentForPane(pane);
   const name = agent ? chatAgentDisplayName(agent) : (pane?.display_agent ?? pane?.agent ?? 'Agent');
   const where = pane?.foreground_cwd ?? pane?.cwd;
@@ -98,6 +105,21 @@ export function ChatScreen({
       );
     },
   } : undefined), [agent]);
+
+  const nativeRef = useRef(native);
+  nativeRef.current = native;
+  const images = useMemo<ComposerImageSource>(() => ({
+    watch: watchComposerImagePaste,
+    pick: pickLocalAttachment,
+    stagePasted: stageClipboardAttachment,
+    discard: discardClipboardAttachment,
+    // Each upload keeps the runtime it started on, so a reconnect cannot reroute it.
+    upload: stage => {
+      const runtime = nativeRef.current;
+      if (!runtime) throw new Error('This pane is not connected.');
+      return uploadComposerImage(runtime, stage);
+    },
+  }), []);
 
   const data = useMemo(() => [...chat.blocks].reverse(), [chat.blocks]);
 
@@ -151,6 +173,7 @@ export function ChatScreen({
           s={s}
           palette={palette}
           onRespond={(action, answer) => { void chat.prompt.respond(action, answer); }}
+          onTypeAnswer={() => setFocusRequest(request => request + 1)}
         />
       )}
       {!chat.prompt.prompt && chat.prompt.error && <Text style={s.promptError}>{chat.prompt.error}</Text>}
@@ -166,6 +189,8 @@ export function ChatScreen({
         onSend={chat.send}
         onOpenTerminal={onOpenTerminal}
         voice={voice}
+        images={images}
+        focusRequest={focusRequest}
       />
     </View>
   );
@@ -418,7 +443,7 @@ function Tool({ part, open, onToggle, s, palette, style }: {
 }
 
 /** The one gold surface in chat: the agent is waiting on a decision. */
-function PromptCard({ prompt, name, busy, error, s, palette, onRespond }: {
+function PromptCard({ prompt, name, busy, error, s, palette, onRespond, onTypeAnswer }: {
   prompt: NativeAgentInteractionPrompt;
   name: string;
   busy: boolean;
@@ -426,35 +451,79 @@ function PromptCard({ prompt, name, busy, error, s, palette, onRespond }: {
   s: Styles;
   palette: Palette;
   onRespond: (action: string, answer?: string) => void;
+  /** The free-text row: its answer is written in the composer below. */
+  onTypeAnswer: () => void;
 }) {
   const [answer, setAnswer] = useState('');
+  const freeText = freeTextChoice(prompt);
+  const { header, question } = splitSummary(prompt.summary);
+  // Typing an answer: the keyboard leaves no room for the choices, and the composer must stay in view.
+  const keyboardUp = useKeyboardState(state => state.isVisible);
+  if (keyboardUp && prompt.kind === 'menu') {
+    return (
+      <View style={[s.card, s.cardCompact]}>
+        <View style={s.cardHead}>
+          <StatusGlyph status="blocked" palette={palette} />
+          <Text style={s.cardEyebrow} numberOfLines={1}>{header || `${name} asks`}</Text>
+        </View>
+        <Text style={s.cardTitleCompact} numberOfLines={2}>{question || `${name} needs you`}</Text>
+        {error ? <Text style={s.cardError}>{error}</Text> : null}
+      </View>
+    );
+  }
+  const choices = prompt.kind === 'queued-question' ? [] : prompt.choices.filter(choice => choice.index !== freeText?.index);
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
         <StatusGlyph status="blocked" palette={palette} />
-        <Text style={s.cardTitle}>{prompt.summary || `${name} needs you`}</Text>
+        <Text style={s.cardEyebrow} numberOfLines={1}>{header || `${name} asks`}</Text>
       </View>
-      {prompt.text ? (
+      {/* A runaway summary must not push the choices off screen. */}
+      <Text style={s.cardTitle} numberOfLines={6}>{question || `${name} needs you`}</Text>
+      {/* A menu's summary and choices already say it all; raw screen text would repeat the transcript. */}
+      {prompt.kind === 'terminal' && prompt.text ? (
         <ScrollView style={s.cardScroll}>
           <Text style={s.cardText} selectable>{prompt.text}</Text>
         </ScrollView>
       ) : null}
       {prompt.kind === 'queued-question' && (
-        <Pressable onPress={() => onRespond('open')} disabled={busy} accessibilityRole="button" style={[s.choice, s.choiceSelected]}>
-          <Text style={s.choiceLabel}>Open question</Text>
+        <Pressable onPress={() => onRespond('open')} disabled={busy} accessibilityRole="button" style={[s.solid, busy && s.dim]}>
+          <Text style={s.solidLabel}>Open question</Text>
         </Pressable>
       )}
-      {prompt.kind !== 'queued-question' && prompt.choices.map(choice => (
-        <Pressable
-          key={choice.index}
-          onPress={() => onRespond(`choice:${choice.index}`)}
-          disabled={busy}
-          accessibilityRole="button"
-          style={({ pressed }) => [s.choice, choice.selected && s.choiceSelected, pressed && s.pressed, busy && s.dim]}
-        >
-          <Text style={s.choiceLabel}>{choice.label}</Text>
-        </Pressable>
-      ))}
+      {(choices.length > 0 || freeText) && (
+        <View style={[s.choices, busy && s.dim]}>
+          {choices.map((choice, position) => (
+            <Pressable
+              key={choice.index}
+              onPress={() => onRespond(`choice:${choice.index}`)}
+              disabled={busy}
+              accessibilityRole="button"
+              style={({ pressed }) => [s.choice, position > 0 && s.choiceSeam, pressed && s.choicePressed]}
+            >
+              <View style={s.choiceMark}>
+                <Text style={s.choiceMarkLabel}>{position + 1}</Text>
+              </View>
+              <ChoiceLabel label={choice.label} s={s} />
+            </Pressable>
+          ))}
+          {freeText && (
+            // Confirming the empty free-text row would decline the question, so it opens the composer instead.
+            <Pressable
+              onPress={onTypeAnswer}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Type your own answer"
+              style={({ pressed }) => [s.choice, choices.length > 0 && s.choiceSeam, pressed && s.choicePressed]}
+            >
+              <View style={[s.choiceMark, s.choiceMarkGhost]}>
+                <Pencil size={13} color={palette.muted} strokeWidth={2} />
+              </View>
+              <Text style={s.choiceGhost}>Type your own answer below</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
       {prompt.kind === 'terminal' && prompt.choices.length === 0 && (
         <View style={s.answerRow}>
           <TextInput
@@ -472,10 +541,28 @@ function PromptCard({ prompt, name, busy, error, s, palette, onRespond }: {
       )}
       <View style={s.cardFoot}>
         {error ? <Text style={s.cardError}>{error}</Text> : <View />}
-        <Pressable onPress={() => onRespond('esc')} disabled={busy} accessibilityRole="button" hitSlop={8}>
-          <Text style={s.aside}>Dismiss</Text>
+        <Pressable onPress={() => onRespond('esc')} disabled={busy} accessibilityRole="button" accessibilityLabel="Dismiss" style={s.skip}>
+          <Text style={s.skipLabel}>Skip</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/** Claude heads a question with a checkbox line naming its topic; the rest is the question. */
+function splitSummary(summary: string): { header: string; question: string } {
+  const [first = '', ...rest] = summary.trim().split('\n');
+  const header = /^[☐☒☑✔]\s*(.+)$/u.exec(first.trim());
+  return header ? { header: header[1].trim(), question: rest.join('\n').trim() } : { header: '', question: summary.trim() };
+}
+
+/** A choice's first line names it; wrapped rows below describe it. */
+function ChoiceLabel({ label, s }: { label: string; s: Styles }) {
+  const [title, ...detail] = label.split('\n');
+  return (
+    <View style={s.choiceText}>
+      <Text style={s.choiceLabel}>{title.trim()}</Text>
+      {detail.length > 0 && <Text style={s.choiceDetail}>{detail.map(line => line.trim()).join(' ')}</Text>}
     </View>
   );
 }
@@ -558,19 +645,33 @@ function makeStyles(p: Palette) {
       marginHorizontal: space.md,
       marginBottom: space.sm,
       padding: space.lg,
-      gap: space.sm,
-      borderRadius: radius.md,
-      borderWidth: 1.5,
+      paddingBottom: space.xs,
+      gap: space.md,
+      borderRadius: 20,
+      borderWidth: 1,
       borderColor: p.goldInk,
       backgroundColor: p.surface,
     },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-    cardTitle: { ...type.bodyBold, color: p.text, flex: 1 },
+    cardEyebrow: { ...type.caption, color: p.goldInk, flex: 1, textTransform: 'uppercase', letterSpacing: 0.6 },
+    cardTitle: { fontFamily: fonts.bold, fontSize: 16, lineHeight: 23, color: p.text },
+    cardCompact: { paddingVertical: space.md, paddingBottom: space.md, gap: space.xs },
+    cardTitleCompact: { ...type.bodyBold, color: p.text },
     cardScroll: { maxHeight: 160 },
     cardText: { ...type.body, color: p.text },
-    choice: { paddingVertical: 10, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1.5, borderColor: p.seam, backgroundColor: p.bg },
-    choiceSelected: { borderColor: p.goldInk },
+    choices: { borderRadius: 14, backgroundColor: p.bg, overflow: 'hidden' },
+    choice: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 52, paddingVertical: space.md, paddingHorizontal: space.md },
+    choiceSeam: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.seam },
+    choicePressed: { backgroundColor: p.seam },
+    choiceMark: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: p.seam, alignItems: 'center', justifyContent: 'center' },
+    choiceMarkGhost: { borderStyle: 'dashed' },
+    choiceMarkLabel: { ...type.caption, fontFamily: fonts.medium, color: p.text },
+    choiceText: { flex: 1, gap: 2 },
     choiceLabel: { ...type.bodyMedium, color: p.text },
+    choiceDetail: { ...type.caption, color: p.muted },
+    choiceGhost: { ...type.body, color: p.muted, flex: 1 },
+    skip: { minHeight: 44, minWidth: 64, alignItems: 'flex-end', justifyContent: 'center' },
+    skipLabel: { ...type.bodyMedium, color: p.muted },
     answerRow: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
     answerInput: { flex: 1 },
     cardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md },

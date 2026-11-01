@@ -8,7 +8,6 @@ import type { HostRuntimeConnection } from 'react-native-whip-ssh';
 
 import {
   discardClipboardAttachment,
-  stageClipboardAttachment,
   type ClipboardAttachmentResult,
   type LocalAttachment,
 } from './attachmentPaste';
@@ -110,20 +109,23 @@ export interface UploadedComposerAttachment {
   dispose: () => void;
 }
 
-/** Captures one runtime, so later focus changes cannot reroute an upload. */
-export function uploadPastedComposerImage(
+/**
+ * Uploads the image `stage` copies into the app's cache, which this then owns.
+ * Captures one runtime, so later focus changes cannot reroute an upload.
+ */
+export function uploadComposerImage(
   runtime: Pick<
     HostRuntimeConnection,
     'startAttachmentUpload' | 'cancelTransfer'
   >,
-  picked: ClipboardAttachmentResult,
+  stage: () => Promise<LocalAttachment>,
 ): { result: Promise<UploadedComposerAttachment | null>; cancel: () => void } {
   let cancelled = false;
   let transferId: string | null = null;
   const result = (async () => {
     let local: LocalAttachment | null = null;
     try {
-      local = await stageClipboardAttachment(picked);
+      local = await stage();
       if (cancelled) return null;
       const transfer = runtime.startAttachmentUpload(local.nativePath);
       transferId = transfer.id;
