@@ -8,7 +8,7 @@ import type { HostManagementController } from './useHostManagement';
 import type { useAgentNotifications } from './useAgentNotifications';
 import type { SessionRuntimeStore } from './sessionRuntimeTypes';
 import {
-  foregroundUsesBriefAlerts,
+  agentAlertDelivery,
   isAgentAlertingStatus,
   tabNameForAgent,
 } from '../lib/agentStatusEvents';
@@ -74,11 +74,11 @@ export function useAgentNotificationSideEffects({
           alertsEnabledRef.current &&
           isAgentAlertingStatus(status)
         ) {
-          const delivery = agentAlertLevelRef.current === 'regular'
-            ? 'regular'
-            : foregroundUsesBriefAlerts(AppState.currentState === 'active')
-              ? 'brief'
-              : 'persistent';
+          const delivery = agentAlertDelivery(
+            status,
+            agentAlertLevelRef.current,
+            AppState.currentState === 'active',
+          );
           reportBackgroundFailure(
             alertAgent(
               agent,

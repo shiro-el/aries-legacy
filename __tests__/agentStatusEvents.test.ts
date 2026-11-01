@@ -1,5 +1,5 @@
 import {
-  foregroundUsesBriefAlerts,
+  agentAlertDelivery,
   agentNotificationTitle,
   isAgentAlertingStatus,
   tabNameForAgent,
@@ -25,9 +25,12 @@ describe('agent status events', () => {
     expect(isAgentAlertingStatus('idle')).toBe(false);
   });
 
-  test('uses brief notifications whenever the app is in the foreground', () => {
-    expect(foregroundUsesBriefAlerts(true)).toBe(true);
-    expect(foregroundUsesBriefAlerts(false)).toBe(false);
+  test('only an agent that needs you can raise a persistent or brief alert', () => {
+    expect(agentAlertDelivery('blocked', 'persistent', false)).toBe('persistent');
+    expect(agentAlertDelivery('blocked', 'persistent', true)).toBe('brief');
+    expect(agentAlertDelivery('blocked', 'regular', false)).toBe('regular');
+    expect(agentAlertDelivery('done', 'persistent', false)).toBe('regular');
+    expect(agentAlertDelivery('done', 'persistent', true)).toBe('regular');
   });
 
   test('uses the tab name and agent name in notification titles', () => {

@@ -1,11 +1,19 @@
+import type { AgentAlertDelivery } from '../services/alerts';
+import type { AgentAlertLevel } from '../services/devicePreferences';
 import type { AgentInfo, AgentStatus, TabInfo } from '../types';
 
 export function isAgentAlertingStatus(status: AgentStatus): boolean {
   return status === 'blocked' || status === 'done';
 }
 
-export function foregroundUsesBriefAlerts(appHasFocus: boolean): boolean {
-  return appHasFocus;
+/** A finished agent can wait, so only one that needs you rings or vibrates. */
+export function agentAlertDelivery(
+  status: AgentStatus,
+  level: AgentAlertLevel,
+  appHasFocus: boolean,
+): AgentAlertDelivery {
+  if (status !== 'blocked' || level === 'regular') return 'regular';
+  return appHasFocus ? 'brief' : 'persistent';
 }
 
 export function tabNameForAgent(
