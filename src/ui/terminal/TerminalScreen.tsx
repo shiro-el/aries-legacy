@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SessionPresentation } from '../../liveHostSessions';
 import type { TerminalRenderTarget } from '../../lib/terminalRenderer';
 import type { TerminalSessionStatus } from '../../terminalSessions';
+import { SessionAccessMenu, type SessionAccessActions } from '../shizuku/SessionAccessMenu';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, palettes, radius, space, type } from '../theme/tokens';
 import { TerminalSurface, type TerminalSurfaceHandle } from './TerminalSurface';
@@ -14,6 +15,7 @@ import { EXTRA_KEY_ROWS, NO_MODIFIERS, keySequence, modifiedText, type ExtraKey,
 const p = palettes.dark;
 
 type Props = {
+  sessionAccess?: SessionAccessActions;
   session: SessionPresentation | null;
   target: TerminalRenderTarget | null;
   fontSize: number;
@@ -23,7 +25,7 @@ type Props = {
   onStatus: (terminalId: string, status: TerminalSessionStatus, error?: string) => void;
 };
 
-export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerminal, onCloseTerminal, onStatus }: Props) {
+export function TerminalScreen({ sessionAccess, session, target, fontSize, onBack, onSelectTerminal, onCloseTerminal, onStatus }: Props) {
   const surface = useRef<TerminalSurfaceHandle>(null);
   // Ctrl and Alt latch for the next key, typed or tapped, then let go.
   const [modifiers, setModifiers] = useState<Modifiers>(NO_MODIFIERS);
@@ -70,6 +72,7 @@ export function TerminalScreen({ session, target, fontSize, onBack, onSelectTerm
           {pane && <StatusGlyph status={pane.agent_status} palette={p} />}
           <Text style={s.title} numberOfLines={1}>{title}</Text>
         </View>
+        {sessionAccess && <SessionAccessMenu key={target?.key} {...sessionAccess} palette={p} />}
         {session && <Text style={s.host} numberOfLines={1}>{session.host.name}</Text>}
       </View>
 

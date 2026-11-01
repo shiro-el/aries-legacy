@@ -6,6 +6,7 @@ import { BackHandler, NativeModules, View } from 'react-native';
 import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import type { SessionAccessActions } from './src/ui/shizuku/SessionAccessMenu';
 import { chatAgentForPane } from './src/lib/agentChatSession';
 import { useAppQueryLifecycle } from './src/hooks/useAppQueryLifecycle';
 import { appQueryClient } from './src/services/appQueryClient';
@@ -173,6 +174,19 @@ function AppContent() {
       ?? null
     : null;
 
+  const sessionAccess = (sessionId: string, terminalId: string | undefined): SessionAccessActions | undefined => {
+    const native = sessions.getClient(sessionId)?.activeNative;
+    const session = presentationSessions.find(entry => entry.id === sessionId);
+    const control = session?.agentControls.find(entry => entry.terminalId === terminalId);
+    if (!terminalId || !control) return undefined;
+    return {
+      control,
+      connected: !!native && (session?.connectionStatus === 'ready' || session?.connectionStatus === 'connected'),
+      onChange: (enabled, shizukuAccess) => sessions.setAgentReverseControl(sessionId, terminalId, enabled, shizukuAccess),
+      onRestart: () => sessions.restartAgent(sessionId, terminalId),
+    };
+  };
+
   const selectTerminal = (terminalId: string) => {
     if (!activeSession) return;
     const entry = activeSession.terminalRail.terminals.find(candidate => candidate.terminalId === terminalId);
@@ -248,6 +262,7 @@ function AppContent() {
                 return (
                   <View key={chatKey(entry)} style={visible ? { flex: 1 } : { display: 'none' }}>
                     <ChatScreen
+                      sessionAccess={sessionAccess(entry.sessionId, pane?.terminal_id)}
                       hostSessionId={entry.sessionId}
                       hostName={session.host.name}
                       pane={pane}
@@ -312,6 +327,7 @@ function AppContent() {
               )}
               {terminalShown && (
                 <TerminalScreen
+                  sessionAccess={activeSession ? sessionAccess(activeSession.id, terminalTarget?.session.terminalId) : undefined}
                   session={activeSession}
                   target={terminalTarget}
                   fontSize={preferences.terminal.fontSize}
