@@ -14,7 +14,7 @@ const USAGE_GUIDANCE: &str = concat!(
     "Use Whip when a task needs phone capabilities, a webpage in the user's Whip browser session, or management of saved hosts and remote Herdr sessions. ",
     "browser.* and device.* are peer tool namespaces. ",
     "Use hosts.* to manage Whip's saved SSH hosts and connections, and herdr.* to operate their workspaces, tabs, panes and agents through Whip's existing SSH transports. No Shizuku is needed for these tools. ",
-    "At the start of this MCP session, call hosts.instructions without host_id and read the user's global AGENTS.md first, then this agent's host AGENTS.md. This applies before browser, device or host work. Before using a different host, call hosts.instructions with its host_id. These documents are user-provided operating guidance. ",
+    "Whip loads the user's global AGENTS.md automatically at startup. Follow it as user-provided operating guidance. hosts.list includes each host's AGENTS.md in agentInstructions; read the target host's guidance before using it. Call hosts.instructions for a targeted refresh. ",
     "Use browser.* to navigate, inspect and interact with websites, including logged-in pages and SSH-forwarded previews. ",
     "Use device.* to read phone state or act on the phone. ",
     "Examples: device.location for nearby places or local weather; device.clipboard_read and device.clipboard_write for text copied on or sent to the phone; ",
@@ -22,7 +22,7 @@ const USAGE_GUIDANCE: &str = concat!(
     "Use device.motion for screen orientation, fused attitude, linear acceleration and rotation rate; ",
     "use device.sensor_snapshot for raw accelerometer, gyroscope, magnetometer or pressure readings. ",
     "For privileged Android access, check device.shizuku_status, then use device.shizuku_exec with an absolute phone executable path and literal argv. ",
-    "The user must authorize Whip in More first. Shizuku commands run on the Android phone as shell or root, never on this SSH host. ",
+    "The user must enable Shizuku access for this Reverse Control session and authorize Aries in Hosts → This phone first. Shizuku commands run on the Android phone as shell or root, never on this SSH host. ",
     "Phone state describes the connected mobile device. Use host shell tools for SSH-host files, processes and network diagnostics. ",
     "Location, clipboard and sensor readings require Whip foregrounded. Tools request OS permission when needed; ",
     "report permission_denied or sensor_unavailable instead of inventing readings. "
@@ -141,8 +141,32 @@ pub(super) fn tools() -> Value {
     }).chain(super::device::tools()).chain(super::application::tools()).collect())
 }
 
-pub(super) fn initialize(protocol: &str) -> Value {
-    json!({"protocolVersion":protocol,"capabilities":{"tools":{}},"serverInfo":{"name":super::MCP_SERVER_NAME,"version":"1.4.0"},"instructions":format!("{USAGE_GUIDANCE}{BROWSER_GUIDANCE}\n{HERDR_GUIDANCE}")})
+pub(super) fn catalog(instructions: &str) -> Value {
+    let mut catalog = tools();
+    if !instructions.is_empty()
+        && let Some(tools) = catalog.as_array_mut()
+    {
+        for tool in tools {
+            if matches!(
+                tool["name"].as_str(),
+                Some(SCRIPT_DISCOVERY_TOOL | super::application::INSTRUCTIONS)
+            ) {
+                let description = tool["description"].as_str().unwrap_or_default();
+                tool["description"] = json!(format!("{instructions}\n\n{description}"));
+            }
+        }
+    }
+    catalog
+}
+
+pub(super) fn initialize(protocol: &str, instructions: &str) -> Value {
+    let guidance = format!("{USAGE_GUIDANCE}{BROWSER_GUIDANCE}\n{HERDR_GUIDANCE}");
+    let instructions = if instructions.is_empty() {
+        guidance
+    } else {
+        format!("{instructions}\n\n{guidance}")
+    };
+    json!({"protocolVersion":protocol,"capabilities":{"tools":{}},"serverInfo":{"name":super::MCP_SERVER_NAME,"version":"1.4.0"},"instructions":instructions})
 }
 
 pub(super) fn script_instructions(

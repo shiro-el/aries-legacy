@@ -1,3 +1,4 @@
+import { hostCallLogOpen, hostCallLogRead, hostCallLogStop } from 'react-native-whip-ssh';
 import type { NotificationRuntime } from './notificationRuntimeRegistry';
 
 // Reads a host's retained call log (FORK.md entries 4, 9 and 11) through the
@@ -79,19 +80,16 @@ export function interrupts(call: HostCall): boolean {
   return call.urgency !== 'record';
 }
 
-type Discovery = { paths: unknown };
-
 /** Starts following the log and returns what it already holds. */
 export async function openCallLog(runtime: NotificationRuntime): Promise<HostCall[]> {
-  const discovery = JSON.parse(await runtime.notificationCommand('discover', '{}')) as Discovery;
-  return parse(await runtime.notificationCommand('calls-open', JSON.stringify({ paths: discovery.paths })));
+  return parse(await hostCallLogOpen(runtime.runtimeId));
 }
 
 /** Rows appended since the last read. Throws once the stream has dropped. */
 export async function readCallLog(runtime: NotificationRuntime): Promise<HostCall[]> {
-  return parse(await runtime.notificationCommand('calls-read', '{}'));
+  return parse(await hostCallLogRead(runtime.runtimeId));
 }
 
 export async function stopCallLog(runtime: NotificationRuntime): Promise<void> {
-  await runtime.notificationCommand('calls-stop', '{}');
+  await hostCallLogStop(runtime.runtimeId);
 }

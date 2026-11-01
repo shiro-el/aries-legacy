@@ -1,7 +1,56 @@
 use super::*;
 
 #[test]
-fn resumed_mcp_connection_survives_delayed_metadata_and_rejects_a_different_conversation()
+fn codex_new_and_clear_keep_the_launch_through_mcp_client_replacement() -> Result<(), Box<dyn Error>>
+{
+    crate::runtime()?.block_on(async {
+        // Codex starts the replacement thread before detaching the old one.
+        // Exercise DELETE on both sides of the new client's initialize too.
+        for delete_before_initialize in [true, false] {
+            let fixture = crate::ssh::ReverseForwardFixture::new(true, Duration::ZERO).await?;
+            let directory = tempfile::tempdir()?;
+            let recovery_path = directory.path().join("host.json");
+            let owner = recovery_owner(&recovery_path);
+            let mut pane = recovery_pane();
+            let launch = owner.prepare(
+                fixture.ssh.clone(), info("codex", "pane-a"), agent(HerdrAgentKind::Codex),
+            ).await?;
+            let token = config_token(&launch)?;
+            let port = bridge_port(&owner)?;
+            let initialize = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
+            assert_eq!(metadata(&owner, port, "codex", &token, &initialize).await?.status, 200);
+            owner.reconcile(std::slice::from_ref(&pane));
+
+            for conversation in ["after-new", "after-clear"] {
+                if delete_before_initialize {
+                    let deleted = wire(port, "codex", &token, "DELETE", &Value::Null, "").await?;
+                    assert_eq!(deleted.status, 405);
+                    assert_eq!(deleted.headers.get("allow").map(String::as_str), Some("POST"));
+                }
+                assert_eq!(metadata(&owner, port, "codex", &token, &initialize).await?.status, 200);
+                pane.agent_session.as_mut().ok_or("missing identity")?.value = conversation.into();
+                owner.reconcile(std::slice::from_ref(&pane));
+                if !delete_before_initialize {
+                    assert_eq!(wire(port, "codex", &token, "DELETE", &Value::Null, "").await?.status, 405);
+                }
+                assert!(owner.connected_terminal(&pane.terminal_id));
+                assert_eq!(owner.sessions.lock()["codex"].conversation.as_deref(), Some(conversation));
+                let saved: Value = serde_json::from_slice(&std::fs::read(&recovery_path)?)?;
+                assert_eq!(saved["sessions"][0]["conversation"], conversation);
+                let ping = json!({"jsonrpc":"2.0","id":2,"method":"ping"});
+                assert_eq!(wire(port, "codex", &token, "POST", &ping, "").await?.status, 200);
+            }
+            owner.close_terminal(&pane.terminal_id);
+            assert!(owner.list().is_empty());
+            assert!(!recovery_path.exists());
+            port_closes(port).await?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn resumed_mcp_connection_requires_initial_identity_then_follows_codex_threads()
 -> Result<(), Box<dyn Error>> {
     crate::runtime()?.block_on(async {
         for replaced_before_metadata in [false, true] {
@@ -20,7 +69,7 @@ fn resumed_mcp_connection_survives_delayed_metadata_and_rejects_a_different_conv
             let port = bridge_port(&owner)?;
             owner.reconcile(std::slice::from_ref(&booting));
             let initialize = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
-            assert_eq!(wire(port, "resumed", &token, "POST", &initialize, "").await?.status, 200);
+            assert_eq!(metadata(&owner, port, "resumed", &token, &initialize).await?.status, 200);
             assert!(owner.connected_terminal(&pane.terminal_id));
 
             // Completing verification must not require SessionStart metadata
@@ -35,7 +84,12 @@ fn resumed_mcp_connection_survives_delayed_metadata_and_rejects_a_different_conv
             let mut replacement = pane;
             replacement.agent_session.as_mut().ok_or("missing session")?.value = "different".into();
             owner.reconcile(&[replacement]);
-            assert!(owner.list().is_empty());
+            if replaced_before_metadata {
+                assert!(owner.list().is_empty());
+            } else {
+                assert_eq!(owner.list().len(), 1);
+                owner.close_terminal("terminal-pane-a");
+            }
             port_closes(port).await?;
         }
         Ok(())
@@ -57,7 +111,7 @@ fn restart_keeps_the_new_mcp_endpoint_alive_through_transient_shell_snapshots()
         let old_token = config_token(&old_launch)?;
         let old_port = bridge_port(&owner)?;
         let initialize = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
-        assert_eq!(wire(old_port, "old", &old_token, "POST", &initialize, "").await?.status, 200);
+        assert_eq!(metadata(&owner, old_port, "old", &old_token, &initialize).await?.status, 200);
         owner.reconcile(std::slice::from_ref(&pane));
         owner.close_terminal(&pane.terminal_id);
         port_closes(old_port).await?;
@@ -70,7 +124,7 @@ fn restart_keeps_the_new_mcp_endpoint_alive_through_transient_shell_snapshots()
         // Lifecycle polling and the event subscription can still report the shell.
         owner.reconcile(std::slice::from_ref(&pane));
         owner.reconcile(std::slice::from_ref(&shell));
-        assert_eq!(wire(port, "new", &token, "POST", &initialize, "").await?.status, 200);
+        assert_eq!(metadata(&owner, port, "new", &token, &initialize).await?.status, 200);
         owner.reconcile(std::slice::from_ref(&pane));
         assert!(owner.connected_terminal(&pane.terminal_id));
         assert_eq!(wire(port, "old", &old_token, "POST", &initialize, "").await?.status, 404);
@@ -135,9 +189,9 @@ fn real_ssh_bridge_is_shared_per_host_and_last_agent_cleanup_closes_both_ports()
         let token_b = config_token(&b_args)?;
         assert_ne!(token_a, token_b);
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
-        assert_eq!(wire(remote_port, "a", &token_a, "POST", &init, "").await?.status, 200);
-        assert_eq!(wire(remote_port, "b", &token_b, "POST", &init, "").await?.status, 200);
-        let listed = wire(remote_port, "b", &token_b, "POST", &json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "").await?;
+        assert_eq!(metadata(&owner, remote_port, "a", &token_a, &init).await?.status, 200);
+        assert_eq!(metadata(&owner, remote_port, "b", &token_b, &init).await?.status, 200);
+        let listed = metadata(&owner, remote_port, "b", &token_b, &json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).await?;
         assert_eq!(listed.body["result"]["tools"].as_array().map(Vec::len), Some(tools::ACTIONS.len() + device::NAMES.len() + application::tools().len()));
         owner.close_session("a");
         assert_eq!(owner.list().len(), 1);
@@ -168,8 +222,9 @@ fn ssh_reconnect_preserves_initialized_mcp_session_and_cancels_inflight_commands
         let (epoch, port, local_port) = owner.bridge.lock().as_ref()
             .map(|bridge| (bridge.epoch, bridge.remote_port, bridge.local_port)).ok_or("bridge missing")?;
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
-        assert_eq!(wire(port, "a", &token, "POST", &init, "").await?.status, 200);
+        assert_eq!(metadata(&owner, port, "a", &token, &init).await?.status, 200);
         assert_eq!(owner.terminal_state("terminal-pane-a", true), ReverseControlState::Connected);
+        owner.set_terminal_shizuku_access("terminal-pane-a", true);
         let pending = owner.start_action("a", json!(2), &json!({"params":{"name":"device.shizuku_exec","arguments":{"argv":["/system/bin/id"]}}}))
             .map_err(|error| error.to_string())?;
         fixture.ssh.disconnect().await;
@@ -193,7 +248,7 @@ fn ssh_reconnect_preserves_initialized_mcp_session_and_cancels_inflight_commands
         assert_eq!(owner.terminal_state("terminal-pane-a", true), ReverseControlState::Connected);
         // The initialized client keeps its original URL, token and session id;
         // no initialize request or replacement agent launch occurs here.
-        let listed = wire(port, "a", &token, "POST", &json!({"jsonrpc":"2.0","id":5,"method":"tools/list"}), "").await?;
+        let listed = metadata(&owner, port, "a", &token, &json!({"jsonrpc":"2.0","id":5,"method":"tools/list"})).await?;
         assert_eq!(listed.status, 200);
         assert!(listed.body["result"]["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "device.shizuku_exec")));
         let caller_token = token.clone();
@@ -430,7 +485,7 @@ async fn saved_launch_for_agent(
     let token = config_token(&launch)?;
     let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":http::LATEST_PROTOCOL}});
     assert_eq!(
-        wire(port, TOKEN_A, &token, "POST", &init, "").await?.status,
+        metadata(&owner, port, TOKEN_A, &token, &init).await?.status,
         200
     );
     owner.reconcile(&[recovery_pane_for_agent(kind)]);
@@ -470,7 +525,7 @@ fn process_restart_lazily_restores_original_mcp_endpoint_and_native_tools()
         owner.resume(replacement.ssh.clone()).await?;
         assert!(owner.connected_terminal("terminal-pane-a"));
         assert!(!owner.needs_resume());
-        let listed = wire(port, TOKEN_A, &token, "POST", &json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "").await?;
+        let listed = metadata(&owner, port, TOKEN_A, &token, &json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).await?;
         assert_eq!(listed.status, 200); // No new initialize or agent launch.
         let caller = tokio::spawn(async move {
             wire(port, TOKEN_A, &token, "POST", &json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"device.battery","arguments":{}}}), "").await
@@ -488,6 +543,37 @@ fn process_restart_lazily_restores_original_mcp_endpoint_and_native_tools()
         assert!(!path.exists());
         port_closes(port).await?;
         }
+        Ok(())
+    })
+}
+
+#[test]
+fn shizuku_access_and_revocation_survive_recovery_of_the_same_session() -> Result<(), Box<dyn Error>>
+{
+    crate::runtime()?.block_on(async {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("host.json");
+        saved_launch_for_agent(&path, HerdrAgentKind::Codex).await?;
+        for enabled in [true, false] {
+            let owner = recovery_owner(&path);
+            owner.reconcile(&[recovery_pane()]);
+            owner.set_terminal_shizuku_access("terminal-pane-a", enabled);
+            drop(owner);
+            let restored = recovery_owner(&path);
+            restored.reconcile(&[recovery_pane()]);
+            assert_eq!(restored.list()[0].shizuku_access, enabled);
+        }
+        // Older recovery records never implicitly grant privileged tools.
+        let mut legacy: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        legacy["sessions"][0]
+            .as_object_mut()
+            .ok_or("missing session")?
+            .remove("shizuku_access");
+        std::fs::write(&path, serde_json::to_vec(&legacy)?)?;
+        let restored = recovery_owner(&path);
+        restored.reconcile(&[recovery_pane()]);
+        assert!(!restored.list()[0].shizuku_access);
+        restored.shutdown();
         Ok(())
     })
 }
@@ -584,10 +670,11 @@ fn info(id: &str, pane: &str) -> ReverseControlSession {
         session_id: id.to_owned(),
         pane_id: pane.to_owned(),
         terminal_id: format!("terminal-{pane}"),
+        shizuku_access: false,
     }
 }
 
-fn insert(owner: &ReverseControl, id: &str, pane: &str) {
+pub(super) fn insert(owner: &ReverseControl, id: &str, pane: &str) {
     owner.sessions.lock().insert(
         id.to_owned(),
         Session {
@@ -597,6 +684,7 @@ fn insert(owner: &ReverseControl, id: &str, pane: &str) {
             started: Instant::now(),
             observed_agent: false,
             conversation: None,
+            conversation_confirmed: false,
             protocol: None,
         },
     );
@@ -804,6 +892,8 @@ fn replies_and_cleanup_are_scoped_to_the_authorized_session() -> Result<(), Box<
         "request-a".to_owned(),
         Pending {
             session: "a".to_owned(),
+            host: None,
+            shizuku: false,
             rpc_id: json!(1),
             response,
         },
@@ -857,7 +947,8 @@ fn session_tokens_are_unpredictable_and_unique() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn launch_configuration_uses_http_with_no_remote_process_or_files() -> Result<(), Box<dyn Error>> {
+fn launch_configuration_scopes_http_and_startup_context_without_remote_files()
+-> Result<(), Box<dyn Error>> {
     let launch = configured_launch(
         AgentLaunch {
             kind: HerdrAgentKind::Codex,
@@ -871,23 +962,28 @@ fn launch_configuration_uses_http_with_no_remote_process_or_files() -> Result<()
         return Err("agent launch missing".into());
     };
     assert_eq!(kind, HerdrAgentKind::Codex);
-    assert_eq!(
-        args,
-        vec![
-            "-c",
-            "mcp_servers.whip.url=\"http://127.0.0.1:12345/mcp/agent-a\"",
-            "-c",
-            &format!("mcp_servers.whip.http_headers={{Authorization=\"Bearer {TOKEN_A}\"}}"),
-            "-c",
-            "mcp_servers.whip.required=true",
-            "-c",
-            &format!(
-                "mcp_servers.whip.tool_timeout_sec={}",
-                MCP_TOOL_TIMEOUT.as_secs()
-            ),
-            "resume",
-            "--last",
-        ]
+    let expected: Vec<String> = vec![
+        "-c",
+        "mcp_servers.whip.url=\"http://127.0.0.1:12345/mcp/agent-a\"",
+        "-c",
+        &format!("mcp_servers.whip.http_headers={{Authorization=\"Bearer {TOKEN_A}\"}}"),
+        "-c",
+        "mcp_servers.whip.required=true",
+        "-c",
+        &format!(
+            "mcp_servers.whip.tool_timeout_sec={}",
+            MCP_TOOL_TIMEOUT.as_secs()
+        ),
+        "resume",
+        "--last",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert!(args.ends_with(&expected));
+    assert!(
+        args.iter()
+            .any(|arg| arg.starts_with("hooks.SessionStart="))
     );
     Ok(())
 }
@@ -923,11 +1019,254 @@ impl Fixture {
     }
 
     async fn initialize(&self, id: &str, token: &str) -> io::Result<WireResponse> {
-        wire(self.port, id, token, "POST", &json!({
+        metadata(&self.owner, self.port, id, token, &json!({
             "jsonrpc":"2.0","id":1,"method":"initialize",
             "params":{"protocolVersion":http::LATEST_PROTOCOL,"capabilities":{},"clientInfo":{"name":"test","version":"1"}}
-        }), "").await
+        })).await
     }
+}
+
+/// Publish the app's saved documents through the actual native context adapter.
+pub(crate) async fn metadata(
+    owner: &ReverseControl,
+    port: u16,
+    session: &str,
+    token: &str,
+    message: &Value,
+) -> io::Result<WireResponse> {
+    let host = owner
+        .sessions
+        .lock()
+        .get(session)
+        .map(|session| session.info.runtime_id.clone())
+        .ok_or_else(|| io::Error::other("session missing"))?;
+    metadata_with_reply(
+        owner,
+        port,
+        session,
+        token,
+        message,
+        json!({
+            "ok":true,"value":{"host_id":host,"global":"","host":""}
+        }),
+    )
+    .await
+}
+
+async fn metadata_with_reply(
+    _owner: &ReverseControl,
+    port: u16,
+    session: &str,
+    token: &str,
+    message: &Value,
+    reply: Value,
+) -> io::Result<WireResponse> {
+    let _context = host_documents(&reply);
+    wire(port, session, token, "POST", message, "").await
+}
+
+fn host_documents(reply: &Value) -> Arc<HostActionCoordinator> {
+    let coordinator = HostActionCoordinator::new(Arc::new(hosts::tests::Platform::default()));
+    let mut context = hosts::tests::context();
+    let id = reply["value"]["host_id"].as_str().unwrap_or("host");
+    let mut host = hosts::tests::host(id);
+    host.agent_instructions = reply["value"]["host"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    context.hosts = vec![host];
+    context.global_instructions = reply["value"]["global"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    context.locked = reply["ok"] == false;
+    coordinator.update_context(context);
+    coordinator
+}
+
+#[test]
+fn codex_startup_command_delivers_context_without_initializing_mcp() -> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let fixture = Fixture::new().await?;
+        let _context = host_documents(&json!({"ok":true,"value":{
+            "host_id":"host","global":"Use whip mcp\n$(printf literal-text)\n`printf more-literal-text`","host":"Use nix develop."
+        }}));
+        let command =
+            instructions::command(&format!("http://127.0.0.1:{}/mcp/a", fixture.port), TOKEN_A)?;
+        let request = command.clone();
+        let caller = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("/bin/sh")
+                .args(["-c", &request])
+                .output()
+        });
+        let output = caller.await??;
+        assert!(output.status.success());
+        let context: Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(
+            context["hookSpecificOutput"]["hookEventName"],
+            "SessionStart"
+        );
+        let text = context["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .ok_or("context missing")?;
+        assert!(text.contains("Use whip mcp"));
+        assert!(!text.contains("Use nix develop."));
+        assert!(text.contains("$(printf literal-text)\n`printf more-literal-text`"));
+        assert!(!text.contains(TOKEN_A));
+        assert!(
+            fixture
+                .owner
+                .sessions
+                .lock()
+                .get("a")
+                .ok_or("session missing")?
+                .protocol
+                .is_none()
+        );
+
+        let path = format!("a{}", instructions::PATH_SUFFIX);
+        assert_eq!(
+            wire(fixture.port, &path, TOKEN_B, "GET", &Value::Null, "")
+                .await?
+                .status,
+            401
+        );
+        assert_eq!(
+            wire(
+                fixture.port,
+                &path,
+                TOKEN_A,
+                "GET",
+                &Value::Null,
+                "Origin: https://evil.example\r\n"
+            )
+            .await?
+            .status,
+            403
+        );
+        fixture.owner.close_session("a");
+        assert_eq!(
+            wire(fixture.port, &path, TOKEN_A, "GET", &Value::Null, "")
+                .await?
+                .status,
+            404
+        );
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("/bin/sh").args(["-c", &command]).output()
+        }).await??;
+        assert!(output.status.success());
+        let stopped: Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(stopped["continue"], false);
+        assert!(stopped["hookSpecificOutput"].is_null());
+        Ok(())
+    })
+}
+
+#[test]
+fn http_startup_delivers_saved_instructions_before_any_model_tool_call()
+-> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let fixture = Fixture::new().await?;
+        assert!(fixture.owner.sessions.lock().get("a").ok_or("session missing")?.protocol.is_none());
+        let response = metadata_with_reply(&fixture.owner, fixture.port, "a", TOKEN_A, &json!({
+            "jsonrpc":"2.0","id":1,"method":"initialize",
+            "params":{"protocolVersion":http::LATEST_PROTOCOL}
+        }), json!({
+            "ok":true,"value":{
+                "host_id":"host","global":"Use whip mcp",
+                "host":"# Workstation\nUse nix develop. 日本語\n"
+            }
+        })).await?;
+        let text = response.body["result"]["instructions"].as_str().ok_or("instructions missing")?;
+        assert!(text.starts_with("# AGENTS.md instructions from Whip (global)\n\n<INSTRUCTIONS>\nUse whip mcp\n</INSTRUCTIONS>"));
+        let global = text.find("Use whip mcp").ok_or("global missing")?;
+        let guidance = text.find("Whip connects this agent").ok_or("guidance missing")?;
+        assert!(global < guidance);
+        assert!(!text.contains("# Workstation\nUse nix develop. 日本語\n"));
+        assert!(!text.contains("other agent's rules"));
+        assert_eq!(response.status, 200);
+        assert!(fixture.owner.pending.lock().is_empty());
+        assert!(fixture.owner.steps.lock().is_empty());
+        assert!(fixture.owner.browser_sessions.lock().is_empty());
+        Ok(())
+    })
+}
+
+#[test]
+fn http_discovery_refreshes_instructions_for_clients_without_server_guidance()
+-> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let fixture = Fixture::new().await?;
+        fixture.initialize("a", TOKEN_A).await?;
+        let catalog = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
+        for global in ["Use whip mcp", "Updated global rules"] {
+            let listed = metadata_with_reply(&fixture.owner, fixture.port, "a", TOKEN_A, &catalog,
+                json!({"ok":true,"value":{"host_id":"host","global":global,"host":"Current host rules"}})
+            ).await?;
+            let tools = listed.body["result"]["tools"].as_array().ok_or("catalog missing")?;
+            for name in [tools::SCRIPT_DISCOVERY_TOOL, application::INSTRUCTIONS] {
+                let text = tools.iter().find(|tool| tool["name"] == name)
+                    .and_then(|tool| tool["description"].as_str()).ok_or("tool missing")?;
+                assert!(text.contains(global));
+                assert!(!text.contains("Current host rules"));
+                if global == "Updated global rules" {
+                    assert!(!text.contains("Use whip mcp"));
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn http_instruction_failures_do_not_complete_initialization_and_can_be_retried()
+-> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let fixture = Fixture::new().await?;
+        let initialize = json!({"jsonrpc":"2.0","id":1,"method":"initialize",
+            "params":{"protocolVersion":http::LATEST_PROTOCOL}});
+        for (reply, code) in [
+            (json!({"ok":false,"error":{"code":"permission_denied","message":"Unlock Whip"}}), "permission_denied"),
+            (json!({"ok":true,"value":{"host_id":"other","global":"Other host's rules","host":""}}), "not_found"),
+            (json!({"ok":true,"value":{"host_id":"host","global":"x".repeat(crate::host_profiles::MAX_AGENT_INSTRUCTIONS + 1),"host":""}}), "invalid_result"),
+        ] {
+            let response = metadata_with_reply(&fixture.owner, fixture.port, "a", TOKEN_A, &initialize, reply).await?;
+            assert_eq!(response.body["error"]["data"]["code"], code);
+            assert!(response.body.get("result").is_none());
+            assert!(fixture.owner.sessions.lock().get("a").ok_or("session missing")?.protocol.is_none());
+            assert!(fixture.owner.pending.lock().is_empty());
+            assert!(fixture.owner.steps.lock().is_empty());
+        }
+        let retried = fixture.initialize("a", TOKEN_A).await?;
+        assert_eq!(retried.body["result"]["serverInfo"]["name"], "whip");
+        Ok(())
+    })
+}
+
+#[test]
+fn http_instruction_unavailable_cleans_up_and_allows_retry() -> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let fixture = Fixture::new().await?;
+        hosts::detach();
+        let response = wire(
+            fixture.port,
+            "a",
+            TOKEN_A,
+            "POST",
+            &json!({
+                "jsonrpc":"2.0","id":1,"method":"initialize",
+                "params":{"protocolVersion":http::LATEST_PROTOCOL}
+            }),
+            "",
+        )
+        .await?;
+        assert_eq!(response.body["error"]["data"]["code"], "device_unavailable");
+        assert!(fixture.owner.pending.lock().is_empty());
+        assert!(fixture.owner.steps.lock().is_empty());
+        let retried = fixture.initialize("a", TOKEN_A).await?;
+        assert_eq!(retried.body["result"]["serverInfo"]["name"], "whip");
+        Ok(())
+    })
 }
 
 pub(crate) struct WireResponse {
@@ -956,7 +1295,11 @@ pub(crate) async fn wire(
     );
     stream.write_all(request.as_bytes()).await?;
     let mut response = Vec::new();
-    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response)).await??;
+    tokio::time::timeout(
+        INSTRUCTIONS_TIMEOUT + Duration::from_secs(2),
+        stream.read_to_end(&mut response),
+    )
+    .await??;
     decode_response(&response)
 }
 
@@ -1024,7 +1367,7 @@ fn http_mcp_initializes_notifies_discovers_and_rejects_bad_auth_or_origin()
         assert_eq!(notification.status, 202);
         assert!(notification.body.is_null());
         let catalog = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
-        let listed = wire(fixture.port, "a", TOKEN_A, "POST", &catalog, "").await?;
+        let listed = metadata(&fixture.owner, fixture.port, "a", TOKEN_A, &catalog).await?;
         assert_eq!(listed.status, 200);
         assert_eq!(listed.body["result"]["tools"].as_array().map(Vec::len), Some(tools::ACTIONS.len() + device::NAMES.len() + application::tools().len()));
         assert_eq!(wire(fixture.port, "a", TOKEN_B, "POST", &catalog, "").await?.status, 401);
@@ -1061,16 +1404,15 @@ fn http_script_instructions_are_executable_and_scoped_to_each_launch() -> Result
                 http::LATEST_PROTOCOL,
             ),
         ] {
-            let initialized = wire(
+            let initialized = metadata(
+                &fixture.owner,
                 fixture.port,
                 session,
                 token,
-                "POST",
                 &json!({
                     "jsonrpc":"2.0", "id":1, "method":"initialize",
                     "params":{"protocolVersion":requested}
                 }),
-                "",
             )
             .await?;
             let instructions = initialized.body["result"]["instructions"]
@@ -1134,7 +1476,7 @@ fn http_script_instructions_are_executable_and_scoped_to_each_launch() -> Result
             );
 
             let catalog = json!({"jsonrpc":"2.0", "id":2, "method":"tools/list"});
-            let listed = wire(fixture.port, session, token, "POST", &catalog, "").await?;
+            let listed = metadata(&fixture.owner, fixture.port, session, token, &catalog).await?;
             let description = listed.body["result"]["tools"]
                 .as_array()
                 .and_then(|catalog| {
@@ -1166,7 +1508,11 @@ fn http_script_instructions_are_executable_and_scoped_to_each_launch() -> Result
 fn http_agents_share_a_listener_but_same_rpc_ids_and_replies_are_isolated()
 -> Result<(), Box<dyn Error>> {
     crate::runtime()?.block_on(async {
+        let browser = browser::operations::tests::Harness::new().await;
+        *browser.platform.hold.lock() = Some(browser::operations::tests::Phase::Evaluate);
         let fixture = Fixture::new().await?;
+        // Preserve DELETE support for clients whose session is launch-scoped.
+        fixture.owner.sessions.lock().get_mut("a").ok_or("missing launch")?.agent = HerdrAgentKind::Claude;
         fixture.initialize("a", TOKEN_A).await?;
         fixture.initialize("b", TOKEN_B).await?;
         let call = json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"browser.snapshot"}});
@@ -1179,8 +1525,9 @@ fn http_agents_share_a_listener_but_same_rpc_ids_and_replies_are_isolated()
         let request_a = pending.get("a").ok_or("missing a")?;
         fixture.owner.reply("b", request_a, "{}");
         assert_eq!(fixture.owner.pending.lock().len(), 2);
-        drive_snapshot(&fixture.owner,"b","page-b").await?;
-        drive_snapshot(&fixture.owner,"a","page-a").await?;
+        browser::operations::tests::until(|| browser.platform.events.lock().iter().filter(|event| event.phase == browser::operations::tests::Phase::Evaluate).count() == 2).await?;
+        assert!(fixture.owner.steps.lock().is_empty());
+        browser.platform.resume();
         assert_eq!(a.await??.body["result"]["structuredContent"]["title"], "page-a");
         assert_eq!(b.await??.body["result"]["structuredContent"]["title"], "page-b");
         assert!(fixture.owner.pending.lock().is_empty());
@@ -1189,6 +1536,7 @@ fn http_agents_share_a_listener_but_same_rpc_ids_and_replies_are_isolated()
         assert_eq!(wire(port, "a", TOKEN_A, "POST", &ping, "").await?.status, 404);
         assert_eq!(wire(port, "b", TOKEN_B, "POST", &ping, "").await?.status, 200);
         assert_eq!(fixture.owner.list().len(), 1);
+        drop(browser);
         Ok(())
     })
 }
@@ -1197,6 +1545,8 @@ fn http_agents_share_a_listener_but_same_rpc_ids_and_replies_are_isolated()
 fn http_cancellation_is_scoped_to_a_launch_and_closing_the_host_settles_other_calls()
 -> Result<(), Box<dyn Error>> {
     crate::runtime()?.block_on(async {
+        let browser = browser::operations::tests::Harness::new().await;
+        *browser.platform.hold.lock() = Some(browser::operations::tests::Phase::Evaluate);
         let fixture = Fixture::new().await?;
         fixture.initialize("a", TOKEN_A).await?;
         fixture.initialize("b", TOKEN_B).await?;
@@ -1220,6 +1570,7 @@ fn http_cancellation_is_scoped_to_a_launch_and_closing_the_host_settles_other_ca
         assert_eq!(b.body["result"]["structuredContent"]["error"]["message"], "Browser session closed");
         assert!(fixture.owner.list().is_empty());
         assert!(fixture.owner.pending.lock().is_empty());
+        drop(browser);
         Ok(())
     })
 }
@@ -1229,9 +1580,9 @@ fn http_bodies_are_bounded_and_unknown_protocols_negotiate_a_supported_version()
 -> Result<(), Box<dyn Error>> {
     crate::runtime()?.block_on(async {
         let fixture = Fixture::new().await?;
-        let negotiated = wire(fixture.port, "a", TOKEN_A, "POST", &json!({
+        let negotiated = metadata(&fixture.owner, fixture.port, "a", TOKEN_A, &json!({
             "jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"future-version"}
-        }), "").await?;
+        })).await?;
         assert_eq!(negotiated.body["result"]["protocolVersion"], http::LATEST_PROTOCOL);
         let oversized = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"browser.type","arguments":{"text":"x".repeat(1024 * 1024)}}});
         assert_eq!(wire(fixture.port, "a", TOKEN_A, "POST", &oversized, "").await?.status, 413);
@@ -1276,28 +1627,6 @@ async fn next_step(owner: &ReverseControl, session: &str) -> Result<String, Box<
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
-async fn drive_snapshot(
-    owner: &ReverseControl,
-    session: &str,
-    title: &str,
-) -> Result<(), Box<dyn Error>> {
-    let tab = format!("{session}-tab-1");
-    let replies = [
-        json!({"tab_id":tab,"tabs":[{"tab_id":tab,"url":"https://example.test/","title":title,"selected":true}]}),
-        json!({"id":"doc","identity":format!("{tab}-0"),"url":"https://example.test/","public_url":"https://example.test/","ready":true}),
-        json!({"ok":true,"value":{"url":"https://example.test/","title":title,"generation":"doc:0","elements":[]}}),
-    ];
-    for value in replies {
-        let step = next_step(owner, session).await?;
-        owner.reply(
-            session,
-            &step,
-            &json!({"ok":true,"value":value}).to_string(),
-        );
-    }
-    Ok(())
-}
-
 #[test]
 fn malformed_actions_and_cross_session_tabs_do_not_reach_the_native_bridge()
 -> Result<(), Box<dyn Error>> {
@@ -1339,11 +1668,7 @@ fn native_steps_reject_wrong_session_oversized_and_malformed_replies() -> Result
         insert(&owner, "a", "pane-a");
         for bad in ["invalid".to_owned(), "x".repeat(MAX_RESPONSE + 1)] {
             let receiver = owner
-                .start_action(
-                    "a",
-                    json!(1),
-                    &json!({"params":{"name":"browser.snapshot"}}),
-                )
+                .start_action("a", json!(1), &json!({"params":{"name":"device.battery"}}))
                 .map_err(|_| "start failed")?;
             let step = next_step(&owner, "a").await?;
             owner.reply("b", &step, &json!({"ok":true,"value":{}}).to_string());
@@ -1368,11 +1693,7 @@ fn cancellation_cleans_native_steps_and_ignores_late_callbacks() -> Result<(), B
         let owner = Arc::new(ReverseControl::default());
         insert(&owner, "a", "pane-a");
         let receiver = owner
-            .start_action(
-                "a",
-                json!(1),
-                &json!({"params":{"name":"browser.eval","arguments":{"js":"new Promise(()=>{})"}}}),
-            )
+            .start_action("a", json!(1), &json!({"params":{"name":"device.network"}}))
             .map_err(|_| "start failed")?;
         let step = next_step(&owner, "a").await?;
         let root = owner
@@ -1610,6 +1931,7 @@ fn privileged_commands_use_the_existing_session_boundary_and_cancel_on_close()
         let owner = Arc::new(ReverseControl::default());
         insert(&owner, "a", "pane-a");
         insert(&owner, "b", "pane-b");
+        owner.set_terminal_shizuku_access("terminal-pane-a", true);
         let request = json!({"params":{"name":"device.shizuku_exec","arguments":{"argv":["/system/bin/id"]}}});
         let receiver = owner.start_action("a", json!(1), &request).map_err(|_| "dispatch failed")?;
         let step = next_step(&owner, "a").await?;
@@ -1625,6 +1947,40 @@ fn privileged_commands_use_the_existing_session_boundary_and_cancel_on_close()
         assert!(owner.steps.lock().is_empty());
         assert!(owner.list().iter().any(|session| session.session_id == "b"));
         owner.shutdown();
+        Ok(())
+    })
+}
+
+#[test]
+fn shizuku_access_defaults_off_and_revocation_is_scoped_to_one_session()
+-> Result<(), Box<dyn Error>> {
+    crate::runtime()?.block_on(async {
+        let owner = Arc::new(ReverseControl::default());
+        insert(&owner, "a", "pane-a");
+        insert(&owner, "b", "pane-b");
+        let exec = json!({"params":{"name":"device.shizuku_exec","arguments":{"argv":["/system/bin/id"]}}});
+        let status = json!({"params":{"name":"device.shizuku_status","arguments":{}}});
+        assert!(owner.list().iter().all(|session| !session.shizuku_access));
+        for request in [&exec, &status] {
+            let error = owner.start_action("a", json!(1), request).err().ok_or("Shizuku allowed by default")?;
+            assert_eq!(error["structuredContent"]["error"]["code"], "permission_denied");
+        }
+        assert!(owner.steps.lock().is_empty());
+        owner.set_terminal_shizuku_access("terminal-pane-a", true);
+        assert!(owner.start_action("b", json!(2), &exec).is_err());
+        owner.set_terminal_shizuku_access("terminal-pane-b", true);
+        let a = owner.start_action("a", json!(3), &exec).map_err(|_| "a refused")?;
+        let b = owner.start_action("b", json!(4), &exec).map_err(|_| "b refused")?;
+        let battery = owner.start_action("a", json!(5), &json!({"params":{"name":"device.battery","arguments":{}}})).map_err(|_| "battery refused")?;
+        owner.set_terminal_shizuku_access("terminal-pane-a", false);
+        assert_eq!(a.await?["structuredContent"]["error"]["code"], "cancelled");
+        assert!(owner.pending.lock().values().any(|pending| pending.session == "b"));
+        assert!(owner.pending.lock().values().any(|pending| pending.session == "a" && !pending.shizuku));
+        assert!(owner.start_action("a", json!(6), &status).is_err());
+        assert_eq!(owner.list().len(), 2);
+        owner.shutdown();
+        let _ = b.await?;
+        let _ = battery.await?;
         Ok(())
     })
 }
@@ -1792,20 +2148,11 @@ fn host_tools_share_session_isolation_and_cancellation_without_browser_tabs()
     crate::runtime()?.block_on(async {
         let owner = Arc::new(ReverseControl::default());
         insert(&owner, "a", "pane-a");
+        let coordinator = HostActionCoordinator::new(Arc::new(hosts::tests::Platform::default()));
+        coordinator.update_context(hosts::tests::context());
         let receiver = owner.start_action("a", json!(1), &json!({"params":{"name":"hosts.instructions"}})).map_err(|_| "host action failed")?;
-        let step = next_step(&owner, "a").await?;
-        let reply = json!({"ok":true,"value":{"host_id":"host","global":"# Global","host":"# Host"}}).to_string();
-        owner.reply("b", &step, &reply);
-        assert!(owner.steps.lock().contains_key(&step));
-        owner.reply("a", &step, &reply);
-        assert_eq!(receiver.await?["structuredContent"]["value"]["global"], "# Global");
+        assert_eq!(receiver.await?["structuredContent"]["value"]["global"], "# Global instructions");
         assert!(owner.browser_sessions.lock().is_empty());
-
-        let receiver = owner.start_action("a", json!(2), &json!({"params":{"name":"hosts.connect","arguments":{"host_id":"mini"}}})).map_err(|_| "connect action failed")?;
-        let step = next_step(&owner, "a").await?;
-        let parent = owner.steps.lock().get(&step).ok_or("step missing")?.parent.clone();
-        owner.cancel_request(&parent, "Host action cancelled");
-        assert_eq!(receiver.await?["structuredContent"]["error"]["code"], "cancelled");
         assert!(owner.steps.lock().is_empty());
         assert!(owner.pending.lock().is_empty());
 

@@ -5,7 +5,7 @@ use std::{
 };
 use whip_notify::{
     Result,
-    host::{NotificationPreview, Store, notification_preview, parse_event, renew_lease},
+    host::{NotificationPreview, Store, hostname, notification_preview, parse_event, renew_lease},
 };
 
 fn main() {
@@ -17,6 +17,7 @@ fn main() {
         std::process::exit(1);
     }
 }
+
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let mut command = args.next().ok_or("missing command")?;
@@ -112,7 +113,7 @@ fn run() -> Result<()> {
                 std::env::var("HERDR_PLUGIN_CONTEXT_JSON").unwrap_or_else(|_| "{}".into());
             let json = std::env::var("HERDR_PLUGIN_EVENT_JSON")?;
             if let Some(mut event) = parse_event(&json, &context, &session)? {
-                let preview = notification_preview(&event, &json, &context)?;
+                let preview = notification_preview(&event, &json, &context, &hostname())?;
                 if store.hook_policy()? == whip_notify::host::HookPolicy::AllPanes {
                     return push(&store, &event, &preview);
                 }

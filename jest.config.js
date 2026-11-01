@@ -1,4 +1,5 @@
 const projectBuildDirectories = require('./scripts/project-build-directories.cjs');
+const workerProjects = require('./scripts/worker-projects.cjs');
 
 module.exports = {
   modulePathIgnorePatterns: [
@@ -22,9 +23,10 @@ module.exports = {
   // Match the innermost node_modules to transform nested ES modules while
   // leaving jsdom's CommonJS internals untouched.
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|react-native-keyboard-controller|lucide-react-native|@react-native(-community)?|expo/virtual|@exodus/bytes|parse5|entities|@asamuzakjp|@csstools)/)(?!.*node_modules/)',
+    'node_modules/(?!((jest-)?react-native|react-native-keyboard-controller|lucide-react-native|@shopify/flash-list|@react-native(-community)?|expo/virtual|@exodus/bytes|parse5|entities|@asamuzakjp|@csstools)/)(?!.*node_modules/)',
   ],
   testPathIgnorePatterns: [
+    ...workerProjects.testIgnorePatterns,
     '<rootDir>/.codex-',
     '<rootDir>/__tests__/mockWhipSsh.js',
   ],

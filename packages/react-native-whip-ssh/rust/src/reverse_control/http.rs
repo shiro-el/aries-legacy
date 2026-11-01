@@ -15,7 +15,7 @@ use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, watch};
 
-use super::{ReverseControl, tools};
+use super::{ReverseControl, instructions, tools};
 
 pub(super) const LATEST_PROTOCOL: &str = "2025-11-25";
 pub(super) const PROTOCOLS: &[&str] = &["2025-03-26", "2025-06-18", LATEST_PROTOCOL];
@@ -143,9 +143,17 @@ async fn handle(State(state): State<HttpState>, request: Request) -> Response {
     {
         return error(StatusCode::FORBIDDEN);
     }
-    let Some(session) = parts
-        .uri
-        .path()
+    let context_request = parts.uri.path().ends_with(instructions::PATH_SUFFIX);
+    let path = if context_request {
+        parts
+            .uri
+            .path()
+            .strip_suffix(instructions::PATH_SUFFIX)
+            .unwrap_or_default()
+    } else {
+        parts.uri.path()
+    };
+    let Some(session) = path
         .strip_prefix("/mcp/")
         .filter(|id| !id.is_empty() && !id.contains('/'))
     else {
@@ -169,22 +177,35 @@ async fn handle(State(state): State<HttpState>, request: Request) -> Response {
             StatusCode::NOT_FOUND
         });
     };
+    if context_request {
+        if parts.method != Method::GET {
+            return method_not_allowed(true);
+        }
+        return instruction_context(&owner, session, authorization).await;
+    }
+    let allow_delete = authenticated.agent != crate::herdr_api::HerdrAgentKind::Codex;
     let protocol = authenticated.protocol;
     if !protocol_valid(&parts.headers, protocol.as_deref()) {
         return error(StatusCode::BAD_REQUEST);
     }
     if parts.method == Method::GET {
-        return method_not_allowed();
+        return method_not_allowed(allow_delete);
     }
     if parts.method == Method::DELETE {
         if !session_header_matches(&parts.headers, session) || protocol.is_none() {
             return error(StatusCode::BAD_REQUEST);
         }
+        // Codex shuts down MCP clients when navigating between threads. Its
+        // next client still uses this launch's URL/token. DELETE is optional
+        // in MCP; Codex accepts 405 and leaves launch revocation to Whip.
+        if !allow_delete {
+            return method_not_allowed(false);
+        }
         owner.close_session(session);
         return StatusCode::OK.into_response();
     }
     if parts.method != Method::POST {
-        return method_not_allowed();
+        return method_not_allowed(allow_delete);
     }
     let json_content = parts
         .headers
@@ -289,10 +310,42 @@ async fn handle(State(state): State<HttpState>, request: Request) -> Response {
     response
 }
 
-fn method_not_allowed() -> Response {
+async fn instruction_context(owner: &Arc<ReverseControl>, session: &str, token: &str) -> Response {
+    // SessionStart can run before MCP initialization. The same per-launch
+    // bearer authorization and native permission checks still apply.
+    let Ok(text) = owner
+        .instruction_text(session, Value::String("whip-session-context".into()))
+        .await
+    else {
+        return error(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    if owner.authenticate(session, token).is_none() {
+        return error(StatusCode::NOT_FOUND);
+    }
+    let context = if text.is_empty() {
+        text
+    } else {
+        format!(
+            "The following document is the user's global Whip guidance. Apply it as user instructions alongside the host and project's AGENTS.md; explicit user requests retain precedence.\n\n{text}"
+        )
+    };
+    let mut response = Json(serde_json::json!({
+        "hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":context}
+    }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn method_not_allowed(allow_delete: bool) -> Response {
     (
         StatusCode::METHOD_NOT_ALLOWED,
-        [(header::ALLOW, "POST, DELETE")],
+        [(
+            header::ALLOW,
+            if allow_delete { "POST, DELETE" } else { "POST" },
+        )],
         Body::empty(),
     )
         .into_response()

@@ -9,6 +9,7 @@ import {
 } from '../packages/react-native-whip-ssh/src/generated-entry';
 
 jest.mock('../packages/react-native-whip-ssh/src/generated-entry', () => ({
+  ...require('../test-support/nativeGithubEnums').nativeGithubEnums,
   SshErrorCode: {},
   HerdrAgentStatus: { Idle: 0, Working: 1, Blocked: 2, Done: 3, Unknown: 4 },
   HerdrTabLaunch: { Shell: { new: () => ({type:'shell'}) }, Agent: { new: (value: unknown) => ({type:'agent', ...value as object}) }, Command: { new: (value: unknown) => ({type:'command', ...value as object}) } },
@@ -91,5 +92,8 @@ test('Reverse Control off uses the existing launch path without creating an MCP 
   expect(native.createTabWithReverseControl).not.toHaveBeenCalled();
   await connection.createTabWithLaunch('space', 'Codex', { type: 'command', command: 'codex', reverseControl: true });
   expect(native.createTabWithReverseControl).toHaveBeenCalledTimes(1);
+  expect(native.createTabWithReverseControl).toHaveBeenLastCalledWith('space', 'Codex', expect.anything(), false);
+  await connection.createTabWithLaunch('space', 'Codex', { type: 'command', command: 'codex', reverseControl: true, shizukuAccess: true });
+  expect(native.createTabWithReverseControl).toHaveBeenLastCalledWith('space', 'Codex', expect.anything(), true);
   connection.detach();
 });

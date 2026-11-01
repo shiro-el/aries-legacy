@@ -5,6 +5,8 @@ import type { LiveHostConnectionStatus } from '../../liveHostSessions';
 import type { HostProfile } from '../../types';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { PhoneAlerts, type PhoneAlertPreferences, type SetPreference } from './PhoneAlerts';
+import { SpeechBackendSetting } from './SpeechBackendSetting';
+import { ShizukuSection } from '../shizuku/ShizukuSection';
 import { VoiceInputSetting } from './VoiceInputSetting';
 
 export type HostRow = {
@@ -23,7 +25,7 @@ type Props = {
   onConnect: (host: HostProfile) => void;
   onDisconnect: (host: HostProfile) => void;
   onNotifications: (host: HostProfile) => void;
-  alerts: PhoneAlertPreferences;
+  alerts: PhoneAlertPreferences & { ttsEnabled: boolean };
   onAlertsChange: SetPreference;
   /** Bumped when the composer needs a Groq key; scrolls to and opens its editor. */
   voiceKeyRequest?: number;
@@ -73,6 +75,8 @@ export function HostsScreen({
           />
         ))}
         {loaded && <PhoneAlerts value={alerts} onChange={onAlertsChange} />}
+        {loaded && <SpeechBackendSetting ttsEnabled={alerts.ttsEnabled} onChange={onAlertsChange} />}
+        {loaded && <ShizukuSection />}
         {loaded && <VoiceInputSetting editRequest={voiceKeyRequest} />}
       </ScrollView>
     </View>

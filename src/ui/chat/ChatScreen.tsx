@@ -17,6 +17,7 @@ import { chatAgentDisplayName, chatAgentForPane } from '../../lib/agentChatSessi
 import type { ChatBlock } from '../../lib/nativeChatRows';
 import type { HerdrClient } from '../../services/HerdrClient';
 import type { PaneInfo } from '../../types';
+import { SessionAccessMenu, type SessionAccessActions } from '../shizuku/SessionAccessMenu';
 import { StatusGlyph } from '../herd/StatusGlyph';
 import { fonts, radius, space, type, usePalette, type Palette } from '../theme/tokens';
 import { Composer, type ComposerVoice } from './Composer';
@@ -31,6 +32,7 @@ import { freeTextChoice } from '../../lib/menuAnswer';
 import { recentMessages } from './voiceText';
 
 type Props = {
+  sessionAccess?: SessionAccessActions;
   hostSessionId: string;
   hostName: string;
   pane: PaneInfo | undefined;
@@ -52,7 +54,7 @@ type Props = {
 
 export function ChatScreen({
   hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, onOpenProject, onOpenFile, active, focusComposer,
-  onNeedVoiceKey,
+  onNeedVoiceKey, sessionAccess,
 }: Props) {
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -136,6 +138,7 @@ export function ChatScreen({
           </View>
           <Text style={s.where} numberOfLines={1}>{where ? `${hostName}  ${where}` : hostName}</Text>
         </View>
+        {active && sessionAccess && <SessionAccessMenu {...sessionAccess} />}
         <Pressable onPress={onOpenProject} disabled={!native} accessibilityRole="button" hitSlop={8} style={({ pressed }) => [s.mode, pressed && s.pressed, !native && s.dim]}>
           <Text style={s.modeLabel}>Project</Text>
         </Pressable>

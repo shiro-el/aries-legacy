@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BackHandler, Pressable, Text, View } from 'react-native';
 import type {
   HostRuntimeConnection,
@@ -15,6 +16,8 @@ import { Notice, errorText } from './parts';
 import { useWorkbenchStyles } from './styles';
 import type { WorkbenchMode } from './workbench';
 import { parentRemotePath } from '../../lib/remoteFiles';
+import type { HerdrClient } from '../../services/HerdrClient';
+import { GithubPane } from '../github/GithubPane';
 import { resolveFilePath, type FileLink } from '../chat/fileLinks';
 
 type Detail =
@@ -25,6 +28,7 @@ type Detail =
 
 type Props = {
   native: HostRuntimeConnection | null;
+  client?: HerdrClient | null;
   /** The pane's folder; `~` paths resolve against the remote home. */
   cwd: string;
   /** Where the back button returns to, such as the chat. */
@@ -38,12 +42,14 @@ type Props = {
 const MODES: { id: WorkbenchMode; label: string }[] = [
   { id: 'files', label: 'Files' },
   { id: 'changes', label: 'Changes' },
+  { id: 'github', label: 'GitHub' },
   { id: 'browser', label: 'Browser' },
 ];
 
-/** Files, uncommitted changes and a browser, all seen from one pane's folder. */
-export function WorkbenchScreen({ native, cwd, backLabel, initialMode = 'files', initialFile, onClose }: Props) {
+/** Repository tools and a browser, all seen from one pane's folder. */
+export function WorkbenchScreen({ native, client = null, cwd, backLabel, initialMode = 'files', initialFile, onClose }: Props) {
   const { palette, s } = useWorkbenchStyles();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<WorkbenchMode>(initialMode);
   // Modes keep their state once visited, so switching back is instant.
   const [visited, setVisited] = useState<ReadonlySet<WorkbenchMode>>(() => new Set([initialMode]));
@@ -101,12 +107,14 @@ export function WorkbenchScreen({ native, cwd, backLabel, initialMode = 'files',
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // GitHub owns its nested list/detail back navigation once mounted.
+      if (mode === 'github' && root && 'path' in root) return false;
       if (detail) setDetail(null);
       else onClose();
       return true;
     });
     return () => subscription.remove();
-  }, [detail, onClose]);
+  }, [detail, mode, root, onClose]);
 
   const select = (next: WorkbenchMode) => {
     setDetail(null);
@@ -148,10 +156,11 @@ export function WorkbenchScreen({ native, cwd, backLabel, initialMode = 'files',
                 key={item.id}
                 onPress={() => select(item.id)}
                 accessibilityRole="tab"
+                accessibilityLabel={item.id === 'github' ? t('github.title') : item.label}
                 accessibilityState={{ selected: active }}
                 style={s.modeItem}
               >
-                <Text style={[s.modeLabel, active && s.modeLabelActive]}>{item.label}</Text>
+                <Text style={[s.modeLabel, active && s.modeLabelActive]}>{item.id === 'github' ? t('github.title') : item.label}</Text>
                 <View style={[s.modeMark, active && s.modeMarkActive]} />
               </Pressable>
             );
@@ -191,6 +200,11 @@ export function WorkbenchScreen({ native, cwd, backLabel, initialMode = 'files',
                 refreshKey={changesKey}
                 onOpenDiff={(repository, entry) => setDetail({ kind: 'diff', repository, entry })}
               />
+            </View>
+          )}
+          {visited.has('github') && (
+            <View style={!detail && mode === 'github' ? s.fill : { display: 'none' }}>
+              <GithubPane client={client} path={root.path} active={!detail && mode === 'github'} onClose={onClose} />
             </View>
           )}
           {visited.has('browser') && (

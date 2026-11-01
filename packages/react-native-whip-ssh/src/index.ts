@@ -1,13 +1,12 @@
+import {type HerdrBackend,toNativeHerdrBackend,fromNativeHerdrBackend} from './herdrBackend';
 import {
-  notificationKeyGenerate,
-  notificationTokenGenerate,
-  notificationOpen,
   setReverseControlEventSink,
   type ReverseControlEvent,
   type ReverseControlSession,
   type AgentControlView,
   AppConnectionStatus,
   AppCore as RustAppCore,
+  SessionRestoreError as RustSessionRestoreError,
   ChatSpeechQueue as RustChatSpeechQueue,
   type ChatSearchIndexLike,
   AgentDiagnosticSeverity,
@@ -42,8 +41,20 @@ import {
   HerdrTerminalControlEvent_Tags,
   HostConnectionState,
   HostAuthMode,
+  GithubSection,
+  GithubCommentFormat,
+  GithubListState,
+  GithubResource,
+  GithubMutation,
+  githubFileDiff as nativeGithubFileDiff,
+  type GithubFile,
+  type GithubFilesPage,
+  formatGithubComment as nativeFormatGithubComment,
+  type GithubEntry,
+  type GithubRepository,
+  type GithubRepositoryDetails,
+  type GithubPage,
   HostProfileStore as RustHostProfileStore,
-  KnownHostStore as RustKnownHostStore,
   HostFreshness,
   HostTerminalResizeOutcome,
   HostTerminalState,
@@ -112,11 +123,7 @@ import {
   type HostProfileRecord as NativeHostProfileRecord,
   type HostProfileStoreLike,
   type HostProfileStoreView as NativeHostProfileStoreView,
-  type HostKeyChallenge as NativeHostKeyChallenge,
-  type KnownHostMutation as NativeKnownHostMutation,
   type KnownHostRecord as NativeKnownHostRecord,
-  type KnownHostStoreLike,
-  type KnownHostStoreView as NativeKnownHostStoreView,
   type HostLatencyMeasurement as NativeHostLatencyMeasurement,
   type RuntimeDiagnostic as NativeRuntimeDiagnostic,
   type GitStatusEntry as NativeGitStatusEntry,
@@ -134,10 +141,18 @@ import {
   type AppCoreLike,
   type AppCoreView as NativeAppCoreView,
 } from './generated-entry';
-import { NativeAgentInteractionKind, type NativeAgentInteractionPrompt } from './agentInteraction';
+import {
+  NativeAgentInteractionKind,
+  type NativeAgentInteractionPrompt,
+} from './agentInteraction';
 import { NATIVE_GIT_DIFF_ROW_KIND, runtimeGitReview } from './gitDiff';
 export type { AgentCatalog, AgentCatalogKey, AgentCatalogEntry } from './generated-entry';
 export { prepareChatDiff } from './chatDiff';
+export {
+  generateTailcatIdentity,
+  tailcatServerCommand,
+  type TailcatIdentity,
+} from './generated-entry';
 export {
   appDataMigrationComplete,
   importLegacyAppData,
@@ -473,6 +488,9 @@ export type NativeAgentChatStartResult =
   | { type: 'stale-binding' };
 
 export type RuntimeSshConfig = {
+  tailcatAddress?: string;
+  tailcatPrivateKey?: string;
+  tailcatSshServer?: boolean;
   host: string;
   port: number;
   username: string;
@@ -482,11 +500,13 @@ export type RuntimeSshConfig = {
   forwardAgent?: boolean;
 };
 
+export {type HerdrBackend,toNativeHerdrBackend,fromNativeHerdrBackend} from './herdrBackend';
 export type RuntimeConfig = {
   runtimeId: string;
   ssh: RuntimeSshConfig;
   jumpHosts: RuntimeSshConfig[];
   herdrEnabled?: boolean;
+  herdrBackend?: HerdrBackend;
   sessionName: string;
   herdrCommand: string;
   socketPath?: string;
@@ -505,8 +525,8 @@ export type RuntimeAgentKind = 'claude' | 'codex' | 'opencode' | 'pi';
 
 export type RuntimeTabLaunch =
   | { type: 'shell' }
-  | { type: 'agent'; kind: RuntimeAgentKind; args?: string[]; reverseControl?: boolean }
-  | { type: 'command'; command: string; reverseControl?: boolean };
+  | { type: 'agent'; kind: RuntimeAgentKind; args?: string[]; reverseControl?: boolean; shizukuAccess?: boolean }
+  | { type: 'command'; command: string; reverseControl?: boolean; shizukuAccess?: boolean };
 
 export type RuntimeAgentIntegrationStatus =
   | 'not-installed'
@@ -674,6 +694,61 @@ export type RuntimeRemoteDirectoryListing = {
 };
 
 export type RuntimeGitRepository = { root: string; hasHead: boolean };
+export type RuntimeGithubRepository = GithubRepository;
+export type RuntimeGithubRepositoryDetails = GithubRepositoryDetails;
+export type RuntimeGithubPage = GithubPage;
+export type RuntimeGithubEntry = GithubEntry;
+export type RuntimeGithubSection = 'issues' | 'pullRequests' | 'actions' | 'releases' | 'commits';
+export type RuntimeGithubFile = GithubFile;
+export type RuntimeGithubFilesPage = GithubFilesPage;
+export type RuntimeGithubListState = 'open' | 'closed' | 'all';
+export type RuntimeGithubResource =
+  | 'pullCommits'
+  | 'pullReviews'
+  | 'pullChecks'
+  | 'runJobs'
+  | 'jobLogs'
+  | 'releaseAssets'
+  | 'commitChecks';
+export type RuntimeGithubMutation = 'createIssue' | 'closeIssue' | 'reopenIssue' | 'closePull' | 'reopenPull' | 'mergePull' | 'squashPull' | 'rebasePull' | 'approvePull' | 'requestChanges' | 'rerunAction' | 'rerunFailedJobs' | 'cancelAction';
+const githubListStates: Record<RuntimeGithubListState, GithubListState> = { open: GithubListState.Open, closed: GithubListState.Closed, all: GithubListState.All };
+const githubResources: Record<RuntimeGithubResource, GithubResource> = {
+  pullCommits: GithubResource.PullCommits,
+  pullReviews: GithubResource.PullReviews,
+  pullChecks: GithubResource.PullChecks,
+  runJobs: GithubResource.RunJobs,
+  jobLogs: GithubResource.JobLogs,
+  releaseAssets: GithubResource.ReleaseAssets,
+  commitChecks: GithubResource.CommitChecks,
+};
+const githubMutations: Record<RuntimeGithubMutation, GithubMutation> = {
+  createIssue: GithubMutation.CreateIssue, closeIssue: GithubMutation.CloseIssue, reopenIssue: GithubMutation.ReopenIssue,
+  approvePull: GithubMutation.ApprovePull, requestChanges: GithubMutation.RequestChanges, rerunAction: GithubMutation.RerunAction,
+  rerunFailedJobs: GithubMutation.RerunFailedJobs, cancelAction: GithubMutation.CancelAction,
+  closePull: GithubMutation.ClosePull, reopenPull: GithubMutation.ReopenPull,
+  mergePull: GithubMutation.MergePull, squashPull: GithubMutation.SquashPull, rebasePull: GithubMutation.RebasePull,
+};
+export async function githubFileDiff(file: RuntimeGithubFile): Promise<RuntimeGitDiff> {
+  return runtimeGitReview(await nativeGithubFileDiff(file));
+}
+export type RuntimeGithubCommentFormat = 'bold' | 'italic' | 'code' | 'quote' | 'bulletList' | 'taskList' | 'link';
+const githubCommentFormats: Record<RuntimeGithubCommentFormat, GithubCommentFormat> = {
+  bold: GithubCommentFormat.Bold, italic: GithubCommentFormat.Italic,
+  code: GithubCommentFormat.Code, quote: GithubCommentFormat.Quote,
+  bulletList: GithubCommentFormat.BulletList, taskList: GithubCommentFormat.TaskList,
+  link: GithubCommentFormat.Link,
+};
+export function formatGithubComment(text: string, selection: { start: number; end: number }, format: RuntimeGithubCommentFormat) {
+  const edit = nativeFormatGithubComment(text, selection.start, selection.end, githubCommentFormats[format]);
+  return { text: edit.text, selection: { start: edit.selectionStart, end: edit.selectionEnd } };
+}
+const githubSections: Record<RuntimeGithubSection, GithubSection> = {
+  issues: GithubSection.Issues,
+  pullRequests: GithubSection.PullRequests,
+  actions: GithubSection.Actions,
+  releases: GithubSection.Releases,
+  commits: GithubSection.Commits,
+};
 export type RuntimeGitStatusEntry = {
   indexStatus: string;
   worktreeStatus: string;
@@ -999,8 +1074,6 @@ export type RuntimeHostState = {
   snapshot?: WhipHostSnapshot;
 };
 
-export type RuntimeHostOfflineCache = { revision: number; blob: string };
-
 export type AppSessionProjection = {
   id: string;
   hostId: string;
@@ -1109,6 +1182,8 @@ function herdProjection(value: NativeHerdView): HerdProjection {
 }
 
 export type NativeHostProfile = {
+  tailcatEnabled?: boolean;
+  tailcatSshServer?: boolean;
   id: string;
   name: string;
   host: string;
@@ -1118,6 +1193,7 @@ export type NativeHostProfile = {
   forwardAgent: boolean;
   authMode: 'password' | 'key';
   herdrEnabled: boolean;
+  herdrBackend?: HerdrBackend;
   herdrCommand: string;
   herdrSocketPath: string;
   sessionName: string;
@@ -1137,15 +1213,19 @@ function nativeHostProfile(value: NativeHostProfileRecord): NativeHostProfile {
   return {
     ...value,
     authMode: value.authMode === HostAuthMode.Key ? 'key' : 'password',
+    herdrBackend: fromNativeHerdrBackend(value.herdrBackend),
   };
 }
 
 function rustHostProfile(value: NativeHostProfile): NativeHostProfileRecord {
   return {
     ...value,
+    tailcatEnabled: Boolean(value.tailcatEnabled),
+    tailcatSshServer: Boolean(value.tailcatSshServer),
     agentInstructions: value.agentInstructions ?? '',
     authMode:
       value.authMode === 'key' ? HostAuthMode.Key : HostAuthMode.Password,
+    herdrBackend: toNativeHerdrBackend(value.herdrBackend),
   };
 }
 
@@ -1160,39 +1240,14 @@ function hostProfileStoreProjection(
 }
 
 export type KnownHostRecord = NativeKnownHostRecord;
-
-export type KnownHostStoreView = {
-  revision: number;
-  hosts: KnownHostRecord[];
-  persistedValue: string;
-};
-
-export type KnownHostMutation = {
-  token: bigint;
-  changed: boolean;
-  view: KnownHostStoreView;
-};
-
-function knownHostStoreView(
-  value: NativeKnownHostStoreView,
-): KnownHostStoreView {
-  return {
-    revision: Number(value.revision),
-    hosts: value.hosts,
-    persistedValue: value.persistedValue,
-  };
-}
-
-function knownHostMutation(value: NativeKnownHostMutation): KnownHostMutation {
-  return {
-    token: value.token,
-    changed: value.changed,
-    view: knownHostStoreView(value.view),
-  };
-}
+export { KnownHostRepository, KnownHostCommand, KnownHostRepositoryError, KnownHostRepositoryStatus } from './generated-entry';
+export type { KnownHostRepositoryView } from './generated-entry';
 
 function runtimeSshConfig(value: RuntimeSshConfig) {
   return {
+    tailcatAddress: value.tailcatAddress,
+    tailcatPrivateKey: value.tailcatPrivateKey,
+    tailcatSshServer: Boolean(value.tailcatSshServer),
     host: value.host,
     port: value.port,
     username: value.username,
@@ -1309,6 +1364,9 @@ const SSH_ERROR_CODES: Readonly<Partial<Record<number, string>>> = {
 class HostRuntimeBridgeError extends Error {
   nativeTag?: string;
   code?: string;
+  operation?: string;
+  runtimeId?: string;
+  generation?: bigint;
   details?: unknown;
   expected?: string;
   received?: number;
@@ -2816,11 +2874,21 @@ setHostRuntimeEventSink(hostRuntimeEventSink);
 setAgentTranscriptEventSink(agentTranscriptEventSink);
 
 export class NativeHostRuntime {
+  /** Typed native handle for the Rust application connection coordinator. */
+  get connectionHandle(): HostRuntimeLike { return this.runtime; }
   readonly runtimeId: string;
   readonly runtimeIncarnation: number;
 
   get herdrEnabled(): boolean {
     return this.runtime.herdrEnabled();
+  }
+  get herdrBackend(): HerdrBackend {return fromNativeHerdrBackend(this.runtime.herdrBackend());}
+  get localTerminalScrollback(): boolean {return this.runtime.localTerminalScrollback();}
+  get tailcatEnabled(): boolean {
+    return this.runtime.tailcatEnabled();
+  }
+  matchesSshConfig(config: RuntimeSshConfig): boolean {
+    return this.runtime.matchesSshConfig(runtimeSshConfig(config));
   }
   private readonly transcriptRoute: string;
   private readonly agentChatRoutes = new Map<
@@ -2858,14 +2926,6 @@ export class NativeHostRuntime {
         message: normalized.message,
       });
       throw normalized;
-    }
-  }
-
-  async notificationCommand(operation: string, payload: string): Promise<string> {
-    try {
-      return await this.runtime.notificationCommand(operation, payload);
-    } catch (error) {
-      throw hostRuntimeError(error);
     }
   }
 
@@ -2917,7 +2977,7 @@ export class NativeHostRuntime {
         : HerdrTabLaunch.Command.new({ command: launch.command });
     const reverseControl = launch.type !== 'shell' && launch.reverseControl === true;
     const outcome = reverseControl
-      ? await this.runtime.createTabWithReverseControl(workspaceId, label, nativeLaunch)
+      ? await this.runtime.createTabWithReverseControl(workspaceId, label, nativeLaunch, launch.shizukuAccess === true)
       : await this.runtime.createTabWithLaunch(workspaceId, label, nativeLaunch);
     return this.projectTabLaunch(outcome);
   }
@@ -2942,8 +3002,8 @@ export class NativeHostRuntime {
     this.runtime.restoreAgentPreferences(value);
   }
 
-  async setAgentReverseControl(terminalId: string, enabled: boolean): Promise<void> {
-    try { await this.runtime.setAgentReverseControl(terminalId, enabled); }
+  async setAgentReverseControl(terminalId: string, enabled: boolean, shizukuAccess = false): Promise<void> {
+    try { await this.runtime.setAgentReverseControl(terminalId, enabled, shizukuAccess); }
     catch (error) { throw controlError(error); }
   }
 
@@ -3141,13 +3201,6 @@ export class NativeHostRuntime {
 
   hostState(): RuntimeHostState {
     return runtimeHostState(this.runtime.hostState());
-  }
-
-  async exportOfflineCache(lastRevision?: number): Promise<RuntimeHostOfflineCache | undefined> {
-    const cache = await this.runtime.exportOfflineCache(
-      lastRevision === undefined ? undefined : BigInt(lastRevision),
-    );
-    return cache ? { revision: Number(cache.revision), blob: cache.blob } : undefined;
   }
 
   /** Bind this runtime to Rust-owned application state without exposing its raw handle. */
@@ -3462,6 +3515,8 @@ export class NativeHostRuntime {
     }
   }
 
+  herdrBridgeFocus(terminalId:string,focused:boolean):void {this.runtime.focusTerminal(terminalId,focused);}
+
   closeHerdrBridge(terminalId: string): void {
     removeBridgeHandler(this.runtimeId, terminalId);
     this.runtime.closeTerminal(terminalId);
@@ -3670,6 +3725,60 @@ export class NativeHostRuntime {
     return (await this.runtime.discoverGitRepository(path)) ?? null;
   }
 
+  async discoverGithubRepository(path: string): Promise<RuntimeGithubRepository | null> {
+    return (await this.githubOperation('discoverGithubRepository', () => this.runtime.discoverGithubRepository(path))) ?? null;
+  }
+
+  githubRepositoryDetails(repository: RuntimeGithubRepository): Promise<RuntimeGithubRepositoryDetails> {
+    return this.githubOperation('githubRepositoryDetails', () => this.runtime.githubRepositoryDetails(repository));
+  }
+
+  githubPage(repository: RuntimeGithubRepository, section: RuntimeGithubSection, page: number, state: RuntimeGithubListState = 'open', query = ''): Promise<RuntimeGithubPage> {
+    return this.githubOperation('githubPage', () => this.runtime.githubPage(repository, githubSections[section], page, githubListStates[state], query));
+  }
+
+  githubEntry(repository: RuntimeGithubRepository, section: RuntimeGithubSection, id: string): Promise<RuntimeGithubEntry> {
+    return this.githubOperation('githubEntry', () => this.runtime.githubEntry(repository, githubSections[section], id));
+  }
+
+  githubFiles(repository: RuntimeGithubRepository, id: string, pull: boolean, page: number): Promise<RuntimeGithubFilesPage> {
+    return this.githubOperation('githubFiles', () => this.runtime.githubFiles(repository, id, pull, page));
+  }
+
+  githubResource(repository: RuntimeGithubRepository, resource: RuntimeGithubResource, id: string, page: number): Promise<RuntimeGithubPage> {
+    return this.githubOperation('githubResource', () => this.runtime.githubResource(repository, githubResources[resource], id, page));
+  }
+
+  githubMutate(repository: RuntimeGithubRepository, action: RuntimeGithubMutation, id: string, title = '', body = '', expectedHead = ''): Promise<RuntimeGithubEntry | undefined> {
+    return this.githubOperation('githubMutate', () => this.runtime.githubMutate(repository, githubMutations[action], id, title, body, expectedHead));
+  }
+
+  githubPrepareAsset(repository: RuntimeGithubRepository, id: string, name: string): Promise<string> {
+    return this.githubOperation('githubPrepareAsset', () => this.runtime.githubPrepareAsset(repository, id, name));
+  }
+
+  githubComments(repository: RuntimeGithubRepository, number: number, page: number): Promise<RuntimeGithubPage> {
+    return this.githubOperation('githubComments', () => this.runtime.githubComments(repository, number, page));
+  }
+
+  githubPostComment(repository: RuntimeGithubRepository, number: number, body: string): Promise<RuntimeGithubEntry> {
+    return this.githubOperation('githubPostComment', () => this.runtime.githubPostComment(repository, number, body));
+  }
+
+  private async githubOperation<T>(operation: string, call: () => Promise<T>): Promise<T> {
+    const generation = this.runtime.status().generation;
+    try {
+      return await call();
+    } catch (error) {
+      const normalized = hostRuntimeError(error);
+      normalized.operation = operation;
+      normalized.runtimeId = this.runtimeId;
+      normalized.generation = generation;
+      normalized.message = `${operation}${normalized.code ? ` [${normalized.code}]` : ''}: ${normalized.message}`;
+      throw normalized;
+    }
+  }
+
   async gitStatus(root: string): Promise<RuntimeGitStatusEntry[]> {
     return (await this.runtime.gitStatus(root)).map(runtimeGitStatus);
   }
@@ -3716,7 +3825,74 @@ export class NativeHostRuntime {
 
 /** Rust-owned application/session state with a React-friendly typed projection. */
 export class NativeAppCore {
+  /** Typed native entry point; connection policy stays in AppCore. */
+  get connectionCore(): AppCoreLike { return this.core; }
+
   private readonly core: AppCoreLike = new RustAppCore();
+
+  beginConnection(hostId: string) {
+    return this.core.beginConnection(hostId);
+  }
+  connectionPending(hostId: string): boolean {
+    return this.core.connectionPending(hostId);
+  }
+  cancelConnection(hostId: string): void {
+    this.core.cancelConnection(hostId);
+  }
+  cancelConnections(): void {
+    this.core.cancelConnections();
+  }
+  cancelSessionRestore(): void {
+    this.core.cancelSessionRestore();
+  }
+  setConnecting(hostId: string, connecting: boolean): string[] {
+    return this.core.setConnecting(hostId, connecting);
+  }
+  setSessionPersistence(
+    persistence: import('./generated-entry').SessionPersistence,
+  ): void {
+    this.core.setSessionPersistence(persistence);
+  }
+  async persistSessionTerminals(
+    sessionId: string,
+    fonts: ReadonlyMap<string, number>,
+  ): Promise<boolean> {
+    const operation = this.core.persistSessionTerminals(
+      sessionId,
+      [...fonts].map(([terminalId, size]) => ({ terminalId, size })),
+    );
+    return operation ? await operation.wait() : false;
+  }
+  async restoreSessions(options: {
+    raw?: string;
+    loaded: boolean;
+    hosts: ReadonlyArray<Pick<NativeHostProfile, 'id' | 'jumpHostId' | 'authMode'>>;
+    protectKeys: boolean;
+    reopenTerminal: boolean;
+    platform: import('./generated-entry').SessionRestorePlatform;
+  }): Promise<AppCoreProjection> {
+    try {
+      const result = await this.core
+        .startSessionRestore(
+          options.raw,
+          options.loaded,
+          options.hosts.map(host => ({
+            hostId: host.id,
+            jumpHostId: host.jumpHostId,
+            keyAuth: host.authMode === 'key',
+          })),
+          options.protectKeys,
+          options.reopenTerminal,
+          options.platform,
+        )
+        .wait();
+      return appCoreProjection(result.view);
+    } catch (error) {
+      if (RustSessionRestoreError.Failed.instanceOf(error))
+        throw new Error(error.inner.message);
+      throw error;
+    }
+  }
 
   view(): AppCoreProjection {
     return appCoreProjection(this.core.view());
@@ -3897,39 +4073,6 @@ export class NativeChatSpeechQueue {
 
   dispose(): void {
     this.queue.uniffiDestroy();
-  }
-}
-
-/** Canonical Rust known-host domain store; JS only persists prepared values. */
-export class NativeKnownHostStore {
-  private readonly store: KnownHostStoreLike = new RustKnownHostStore();
-
-  hydrate(persisted?: string): KnownHostStoreView {
-    return knownHostStoreView(this.store.hydrate(persisted));
-  }
-
-  view(): KnownHostStoreView {
-    return knownHostStoreView(this.store.view());
-  }
-
-  prepareAdd(
-    challenge: NativeHostKeyChallenge,
-    id: string,
-    createdAt: string,
-  ): KnownHostMutation {
-    return knownHostMutation(this.store.prepareAdd(challenge, id, createdAt));
-  }
-
-  prepareRemove(id: string): KnownHostMutation {
-    return knownHostMutation(this.store.prepareRemove(id));
-  }
-
-  commit(token: bigint): KnownHostStoreView {
-    return knownHostStoreView(this.store.commit(token));
-  }
-
-  rollback(token: bigint): KnownHostStoreView {
-    return knownHostStoreView(this.store.rollback(token));
   }
 }
 
@@ -4117,6 +4260,7 @@ export function createHostRuntime(
       ssh: runtimeSshConfig(config.ssh),
       jumpHosts: config.jumpHosts.map(runtimeSshConfig),
       herdrEnabled: config.herdrEnabled !== false,
+      herdrBackend: toNativeHerdrBackend(config.herdrBackend),
       sessionName: config.sessionName,
       herdrCommand: config.herdrCommand,
       socketPath: config.socketPath,
@@ -4179,4 +4323,69 @@ if (typeof setReverseControlEventSink === 'function') setReverseControlEventSink
   },
 });
 
-export { notificationKeyGenerate, notificationTokenGenerate, notificationOpen };
+// Notification lifecycle is Rust-owned; these types describe platform effects and UI projections.
+export {
+  HerdrAgentStatus,
+  LocalAlertCoordinator,
+  LocalAlertDelivery,
+  LocalAlertEffectAdmission,
+  LocalAlertScope,
+  LocalAlertAction,
+  LocalAlertAction_Tags,
+  LocalAlertOutcome,
+  LocalAlertSpeechEnd,
+} from './generated-entry';
+export type {
+  LocalAlertEffect,
+  LocalAlertRemote,
+  LocalAlertRequest,
+  LocalAlertRuntime,
+  LocalAlertTransition,
+} from './generated-entry';
+export {
+  NotificationManager,
+  NotificationError,
+  NotificationRelayMethod,
+  NotificationInstallStage,
+  notificationLeasePulseIntervalMs,
+  hostCallLogOpen,
+  hostCallLogRead,
+  hostCallLogStop,
+} from './generated-entry';
+export type {
+  NotificationPlatform,
+  NotificationPluginInstallProgress,
+  RemoteNotificationEvent,
+  RemoteNotificationState,
+} from './generated-entry';
+
+export {
+  SessionPersistence,
+  SessionPersistenceError,
+  SessionRestoreError,
+} from './generated-entry';
+export type { SessionRestorePlatform } from './generated-entry';
+
+export type { SessionConnectionAttemptLike } from './generated-entry';
+
+export {
+  AppConnectionStatus,
+  HostActionCoordinator,
+  HostActionPermitError,
+  HostActionPlatformError,
+  HostAuthMode,
+  HostHerdrBackend,
+} from './generated-entry';
+export type {
+  HostActionConnection,
+  HostActionContext,
+  HostActionCredential,
+  HostActionPermit,
+  HostActionPermitLike,
+  HostActionPlatform,
+  HostActionProfilePatch,
+} from './generated-entry';
+export {
+  rustHostProfile as toNativeHostProfileRecord,
+  nativeHostProfile as fromNativeHostProfileRecord,
+};

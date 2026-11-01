@@ -1,11 +1,18 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackHandler, NativeModules, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import type { SessionAccessActions } from './src/ui/shizuku/SessionAccessMenu';
 import { chatAgentForPane } from './src/lib/agentChatSession';
+import { connectedBrowserRuntimes } from './src/browser/registry';
+import { useReverseControlRequests } from './src/browser/useReverseControlRequests';
+import { useAppQueryLifecycle } from './src/hooks/useAppQueryLifecycle';
+import { appQueryClient } from './src/services/appQueryClient';
 import { reportBackgroundFailure } from './src/services/backgroundOperations';
 import { ChatScreen } from './src/ui/chat/ChatScreen';
 import { DeleteHostPrompt, HostKeyPrompt, LockScreen } from './src/ui/Gate';
@@ -19,6 +26,7 @@ import { herdSection } from './src/ui/herd/herdSections';
 import { HostEditor } from './src/ui/hosts/HostEditor';
 import { HostNotificationsSheet } from './src/ui/hosts/HostNotificationsSheet';
 import { HostsScreen, type HostRow } from './src/ui/hosts/HostsScreen';
+import type { ItemAction } from './src/ui/menus/ItemMenu';
 import { TerminalScreen } from './src/ui/terminal/TerminalScreen';
 import { fontAssets, palettes, usePalette } from './src/ui/theme/tokens';
 import { useAppRuntime } from './src/ui/useAppRuntime';
@@ -40,6 +48,16 @@ function hideLaunchScreen() {
 }
 
 export default function App() {
+  useAppQueryLifecycle();
+  return (
+    <QueryClientProvider client={appQueryClient}>
+      <AppContent />
+    </QueryClientProvider>
+  );
+}
+
+function AppContent() {
+  const { t } = useTranslation();
   const [fontsLoaded] = useFonts(fontAssets);
   const palette = usePalette();
   const { hosts, sessions, security, navigation, terminals, openNotificationPaneRef, preferences, setPreference } = useAppRuntime();
@@ -63,7 +81,32 @@ export default function App() {
     if (tab === 'calls' && unseen > 0) markSeen();
   }, [markSeen, tab, unseen]);
 
+  const reverseControlRuntimes = useMemo(
+    () => connectedBrowserRuntimes(presentationSessions, id => sessions.getClient(id)?.native),
+    [presentationSessions, sessions],
+  );
+  useReverseControlRequests(reverseControlRuntimes);
   const sections = useMemo(() => presentationSessions.map(herdSection), [presentationSessions]);
+  const itemActions = (sessionId: string, kind: 'workspace' | 'tab', id: string): ItemAction[] => {
+    const session = presentationSessions.find(item => item.id === sessionId);
+    if (!session || !['ready', 'connected'].includes(session.connectionStatus)
+      || session.hostState?.freshness !== 'fresh') return [];
+    const item = kind === 'workspace'
+      ? session.snapshot.workspaces.find(workspace => workspace.workspace_id === id)
+      : session.snapshot.tabs.find(tabInfo => tabInfo.tab_id === id);
+    if (!item) return [];
+    return [
+      { id: 'rename', label: t(kind === 'workspace' ? 'herd.renameSpace' : 'session.renameTab'), run: name => {
+        if (kind === 'workspace') return sessions.renameWorkspace(sessionId, id, name!);
+        const client = sessions.getClient(sessionId);
+        if (!client) throw new Error(t('common.notConnected'));
+        return client.native.requestHerdrApi({ method: 'tab.rename', params: { tab_id: id, label: name! } });
+      } },
+      { id: 'close', label: t(kind === 'workspace' ? 'rail.closeWorkspace' : 'session.closeTab', { workspace: item.label, tab: item.label }),
+        run: () => kind === 'workspace' ? sessions.closeWorkspace(sessionId, id) : sessions.closeTab(sessionId, id) },
+    ];
+  };
+
   const needYou = sections.reduce((sum, section) => sum + section.view.needYou, 0);
 
   const savedHosts = useMemo<SavedHost[]>(() => {
@@ -161,6 +204,19 @@ export default function App() {
       ?? null
     : null;
 
+  const sessionAccess = (sessionId: string, terminalId: string | undefined): SessionAccessActions | undefined => {
+    const native = sessions.getClient(sessionId)?.activeNative;
+    const session = presentationSessions.find(entry => entry.id === sessionId);
+    const control = session?.agentControls.find(entry => entry.terminalId === terminalId);
+    if (!terminalId || !control) return undefined;
+    return {
+      control,
+      connected: !!native && (session?.connectionStatus === 'ready' || session?.connectionStatus === 'connected'),
+      onChange: (enabled, shizukuAccess) => sessions.setAgentReverseControl(sessionId, terminalId, enabled, shizukuAccess),
+      onRestart: () => sessions.restartAgent(sessionId, terminalId),
+    };
+  };
+
   const selectTerminal = (terminalId: string) => {
     if (!activeSession) return;
     const entry = activeSession.terminalRail.terminals.find(candidate => candidate.terminalId === terminalId);
@@ -236,6 +292,7 @@ export default function App() {
                 return (
                   <View key={chatKey(entry)} style={visible ? { flex: 1 } : { display: 'none' }}>
                     <ChatScreen
+                      sessionAccess={sessionAccess(entry.sessionId, pane?.terminal_id)}
                       hostSessionId={entry.sessionId}
                       hostName={session.host.name}
                       pane={pane}
@@ -260,6 +317,7 @@ export default function App() {
                   initialMode={workbench.mode}
                   initialFile={workbench.file}
                   native={sessions.getClient(workbench.sessionId)?.activeNative ?? null}
+                  client={sessions.getClient(workbench.sessionId) ?? null}
                   cwd={workbenchPane?.foreground_cwd
                     ?? workbenchPane?.cwd
                     ?? workbenchSession?.snapshot.workspaces.find(item => item.workspace_id === workbenchPane?.workspace_id)?.worktree?.checkout_path
@@ -271,6 +329,9 @@ export default function App() {
               {tab === 'herd' && !chatShown && !workbenchShown && (
                 <HerdScreen
                   sections={sections}
+                  workspaceActions={(sessionId, id) => itemActions(sessionId, 'workspace', id)}
+                  tabActions={(sessionId, id) => itemActions(sessionId, 'tab', id)}
+                  onDisconnect={hostId => sessions.closeHostById(hostId)}
                   savedHosts={savedHosts}
                   error={hosts.error}
                   onConnect={connectById}
@@ -287,7 +348,7 @@ export default function App() {
                   rows={hostRows}
                   loaded={hosts.profilesLoaded}
                   error={editing ? null : hosts.error}
-                  onAdd={hosts.openManualHost}
+                  onAdd={() => hosts.openManualHost()}
                   onEdit={host => { void hosts.openEditor(host); }}
                   onConnect={connectHost}
                   onDisconnect={host => { void sessions.closeHostById(host.id); }}
@@ -299,6 +360,8 @@ export default function App() {
               )}
               {terminalShown && (
                 <TerminalScreen
+                  key={activeSession?.id}
+                  sessionAccess={activeSession ? sessionAccess(activeSession.id, terminalTarget?.session.terminalId) : undefined}
                   session={activeSession}
                   target={terminalTarget}
                   fontSize={preferences.terminal.fontSize}
@@ -307,8 +370,17 @@ export default function App() {
                     else selectTab('herd');
                   }}
                   onSelectTerminal={selectTerminal}
-                  onCloseTerminal={terminalId => {
-                    if (activeSession) sessions.closeTerminal(activeSession.id, terminalId);
+                  terminalActions={terminalId => {
+                    const entry = activeSession?.terminalRail.terminals.find(item => item.terminalId === terminalId);
+                    if (!activeSession || !entry || !['connected', 'ready'].includes(activeSession.connectionStatus)) return [];
+                    if (entry.kind === 'herdr') {
+                      const pane = activeSession.snapshot.panes.find(item => item.pane_id === entry.paneId);
+                      return pane ? itemActions(activeSession.id, 'tab', pane.tab_id) : [];
+                    }
+                    return [
+                      { id: 'rename', label: t('session.renameTab'), run: name => terminals.renameSshShell(activeSession.id, terminalId, name!) },
+                      { id: 'close', label: t('session.closeTab', { tab: entry.title }), run: () => sessions.closeTerminal(activeSession.id, terminalId) },
+                    ];
                   }}
                   onStatus={(terminalId, status, error) => {
                     if (activeSession) terminals.updateStatus(activeSession.id, terminalId, status, error);

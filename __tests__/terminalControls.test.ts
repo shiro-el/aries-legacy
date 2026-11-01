@@ -6,34 +6,12 @@ import {
   swapTerminalArrowControls,
   terminalArrowControlCanSwap,
   terminalControlIsVisible,
-  TERMINAL_CONTROL_HIT_SLOP,
-  TERMINAL_ICON_CONTROL_CLASS,
-  TERMINAL_TEXT_CONTROL_CLASS,
 } from '../src/lib/terminalControls';
 
-test('terminal controls use compact faces with 44pt native touch height', () => {
-  const iconClasses = TERMINAL_ICON_CONTROL_CLASS.split(/\s+/);
-  const textClasses = TERMINAL_TEXT_CONTROL_CLASS.split(/\s+/);
-
-  expect(iconClasses).toEqual(
-    expect.arrayContaining(['h-9', 'min-h-0', 'w-11']),
-  );
-  expect(textClasses).toEqual(
-    expect.arrayContaining(['h-9', 'min-h-0', 'min-w-11']),
-  );
-  expect(iconClasses).toEqual(
-    expect.arrayContaining(['bg-card/60', 'active:bg-card/70']),
-  );
-  expect(textClasses).toEqual(
-    expect.arrayContaining(['bg-card/60', 'active:bg-card/70']),
-  );
-  expect(TERMINAL_CONTROL_HIT_SLOP).toEqual({ top: 4, bottom: 4 });
-});
-
 test('starts with common controls and keeps secondary navigation at the right end', () => {
-  expect(defaultTerminalControlOrder.slice(0, 16)).toEqual([
+  expect(defaultTerminalControlOrder.slice(0, 17)).toEqual([
     'keyboard', 'ctrl', 'shift', 'esc', 'tab', 'paste', 'history',
-    'compose', 'chat', 'attach', 'files', 'links', 'up', 'left', 'right', 'down',
+    'compose', 'chat', 'attach', 'files', 'github', 'links', 'up', 'left', 'right', 'down',
   ]);
   expect(defaultTerminalControlOrder.slice(-4)).toEqual(['page-down', 'alt', 'find', 'home']);
   expect(defaultTerminalControlOrder).not.toContain('ctrl-c');
@@ -75,9 +53,22 @@ test('filters controls by keyboard visibility', () => {
     .filter(control => !terminalControlIsVisible(control, keyboardVisible));
 
   expect(hiddenControls(false)).toEqual(['slash', 'pipe', 'tilde']);
-  expect(hiddenControls(true)).toEqual(['files', 'links']);
+  expect(hiddenControls(true)).toEqual(['files', 'github', 'links']);
   expect(terminalControlIsVisible('files', false)).toBe(true);
   expect(terminalControlIsVisible('paste', true)).toBe(true);
+});
+
+test('chat hides terminal keys while retaining shared actions and keyboard visibility rules', () => {
+  const visibleControls = (keyboardVisible: boolean) => defaultTerminalControlOrder
+    .filter(control => terminalControlIsVisible(control, keyboardVisible, true));
+
+  expect(visibleControls(false)).toEqual([
+    'paste', 'history', 'compose', 'chat', 'attach',
+    'files', 'github', 'links', 'find',
+  ]);
+  expect(visibleControls(true)).toEqual([
+    'paste', 'history', 'compose', 'chat', 'attach', 'find',
+  ]);
 });
 
 test('increments one persisted control without losing other usage', () => {

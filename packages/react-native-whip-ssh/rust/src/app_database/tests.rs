@@ -250,6 +250,21 @@ fn direct_old_version_import_and_metadata_credential_guard() {
         )
         .is_err()
     );
+    for (key, value) in [
+        (
+            "whip.credentials.transactions.v1",
+            r#"{"pending":{"secret":"private"}}"#,
+        ),
+        ("herdr.hosts.v2", r#"[{"tailcatPrivateKey":"private"}]"#),
+        ("herdr.hosts.v2", r#"[{"tailcatAddress":"private"}]"#),
+    ] {
+        assert!(db.write(vec![entry(key, Some(value))], false).is_err());
+    }
+    assert_eq!(
+        db.read(vec!["whip.credentials.transactions.v1".into()])
+            .unwrap(),
+        vec![entry("whip.credentials.transactions.v1", None)]
+    );
     assert_eq!(
         select_legacy_app_data_keys(vec![TRUST.into(), "unrelated.library".into(), DRAFT.into()]),
         vec![TRUST, DRAFT]
@@ -332,5 +347,31 @@ fn notification_replay_receipts_are_durable_across_application_restarts() {
     assert_eq!(
         store(&path).read(vec![key.into()]).unwrap(),
         vec![entry(key, Some(receipts))]
+    );
+}
+
+#[test]
+fn notification_encryption_preferences_import_and_persist_independently_per_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.db");
+    let first = "whip.notify.e2ee.v1.first-host";
+    let second = "whip.notify.e2ee.v1.second-host";
+    let mut db = store(&path);
+    db.write(vec![entry(first, Some("true"))], true).unwrap();
+    db.write(
+        vec![entry(first, Some("false")), entry(second, Some("true"))],
+        false,
+    )
+    .unwrap();
+    drop(db);
+    let mut reopened = store(&path);
+    assert_eq!(
+        reopened.read(vec![first.into(), second.into()]).unwrap(),
+        vec![entry(first, Some("false")), entry(second, Some("true"))]
+    );
+    reopened.write(vec![entry(first, None)], false).unwrap();
+    assert_eq!(
+        reopened.read(vec![first.into(), second.into()]).unwrap(),
+        vec![entry(first, None), entry(second, Some("true"))]
     );
 }

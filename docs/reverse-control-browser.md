@@ -95,7 +95,17 @@ notifications open the library when tapped, subject to the system's notification
 permission. Android also shows an ongoing progress notification. Android HTTP(S)
 downloads use the tab's cookies and active SSH route; iOS retains the original
 WebKit transfer, including POST exports and blob downloads. Personal downloads
-currently share the 64 MiB transfer limit. Website file inputs use the system's
+have no fixed per-file size ceiling and stream directly to native files, without
+buffering file contents in JavaScript. They must fit in the destination volume's
+available storage while leaving 64 MiB free for the app and OS. Known sizes are
+checked before saving; available storage is checked again during transfers
+(including unknown-length responses) and at completion. Storage checks are best
+effort, since other apps can consume space concurrently. Storage failures show an
+explicit error and remove the partial file. Personal downloads have no overall
+transfer deadline; Android retains its 15-second connection/read inactivity
+timeouts. Cancellation, route changes, and app shutdown still interrupt transfers;
+completed files and their manifests survive restarts. Agent/MCP downloads retain
+their separate 64 MiB bound and 120-second deadline. Website file inputs use the system's
 upload picker; agents cannot operate that picker.
 
 The MCP URL, launch token and initialized session survive temporary SSH loss
@@ -106,7 +116,17 @@ agents and terminal identities. Calls during recovery fail; an interrupted
 privileged command may already have executed and must not be blindly retried.
 If the original port is unavailable, Whip retains authorization and retries
 restoration during subsequent health checks. Explicit host disconnect, agent
-exit, terminal replacement, disabling Reverse Control, and MCP DELETE revoke old access.
+exit, terminal replacement, and disabling Reverse Control revoke old access.
+For Claude Code and OpenCode, MCP DELETE also revokes the launch.
+
+Codex `/new` and `/clear` create another thread inside the existing CLI process
+and reuse its launch-time MCP URL and token. Whip keeps that launch authorized
+across these conversation changes and returns 405 to Codex MCP DELETE requests;
+Codex treats that response as supported client shutdown without deleting the
+server endpoint. This also handles the old client's DELETE arriving after the
+new client initializes. Initial resume verification still requires the intended
+conversation ID, and recovery after Whip process death still validates the
+latest confirmed conversation against a fresh host snapshot.
 
 After process death, recovery is lazy: creating a host runtime does not open a
 listener or connect to another host. Its first fresh snapshot loads that host's
@@ -137,7 +157,9 @@ checks the MCP session identity. It rejects browser Origin headers, unexpected
 Host headers and ambiguous authorization/session headers. Body sizes, read
 times, pending actions and concurrent connections are bounded. Initialize and
 tool calls return JSON; notifications return 202, GET returns 405 (no SSE), and
-authenticated DELETE terminates only that launch. There are no server-initiated
+authenticated DELETE terminates only the corresponding Claude Code or OpenCode
+launch. Codex DELETE returns 405 so thread navigation can reuse its launch.
+There are no server-initiated
 MCP requests. RPC ids are scoped per launch, including concurrent calls from two
 agents using the same JSON-RPC id.
 
@@ -457,8 +479,10 @@ refs fail closed instead of reidentifying a replacement write target.
 
 ## Lifetime and settings
 
-Rust revokes authorization on authenticated MCP DELETE, explicit terminal close,
-pane removal/agent disappearance, launch failure, or explicit host disconnect.
+Rust revokes authorization on explicit terminal close, pane removal/agent
+disappearance, launch failure, or explicit host disconnect. Authenticated MCP
+DELETE additionally revokes Claude Code and OpenCode launches; Codex client
+shutdown keeps the launch available for `/new`, `/clear`, and `/resume`.
 Pane close also revokes that pane's session. Outstanding requests are cancelled
 and WebViews removed. An ordinary HTTP connection closing does not end a browser
 session or cancel a tool call; MCP cancellation notifications cancel calls.
@@ -641,7 +665,7 @@ nix develop -c android/gradlew -p android :app:assembleRelease :app:assembleRele
 # Install the upload-signed APK in place, followed by its matching test APK.
 nix develop -c adb install -r android/app/build/outputs/apk/release/app-release.apk
 nix develop -c adb install -r android/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
-nix develop -c adb shell am instrument -w -e class io.github.kaminarios.whip.BrowserWebViewTest,io.github.kaminarios.whip.BrowserSiteCookiesTest,io.github.kaminarios.whip.BrowserDownloadRequestTest io.github.kaminarios.whip.test/androidx.test.runner.AndroidJUnitRunner
+nix develop -c adb shell am instrument -w -e class io.github.kaminarios.whip.BrowserWebViewTest,io.github.kaminarios.whip.BrowserSiteCookiesTest,io.github.kaminarios.whip.BrowserDownloadRequestTest,io.github.kaminarios.whip.BrowserDownloadsTest io.github.kaminarios.whip.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 Reference architecture inspected: OpenMinis BrowserTabPool/Registry,
@@ -699,3 +723,18 @@ Protocol references: [Codex HTTP MCP configuration](https://developers.openai.co
 [OpenCode v2 standalone server](https://github.com/anomalyco/opencode/blob/7878744505/packages/cli/src/services/server-connection.ts),
 [v2 MCP configuration normalization](https://github.com/anomalyco/opencode/blob/7878744505/packages/core/src/config/normalize.ts), and
 [Streamable HTTP MCP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+
+## Shared browser engine
+
+The action schema, validation, DOM programs, bounded result encoding, execution
+engine, cancellation/deadline control, and tab generation checks live in the
+MIT-licensed [`agent-browser-control`](../crates/agent-browser-control/README.md)
+crate, published on crates.io. The app uses a versioned dependency with a local
+path for repository builds.
+
+The app's `browser::operations` module remains the ownership adapter. Its global
+session registry, FIFO admission/leases, route state, Reverse Control permissions,
+UniFFI effect permits, and SSH download delivery stay here because they depend on
+Whip's launch/session authority. Native Android WebView and iOS WKWebView drivers
+still receive and check the same permits. Generation-fence decisions delegate to
+the shared crate; native records and lifecycle transitions remain app-owned.

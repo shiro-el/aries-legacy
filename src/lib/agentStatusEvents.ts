@@ -2,10 +2,6 @@ import type { AgentAlertDelivery } from '../services/alerts';
 import type { AgentAlertLevel } from '../services/devicePreferences';
 import type { AgentInfo, AgentStatus, TabInfo } from '../types';
 
-export function isAgentAlertingStatus(status: AgentStatus): boolean {
-  return status === 'blocked' || status === 'done';
-}
-
 /**
  * A finished agent can wait, so only one that needs you sounds, and only once:
  * ringing until dismissed is for emergency calls.

@@ -614,9 +614,11 @@ mod tests {
 
     #[test]
     fn summary_without_a_separator_keeps_only_its_last_lines() {
-        let transcript = (1..=40)
-            .map(|line| format!("line {line}\n"))
-            .collect::<String>();
+        let transcript = (1..=40).fold(String::new(), |mut text, line| {
+            use std::fmt::Write as _;
+            let _ = writeln!(text, "line {line}");
+            text
+        });
         let prompt = prompt(&format!("{transcript}Pick one\n❯ 1. Yes\n  2. No"));
         assert_eq!(prompt.summary.lines().count(), MAX_SUMMARY_LINES);
         assert!(prompt.summary.ends_with("line 40\nPick one"));

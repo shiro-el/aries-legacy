@@ -15,6 +15,22 @@ export interface OpenSourceLicenseNotice {
 
 export const OPEN_SOURCE_LICENSES: readonly OpenSourceLicenseNotice[] = [
   {
+    id: 'phonon-31m-en',
+    projectName: 'Phonon 31M English',
+    sourceUrl: 'https://huggingface.co/gradium/phonon-31m-en',
+    attribution: 'Optional local English speech synthesis with the default checkpoint voice. Model files download only at your request.',
+    licenseName: 'Apache-2.0',
+    licenseAsset: bundledAsset(require('../../assets/licenses/phonon-Apache-2.0.txt')),
+  },
+  {
+    id: 'phonon-voices',
+    projectName: 'Phonon voice catalog',
+    sourceUrl: 'https://huggingface.co/gradium/phonon-voices',
+    attribution: 'Optional English voices for local Phonon speech, downloaded individually at your request.',
+    licenseName: 'Apache-2.0',
+    licenseAsset: bundledAsset(require('../../assets/licenses/phonon-Apache-2.0.txt')),
+  },
+  {
     id: 'shizuku-api',
     projectName: 'Shizuku API',
     sourceUrl: 'https://github.com/RikkaApps/Shizuku-API',
@@ -94,6 +110,15 @@ export const OPEN_SOURCE_LICENSES: readonly OpenSourceLicenseNotice[] = [
     licenseName: 'MIT and ISC Licenses',
     copyright: 'Copyright (c) 2026 kepano\nCopyright (c) 2026 Lucide Icons and Contributors',
     licenseAsset: bundledAsset(require('../../assets/licenses/pele-MIT-and-ISC.txt')),
+  },
+  {
+    id: 'tailcat',
+    projectName: 'Tailcat',
+    sourceUrl: 'https://github.com/tailscale/tailcat',
+    attribution: 'Whip uses Tailcat for encrypted SSH transport across networks.',
+    licenseName: 'BSD-3-Clause and dependency licenses',
+    copyright: 'Copyright (c) Tailscale Inc & contributors',
+    licenseAsset: bundledAsset(require('../../assets/licenses/tailcat-dependencies.txt')),
   },
   {
     id: 'xterm-js',

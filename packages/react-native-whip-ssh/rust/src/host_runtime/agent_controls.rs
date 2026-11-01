@@ -15,6 +15,9 @@ use crate::herdr_api::{
 use crate::host_state::{HostFreshness, HostSyncStatus};
 
 const EXIT_COMMAND: &str = "/exit";
+/// Claude Code asks before exiting while it has background tasks. Restart keeps
+/// them running, so it picks this option rather than stopping them.
+const BACKGROUND_EXIT_OPTION: &str = "Move to background and exit";
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 const STOP_TIMEOUT_MS: u64 = 15_000;
 const STOP_TIMEOUT: Duration = Duration::from_millis(STOP_TIMEOUT_MS);
@@ -38,6 +41,7 @@ pub struct AgentControlView {
     pub kind: HerdrAgentKind,
     pub session_id: Option<String>,
     pub reverse_control: bool,
+    pub shizuku_access: bool,
     pub connected: bool,
     pub reverse_control_state: crate::reverse_control::ReverseControlState,
 }
@@ -53,6 +57,8 @@ pub(super) struct AgentPreference {
     args: Vec<String>,
     #[serde(default)]
     reverse_control: bool,
+    #[serde(default)]
+    shizuku_access: bool,
     // Projection-inferred defaults must not shadow preferences restored later.
     #[serde(skip)]
     explicit: bool,
@@ -107,6 +113,7 @@ impl AgentPreferences {
             session_id,
             args: Vec::new(),
             reverse_control: false,
+            shizuku_access: false,
             explicit: false,
         };
         self.agents.push(agent.clone());
@@ -118,6 +125,7 @@ impl AgentPreferences {
         terminal_id: &str,
         launch: &HerdrTabLaunch,
         reverse_control: bool,
+        shizuku_access: bool,
     ) {
         let Ok(HerdrTabLaunch::Agent { kind, args }) = agents::normalize_tab_launch(launch.clone())
         else {
@@ -129,6 +137,7 @@ impl AgentPreferences {
             kind,
             args: fresh_args(kind, &args),
             reverse_control,
+            shizuku_access: reverse_control && shizuku_access,
             session_id: None,
             explicit: true,
         });
@@ -258,6 +267,7 @@ async fn prepare_launch(
     pane: &HerdrPaneInfo,
     launch: HerdrTabLaunch,
     enabled: bool,
+    shizuku_access: bool,
     conversation: Option<&str>,
 ) -> Result<HerdrTabLaunch, HerdrControlError> {
     check_generation(inner, generation)?;
@@ -272,7 +282,8 @@ async fn prepare_launch(
         .await
         .map_err(invalid)?;
     check_generation(inner, generation)?;
-    let info = crate::reverse_control::new_session(&inner.id, pane).map_err(invalid)?;
+    let mut info = crate::reverse_control::new_session(&inner.id, pane).map_err(invalid)?;
+    info.shizuku_access = shizuku_access;
     let result = match conversation {
         Some(conversation) => {
             inner
@@ -400,6 +411,16 @@ async fn change_directory(
     }
 }
 
+/// The number Claude Code shows beside the background-exit option, if that
+/// prompt is on screen.
+fn background_exit_choice(screen: &str) -> Option<char> {
+    let line = screen
+        .lines()
+        .find(|line| line.contains(BACKGROUND_EXIT_OPTION))?;
+    let before = &line[..line.find(BACKGROUND_EXIT_OPTION)?];
+    before.chars().rev().find(char::is_ascii_digit)
+}
+
 async fn stop_agent_using<F, Fut>(
     pane: &HerdrPaneInfo,
     preference: &AgentPreference,
@@ -463,6 +484,7 @@ where
     })
     .await?;
     let deadline = tokio::time::Instant::now() + STOP_TIMEOUT;
+    let mut exit_confirmed = false;
     loop {
         let HerdrControlResult::SessionSnapshot { snapshot } =
             send(HerdrControlRequest::SessionSnapshot).await?
@@ -482,6 +504,23 @@ where
                 != preference.session_id
         {
             return Err(invalid("The agent conversation changed during restart"));
+        }
+        if !exit_confirmed && current.agent_status == HerdrAgentStatus::Blocked {
+            let read = send(HerdrControlRequest::PaneReadVisible {
+                pane_id: pane.pane_id.clone(),
+            })
+            .await?;
+            if let HerdrControlResult::PaneRead { read } = read
+                && read.pane_id == pane.pane_id
+                && let Some(choice) = background_exit_choice(&read.text)
+            {
+                send(HerdrControlRequest::PaneSendText {
+                    pane_id: pane.pane_id.clone(),
+                    text: choice.to_string(),
+                })
+                .await?;
+                exit_confirmed = true;
+            }
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(invalid(
@@ -614,6 +653,7 @@ impl HostRuntime {
                     kind: agent.kind,
                     session_id: agent.session_id.clone(),
                     reverse_control: agent.reverse_control,
+                    shizuku_access: agent.reverse_control && agent.shizuku_access,
                     connected: reverse_control_state
                         == crate::reverse_control::ReverseControlState::Connected,
                     reverse_control_state,
@@ -646,13 +686,14 @@ impl HostRuntime {
         &self,
         terminal_id: String,
         enabled: bool,
+        shizuku_access: bool,
     ) -> Result<(), HerdrControlError> {
         let runtime = Self {
             inner: self.inner.clone(),
         };
         run_control_task(async move {
             runtime
-                .set_agent_reverse_control_inner(terminal_id, enabled)
+                .set_agent_reverse_control_inner(terminal_id, enabled, shizuku_access)
                 .await
         })
         .await
@@ -750,6 +791,7 @@ impl HostRuntime {
         &self,
         terminal_id: String,
         enabled: bool,
+        shizuku_access: bool,
     ) -> Result<(), HerdrControlError> {
         let _operation = self.inner.agent_control_operation.lock().await;
         let generation = self.inner.state.lock().generation;
@@ -762,9 +804,13 @@ impl HostRuntime {
             .find(|agent| agent.terminal_id == terminal_id)
         {
             agent.reverse_control = enabled;
+            agent.shizuku_access = enabled && shizuku_access;
             agent.explicit = true;
         }
         drop(preferences);
+        self.inner
+            .reverse_control
+            .set_terminal_shizuku_access(&terminal_id, enabled && shizuku_access);
         if !enabled {
             self.inner.reverse_control.close_terminal(&terminal_id);
         }
@@ -838,6 +884,7 @@ impl HostRuntime {
                     &pane,
                     resume_launch(&preference)?,
                     true,
+                    preference.shizuku_access,
                     preference.session_id.as_deref(),
                 )
                 .await?
@@ -922,6 +969,7 @@ impl HostRuntime {
                 &root_pane,
                 launch.clone(),
                 preference.reverse_control,
+                false,
                 None,
             )
             .await?;
@@ -930,6 +978,7 @@ impl HostRuntime {
                 &root_pane.terminal_id,
                 &launch,
                 preference.reverse_control,
+                false,
             );
             Ok(())
         }
@@ -955,6 +1004,7 @@ impl HostRuntime {
 mod tests {
     use super::super::tests::agent_chat_snapshot;
     use super::*;
+    use crate::herdr_api::{HerdrPaneReadFormat, HerdrPaneReadResult, HerdrPaneReadSource};
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
@@ -1230,12 +1280,25 @@ mod tests {
                 args: strings(&["--model", "test"]),
             },
             true,
+            true,
         );
         let serialized = serde_json::to_string(&preferences)?;
         let restored: AgentPreferences = serde_json::from_str(&serialized)?;
         assert!(restored.agents[0].reverse_control);
+        assert!(restored.agents[0].shizuku_access);
         assert_eq!(restored.agents[0].args, strings(&["--model", "test"]));
         assert!(resume_launch(&restored.agents[0]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn existing_reverse_control_preferences_default_shizuku_access_off()
+    -> Result<(), serde_json::Error> {
+        let preferences: AgentPreferences = serde_json::from_value(serde_json::json!({"agents":[{
+            "terminalId":"terminal", "kind":"codex", "reverseControl":true
+        }]}))?;
+        assert!(preferences.agents[0].reverse_control);
+        assert!(!preferences.agents[0].shizuku_access);
         Ok(())
     }
 
@@ -1251,6 +1314,7 @@ mod tests {
                 kind: HerdrAgentKind::Codex,
                 args: strings(&["--model", "current"]),
             },
+            false,
             false,
         );
         preferences.restore(serde_json::from_value(serde_json::json!({"agents": [{
@@ -1276,6 +1340,7 @@ mod tests {
                 args: Vec::new(),
             },
             true,
+            true,
         );
         let preference = preferences.for_pane(&original)?;
         let launch = resume_launch(&preference)?;
@@ -1292,15 +1357,18 @@ mod tests {
                 args: preference.args,
             },
             preference.reverse_control,
+            false,
         );
         restored.agents[0].reverse_control = false;
         assert!(restored.agents[1].reverse_control);
+        assert!(!restored.agents[1].shizuku_access);
         snapshot.panes[0]
             .agent_session
             .as_mut()
             .ok_or("missing session")?
             .value = "replacement".to_owned();
         assert!(!preferences.for_pane(&snapshot.panes[0])?.reverse_control);
+        assert!(!preferences.for_pane(&snapshot.panes[0])?.shizuku_access);
         Ok(())
     }
 
@@ -1332,6 +1400,68 @@ mod tests {
             matches!(requests.as_slice(), [HerdrControlRequest::SessionSnapshot, HerdrControlRequest::PaneSendKeys {keys, ..}, HerdrControlRequest::AgentPrompt {target, text}, HerdrControlRequest::SessionSnapshot] if keys == &strings(&["ctrl+u"]) && target == &pane.pane_id && text == EXIT_COMMAND)
         );
         Ok(())
+    }
+
+    #[test]
+    fn restart_moves_background_tasks_aside_when_claude_asks_before_exiting()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let initial = agent_chat_snapshot(Some(("codex", "original")), Some("codex"));
+        let pane = initial.panes[0].clone();
+        let preference = AgentPreferences::default().for_pane(&pane)?;
+        let mut asking = initial.clone();
+        asking.panes[0].agent_status = HerdrAgentStatus::Blocked;
+        let mut shell = initial.clone();
+        shell.panes[0].agent = None;
+        shell.panes[0].agent_session = None;
+        let screen = "Background tasks are running\n 1 Exit and stop tasks\n 2 Move to background and exit\n 3 Stay";
+        let mut requests = Vec::new();
+        let mut snapshots = std::collections::VecDeque::from([initial, asking, shell]);
+        crate::runtime()?.block_on(stop_agent_using(&pane, &preference, |request| {
+            let result = match &request {
+                HerdrControlRequest::SessionSnapshot => snapshots
+                    .pop_front()
+                    .map(|snapshot| HerdrControlResult::SessionSnapshot { snapshot })
+                    .ok_or_else(|| invalid("Unexpected snapshot request")),
+                HerdrControlRequest::PaneReadVisible { pane_id } => {
+                    Ok(HerdrControlResult::PaneRead {
+                        read: HerdrPaneReadResult {
+                            pane_id: pane_id.clone(),
+                            workspace_id: String::new(),
+                            tab_id: String::new(),
+                            source: HerdrPaneReadSource::Visible,
+                            format: HerdrPaneReadFormat::Text,
+                            text: screen.to_owned(),
+                            revision: 0.0,
+                            truncated: false,
+                        },
+                    })
+                }
+                _ => Ok(HerdrControlResult::SessionSnapshot {
+                    snapshot: agent_chat_snapshot(None, None),
+                }),
+            };
+            requests.push(request);
+            std::future::ready(result)
+        }))?;
+        assert!(requests.iter().any(|request| matches!(
+            request,
+            HerdrControlRequest::PaneSendText { pane_id, text } if pane_id == &pane.pane_id && text == "2"
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn background_exit_choice_reads_the_number_beside_the_option() {
+        assert_eq!(
+            background_exit_choice(
+                "  1. Exit and stop tasks\n❯ 2. Move to background and exit\n  3. Stay"
+            ),
+            Some('2')
+        );
+        assert_eq!(
+            background_exit_choice("Do you want to proceed?\n 1 Yes\n 2 No"),
+            None
+        );
     }
 
     #[test]

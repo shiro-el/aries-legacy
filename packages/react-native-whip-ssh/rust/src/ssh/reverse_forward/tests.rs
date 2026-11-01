@@ -22,6 +22,11 @@ struct ServerState {
     sftp_started: tokio::sync::Notify,
     sftp_gate: RwLock<Option<Arc<Semaphore>>>,
     fail_sftp: AtomicBool,
+    command_env: Option<std::collections::BTreeMap<String, String>>,
+    deny_streamlocal: AtomicBool,
+    reject_sessions: AtomicUsize,
+    session_attempts: AtomicUsize,
+    session_started: tokio::sync::Notify,
 }
 
 /// A real SSH server on loopback, with actual remote TCP listeners. Tests use
@@ -52,7 +57,28 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
+    pub(crate) fn reject_session_channels(&self, count: usize) {
+        self.state.reject_sessions.store(count, Ordering::Relaxed);
+    }
+
+    pub(crate) fn session_attempts(&self) -> usize {
+        self.state.session_attempts.load(Ordering::Relaxed)
+    }
+
+    pub(crate) async fn wait_for_session_attempts(&self, count: usize) {
+        while self.session_attempts() < count {
+            self.state.session_started.notified().await;
+        }
+    }
+
     pub(crate) async fn new(allow: bool, delay: Duration) -> Result<Self, Box<dyn Error>> {
+        Self::with_commands(allow, delay, None).await
+    }
+    pub(crate) async fn with_commands(
+        allow: bool,
+        delay: Duration,
+        command_env: Option<std::collections::BTreeMap<String, String>>,
+    ) -> Result<Self, Box<dyn Error>> {
         let mut rng =
             russh::keys::ssh_key::rand_core::UnwrapErr(russh::keys::ssh_key::getrandom::SysRng);
         let key = russh::keys::PrivateKey::random(&mut rng, russh::keys::Algorithm::Ed25519)?;
@@ -65,6 +91,7 @@ impl Fixture {
         let listener = TcpListener::bind((BIND_ADDRESS, 0)).await?;
         let address = listener.local_addr()?;
         let state = Arc::new(ServerState {
+            command_env,
             home: RwLock::new("/home/test".to_owned()),
             ..ServerState::default()
         });
@@ -99,6 +126,7 @@ impl Fixture {
         assert!(handle.authenticate_none("test").await?.success());
         let ssh = Arc::new(SshSession {
             inner: Arc::new(Session {
+                builtin_tailcat_ssh: false,
                 handle,
                 agent,
                 lifecycle,
@@ -108,6 +136,10 @@ impl Fixture {
             resource_key: format!("reverse-forward-test-{}", address.port()),
         });
         Ok(Self { ssh, state, task })
+    }
+
+    pub(crate) fn deny_streamlocal(&self) {
+        self.state.deny_streamlocal.store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn local_port(&self, remote_port: u16) -> Option<u16> {
@@ -189,6 +221,21 @@ impl server::Handler for ForwardServer {
         reply: server::ChannelOpenHandle,
         _session: &mut server::Session,
     ) -> Result<(), Self::Error> {
+        self.state.session_attempts.fetch_add(1, Ordering::Relaxed);
+        self.state.session_started.notify_one();
+        if self
+            .state
+            .reject_sessions
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_sub(1)
+            })
+            .is_ok()
+        {
+            reply
+                .reject(russh::ChannelOpenFailure::ResourceShortage)
+                .await;
+            return Ok(());
+        }
         self.channels.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
@@ -218,6 +265,83 @@ impl server::Handler for ForwardServer {
         command: &[u8],
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
+        if let Some(environment) = self.state.command_env.clone() {
+            let command = String::from_utf8_lossy(command).into_owned();
+            let stream = self
+                .channels
+                .remove(&channel)
+                .ok_or(russh::Error::Inconsistent)?;
+            session.channel_success(channel)?;
+            let handle = session.handle();
+            tokio::spawn(async move {
+                let Ok(mut child) = tokio::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .envs(environment)
+                    .kill_on_drop(true)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                else {
+                    let _ = handle.close(channel).await;
+                    return;
+                };
+                let (mut source, writer) = tokio::io::split(stream.into_stream());
+                let mut stdin = child.stdin.take().unwrap();
+                let input = tokio::spawn(async move {
+                    let _ = tokio::io::copy(&mut source, &mut stdin).await;
+                });
+                let handle_out = handle.clone();
+                let mut stdout = child.stdout.take().unwrap();
+                let output = tokio::spawn(async move {
+                    let mut bytes = [0; 8192];
+                    while let Ok(n) = stdout.read(&mut bytes).await {
+                        if n == 0 {
+                            break;
+                        }
+                        if handle_out.data(channel, bytes[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+                let handle_err = handle.clone();
+                let mut stderr = child.stderr.take().unwrap();
+                let errors = tokio::spawn(async move {
+                    let mut bytes = [0; 8192];
+                    while let Ok(n) = stderr.read(&mut bytes).await {
+                        if n == 0 {
+                            break;
+                        }
+                        if handle_err
+                            .extended_data(channel, 1, bytes[..n].to_vec())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                });
+                let status = child.wait().await;
+                let _ = output.await;
+                let _ = errors.await;
+                input.abort();
+                let _ = handle
+                    .exit_status_request(
+                        channel,
+                        status
+                            .ok()
+                            .and_then(|s| s.code())
+                            .and_then(|n| u32::try_from(n).ok())
+                            .unwrap_or(1),
+                    )
+                    .await;
+                let _ = handle.eof(channel).await;
+                let _ = handle.close(channel).await;
+                drop(writer);
+            });
+            return Ok(());
+        }
         assert_eq!(command, crate::ssh::REMOTE_HOME_COMMAND.as_bytes());
         self.channels.remove(&channel);
         self.state.home_lookups.fetch_add(1, Ordering::Relaxed);
@@ -267,7 +391,7 @@ impl server::Handler for ForwardServer {
         reply: server::ChannelOpenHandle,
         _session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        if !self.allow {
+        if !self.allow || self.state.deny_streamlocal.load(Ordering::Relaxed) {
             return Ok(());
         }
         let Ok(mut target) = tokio::net::UnixStream::connect(socket_path).await else {

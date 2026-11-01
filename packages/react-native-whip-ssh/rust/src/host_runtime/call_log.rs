@@ -52,10 +52,10 @@ impl Buffer {
         if self.seen.contains(record) {
             return false;
         }
-        if self.order.len() >= 16_384 {
-            if let Some(oldest) = self.order.pop_front() {
-                self.seen.remove(&oldest);
-            }
+        if self.order.len() >= 16_384
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.seen.remove(&oldest);
         }
         self.order.push_back(record.clone());
         self.seen.insert(record.clone());
@@ -198,4 +198,47 @@ impl HostRuntime {
             _ => Err(failure("Unknown call log operation")),
         }
     }
+}
+
+// Polled while Calls is open, so look the runtime up without adoption logging.
+fn call_log_runtime(runtime_id: String) -> Result<HostRuntime, HostRuntimeError> {
+    let inner = super::runtimes()
+        .read()
+        .get(&runtime_id)
+        .cloned()
+        .filter(|inner| !inner.state.lock().explicit_disconnect)
+        .ok_or_else(|| failure("The host connection closed"))?;
+    Ok(HostRuntime { inner })
+}
+
+/// Starts following the host's call log and returns what it already holds.
+#[uniffi::export]
+pub async fn host_call_log_open(runtime_id: String) -> Result<String, HostRuntimeError> {
+    let runtime = call_log_runtime(runtime_id)?;
+    let discovery: Value = serde_json::from_str(
+        &runtime
+            .notification_command("discover".into(), "{}".into())
+            .await?,
+    )
+    .map_err(|_| failure("Invalid notification discovery"))?;
+    let payload = serde_json::json!({ "paths": discovery["paths"] }).to_string();
+    runtime
+        .notification_command("calls-open".into(), payload)
+        .await
+}
+
+/// Rows appended since the last read. Fails once the stream has dropped.
+#[uniffi::export]
+pub async fn host_call_log_read(runtime_id: String) -> Result<String, HostRuntimeError> {
+    call_log_runtime(runtime_id)?
+        .notification_command("calls-read".into(), "{}".into())
+        .await
+}
+
+#[uniffi::export]
+pub async fn host_call_log_stop(runtime_id: String) -> Result<(), HostRuntimeError> {
+    call_log_runtime(runtime_id)?
+        .notification_command("calls-stop".into(), "{}".into())
+        .await
+        .map(|_| ())
 }

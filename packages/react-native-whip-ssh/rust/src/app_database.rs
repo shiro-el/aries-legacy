@@ -8,6 +8,10 @@ use std::sync::{OnceLock, mpsc};
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 
+mod known_hosts;
+pub(crate) use known_hosts::detach as detach_known_host_repository;
+pub use known_hosts::*;
+
 const SCHEMA_VERSION: i64 = 1;
 const LEGACY_IMPORT: &str = "async-storage-v1";
 static DATABASE: OnceLock<Mutex<Option<Result<AppDatabase, AppStorageError>>>> = OnceLock::new();
@@ -101,16 +105,20 @@ struct Worker {
 }
 
 impl Worker {
+    fn store(&mut self) -> Result<&mut Store, AppStorageError> {
+        if self.store.is_none() {
+            self.store = Some(Store::open(&self.path, self.runtime)?);
+        }
+        self.store
+            .as_mut()
+            .ok_or_else(|| AppStorageError::Unavailable("application storage did not open".into()))
+    }
+
     fn with_store<T>(
         &mut self,
         operation: impl FnOnce(&mut Store) -> Result<T, AppStorageError>,
     ) -> Result<T, AppStorageError> {
-        if self.store.is_none() {
-            self.store = Some(Store::open(&self.path, self.runtime)?);
-        }
-        operation(self.store.as_mut().ok_or_else(|| {
-            AppStorageError::Unavailable("application storage did not open".into())
-        })?)
+        operation(self.store()?)
     }
 }
 
@@ -286,6 +294,7 @@ fn legacy_app_key(key: &str) -> bool {
         "herdr.global-ssh-keys.v1",
         "herdr.credential.backups.v1",
         "herdr.credentials.backup-migration",
+        "whip.credentials.transactions.v1",
         "whip.browser.tabs.v1",
         "whip.browser.library.v1",
         "whip.browser.search-history.v1",
@@ -298,6 +307,7 @@ fn legacy_app_key(key: &str) -> bool {
         "whip.latency-diagnostics.v1",
         "whip.usage.expanded.v1",
         "whip.notifications.expanded.v1",
+        "whip.voice.expanded.v1",
         "whip.security.expanded.v1",
         "whip.appearance.expanded.v1",
         "whip.herd.expanded.v1",
@@ -330,7 +340,10 @@ fn validate_entry(entry: &AppStorageEntry, importing: bool) -> Result<(), AppSto
     // and Android's encrypted backup envelope remains an opaque ciphertext map.
     if matches!(
         entry.key.as_str(),
-        "herdr.hosts.v2" | "herdr.connection.v1" | "herdr.global-ssh-keys.v1"
+        "herdr.hosts.v2"
+            | "herdr.connection.v1"
+            | "herdr.global-ssh-keys.v1"
+            | "whip.credentials.transactions.v1"
     ) && let Some(value) = &entry.value
     {
         let value: serde_json::Value = serde_json::from_str(value)
@@ -347,7 +360,12 @@ fn contains_secret(value: &serde_json::Value) -> bool {
         serde_json::Value::Object(fields) => fields.iter().any(|(name, value)| {
             matches!(
                 name.as_str(),
-                "secret" | "passphrase" | "password" | "privateKey"
+                "secret"
+                    | "passphrase"
+                    | "password"
+                    | "privateKey"
+                    | "tailcatPrivateKey"
+                    | "tailcatAddress"
             ) && value.as_str().is_some_and(|text| !text.is_empty())
                 || contains_secret(value)
         }),

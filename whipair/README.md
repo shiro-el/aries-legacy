@@ -5,8 +5,8 @@
 [![npm](https://img.shields.io/npm/v/whipair.svg)](https://www.npmjs.com/package/whipair)
 
 `whipair` is a direct, one-shot SSH public-key enrollment prototype for
-Whip. It uses the host's existing SSH port: no relay, TLS listener, additional
-firewall rule, pairing account, or `sshd_config` change is required.
+Whip. By default it uses the host's existing SSH port: no relay, TLS listener,
+additional firewall rule, pairing account, or `sshd_config` change is required.
 
 The host creates a temporary Ed25519 credential and adds only its public half
 to the current user's `authorized_keys` with `restrict` and a forced command.
@@ -43,6 +43,20 @@ npx whipair
 The npm package is a dependency-free launcher containing the same four native
 binaries. Node.js 18 or newer is required.
 
+### GitHub Releases
+
+Download a prebuilt archive from the
+[`whipair-v*` GitHub releases](https://github.com/kosumic/whip/releases?q=whipair-v):
+
+- `whipair-VERSION-linux-x64.tar.gz` for Linux x86_64 (static musl).
+- `whipair-VERSION-darwin-arm64.tar.gz` for Apple Silicon macOS.
+
+Extract the archive and run `./whipair`. Each archive includes the README and
+license; `ssh-keyscan` must be available on `PATH`. Download the matching
+`.tar.gz.sha256` file and verify it with `sha256sum --check ARCHIVE.tar.gz.sha256`
+on Linux or `shasum -a 256 --check ARCHIVE.tar.gz.sha256` on macOS, replacing
+`ARCHIVE.tar.gz.sha256` with the downloaded checksum filename.
+
 ### Cargo
 
 Install the [published crate](https://crates.io/crates/whipair) with Rust 1.99
@@ -76,6 +90,7 @@ Choose how Whip will reach this host:
   2. Wi-Fi        192.168.1.20                            wlan0
   3. Public       203.0.113.10                            ifconfig.me
   4. Public/other Enter a public IP address or hostname
+  5. Tailcat      Enter a Tailcat tc address
 
 Selection [1]:
 ```
@@ -104,6 +119,25 @@ existing SSH service reachable at the advertised host. When no
 port, offering `22` as the default. Passing both options skips those questions.
 `whipair` does not bind a TCP listener; Whip connects to the host's existing
 SSH service.
+
+Choose **Tailcat**, the last interface option, to paste a `tc…` address from a
+running Tailcat server forwarding to the host's existing SSH service. Whip
+recognizes the transport from the QR, pairs over Tailcat, and saves the address
+and client identity for subsequent connections. No Tailcat toggle is needed on
+the Add Host screen. Tailcat pairing connects directly to the tunnel and cannot
+use a jump host.
+
+You can also supply the address without the interface prompt:
+
+```bash
+whipair serve --tailcat-address 'tc…' --ssh-port 22
+```
+
+The port must match the SSH port forwarded by Tailcat. Whipair discovers the
+SSH host key through `127.0.0.1` for this option; use `--ssh-fingerprint` if sshd
+is bound to a different local address. Whipair's one-time authorization requires
+the host's existing sshd. The development `request` client supports
+direct SSH codes; scan Tailcat codes with Whip.
 
 For a public endpoint behind NAT, forward the advertised public port to the
 host's SSH port and allow that SSH port through the relevant router, host, or
@@ -184,8 +218,8 @@ The QR contains `WP4:` followed by Base45-encoded binary data.
 
 | Field                       | Encoding                                            | Purpose                                     |
 | --------------------------- | --------------------------------------------------- | ------------------------------------------- |
-| Address type                | 1 byte                                              | `1` IPv4, `2` IPv6, or `3` hostname         |
-| SSH host                    | 4 or 16 bytes, or 1-byte length plus ASCII hostname | Address selected or advertised by the host  |
+| Address type                | 1 byte                                              | `1` IPv4, `2` IPv6, `3` hostname, `4` Tailcat |
+| SSH host                    | 4 or 16 bytes; 1-byte length plus ASCII hostname; or 2-byte big-endian length plus Tailcat address | Address selected or advertised by the host |
 | SSH port                    | 2-byte unsigned integer, big-endian                 | Existing SSH service port                   |
 | SSH username                | 1-byte length plus ASCII                            | Existing local account                      |
 | Temporary Ed25519 seed      | 32 random bytes                                     | Restricted SSH bearer credential            |
@@ -194,6 +228,12 @@ The QR contains `WP4:` followed by Base45-encoded binary data.
 For an IPv4 address and a five-character username, the complete code is 120
 characters and renders as a 37-module QR at error-correction level L. Expiry
 is enforced by the running host process and is intentionally omitted.
+Tailcat addresses may contain up to 1024 ASCII bytes and produce larger QR
+codes. Whip validates the complete Tailcat address before contacting a relay.
+The CLI and mobile Rust core share the published
+[`whipair-protocol`](../crates/whipair-protocol/) library. Both validate the full
+Tailcat CBOR structure, key lengths, required server and discovery keys, and
+relay configuration before accepting a pairing code.
 
 ### Host authorization and exchange
 
@@ -242,15 +282,32 @@ prompt.
 
 ## Publishing
 
+The CLI uses versioned registry dependencies with local development paths.
+Publish `tailcat-client` 0.1.1 (offline validation support), then
+`whipair-protocol` 0.1.0 before publishing a CLI release that uses them.
+Each library has a tag-triggered crates.io workflow. See the
+[protocol release instructions](../crates/whipair-protocol/README.md).
+
 The [`Publish whipair to crates.io`](https://github.com/kosumic/whip/actions/workflows/publish-whipair.yml)
 workflow verifies the crate version, formatting, Clippy, tests, and package
 contents before publishing. Crates.io trusts only `publish-whipair.yml` in
 `kosumic/whip` with the protected `crates-io` environment. The workflow
 uses a short-lived OIDC credential; GitHub stores no crates.io API token.
 
-The [`Publish whipair to PyPI and npm`](https://github.com/kosumic/whip/actions/workflows/publish-whipair-packages.yml)
+The [`Publish whipair packages`](https://github.com/kosumic/whip/actions/workflows/publish-whipair-packages.yml)
 workflow builds native PyPI wheels and npm binaries for macOS and Linux on
-ARM64 and x64. PyPI should trust `publish-whipair-packages.yml` with the
+ARM64 and x64. It also publishes Linux x86_64 and macOS arm64 archives, with
+SHA-256 checksums, to a GitHub release for each `whipair-v*` tag. The release
+does not replace the Whip app's latest release. GitHub publishing reuses the
+native builds and runs independently of the registry publishing jobs.
+
+For a manual GitHub release, enter the version and enable **Publish Linux x64
+and macOS arm64 binaries to GitHub Releases**. The workflow checks out the
+matching release tag, pins every native build to the verified commit, and
+refuses to replace binaries in an already published GitHub release. Failed
+uploads to a draft release can be retried.
+
+PyPI should trust `publish-whipair-packages.yml` with the
 `pypi` environment. After the first npm release, npm should trust the same
 workflow with the `npm` environment. Both registries then publish with
 short-lived GitHub OIDC credentials and provenance instead of stored tokens.
@@ -279,6 +336,14 @@ Commit those changes, then push a tag whose version matches `Cargo.toml`
 exactly:
 
 ```bash
-git tag whipair-v0.1.3
-git push origin whipair-v0.1.3
+git tag whipair-v0.1.5
+git push origin whipair-v0.1.5
 ```
+
+## License
+
+This published package uses the [MIT license](LICENSE). Third-party code and
+dependencies retain their original license notices.
+
+After dependency changes, regenerate bundled notices with
+`nix develop -c bash whipair/scripts/generate-license-notices.sh`.
