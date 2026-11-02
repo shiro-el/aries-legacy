@@ -92,7 +92,7 @@ afterEach(() => { act(() => root.unmount()); jest.restoreAllMocks(); });
 
 it('closes the microphone and stops waveform polling when the app backgrounds', async () => {
   jest.useFakeTimers();
-  const handlers = new Set<(state: string) => void>();
+  const handlers = new Set<Parameters<typeof AppState.addEventListener>[1]>();
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
     handlers.add(handler);
     return { remove: () => { handlers.delete(handler); } };

@@ -65,7 +65,7 @@ afterEach(async () => {
 });
 
 test('pauses download status polling in background and refreshes on resume', async () => {
-  let change!: (state: string) => void;
+  let change!: Parameters<typeof AppState.addEventListener>[1];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
     change = handler;
     return { remove: jest.fn() };

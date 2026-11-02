@@ -1,7 +1,7 @@
 import { setNotificationDeliveryAvailable } from '../src/services/notificationPipelineHealth';
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
-import { AppState, Platform } from 'react-native';
+import { AppState, DeviceEventEmitter, NativeModules, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useNotificationLeases } from '../src/hooks/useNotificationLeases';
 import {
@@ -37,6 +37,8 @@ beforeEach(() => {
   setNotificationDeliveryAvailable(true);
   AppState.currentState = 'active';
   Platform.OS = 'ios';
+  NativeModules.HerdrBackground = undefined;
+  (backgroundMonitoringActive as jest.Mock).mockReturnValue(false);
   (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValue({
     granted: true,
   });
@@ -109,6 +111,40 @@ test('Android background needs the foreground service and a live JS timer', asyn
   await act(async () => {
     jest.advanceTimersByTime(12000);
   });
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(1);
+});
+
+test('Android renews from native pulse callbacks while activity timers are paused', async () => {
+  Platform.OS = 'android';
+  AppState.currentState = 'background';
+  (backgroundMonitoringActive as jest.Mock).mockReturnValue(true);
+  const setInterval = jest.fn();
+  NativeModules.HerdrBackground = { setNotificationLeasePulseInterval: setInterval };
+  await mount();
+  expect(setInterval).toHaveBeenCalledWith(3000);
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(1);
+  // No JS timers advance: RN removes their frame callback on Activity pause.
+  await act(async () => { DeviceEventEmitter.emit('WhipNotificationLeasePulse'); });
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(2);
+  (backgroundMonitoringActive as jest.Mock).mockReturnValue(false);
+  await act(async () => { DeviceEventEmitter.emit('WhipNotificationLeasePulse'); });
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(2);
+  await act(() => root.unmount());
+  expect(setInterval).toHaveBeenLastCalledWith(0);
+  await act(async () => { DeviceEventEmitter.emit('WhipNotificationLeasePulse'); });
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(2);
+});
+
+test('native callbacks without JS execution cannot renew, and failed delivery stops pulses', async () => {
+  Platform.OS = 'android';
+  AppState.currentState = 'background';
+  (backgroundMonitoringActive as jest.Mock).mockReturnValue(true);
+  NativeModules.HerdrBackground = { setNotificationLeasePulseInterval: jest.fn() };
+  await mount();
+  await act(async () => { jest.advanceTimersByTime(60_000); });
+  expect(renewNotificationLeases).toHaveBeenCalledTimes(1);
+  setNotificationDeliveryAvailable(false);
+  await act(async () => { DeviceEventEmitter.emit('WhipNotificationLeasePulse'); });
   expect(renewNotificationLeases).toHaveBeenCalledTimes(1);
 });
 

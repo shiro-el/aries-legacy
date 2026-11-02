@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { notificationDeliveryAvailable } from './notificationPipelineHealth';
 import { backgroundMonitoringActive } from './backgroundMonitoring';
 import { bestEffortCleanup } from './backgroundOperations';
+import { observeNotificationLeasePulses } from './notificationLeasePulse';
 import {
   notificationConsumerState,
   notificationLeasePulseIntervalMs,
@@ -18,7 +19,7 @@ export function observeNotificationConsumer(enabled: boolean): () => void {
   let attached = true;
   let running = false;
   let watchingToken = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let stopPulses: (() => void) | undefined;
   let tokens: ReturnType<typeof Notifications.addPushTokenListener> | undefined;
   let revision = 0;
   const canDeliver = () =>
@@ -55,12 +56,12 @@ export function observeNotificationConsumer(enabled: boolean): () => void {
       tokens = undefined;
     }
     watchingToken = state.watchPushToken;
-    if (enabled && state.pulse && timer === undefined) {
-      timer = setInterval(tick, notificationLeasePulseIntervalMs());
+    if (enabled && state.pulse && stopPulses === undefined) {
+      stopPulses = observeNotificationLeasePulses(tick, notificationLeasePulseIntervalMs());
       tick();
-    } else if ((!enabled || !state.pulse) && timer !== undefined) {
-      clearInterval(timer);
-      timer = undefined;
+    } else if ((!enabled || !state.pulse) && stopPulses !== undefined) {
+      stopPulses();
+      stopPulses = undefined;
     }
   };
   const readState = () =>
@@ -68,12 +69,12 @@ export function observeNotificationConsumer(enabled: boolean): () => void {
   const unsubscribe = subscribeRemoteNotifications(readState);
   const foreground = AppState.addEventListener('change', state => {
     if (watchingToken && state === 'active') refreshToken();
-    if (timer !== undefined) tick();
+    if (stopPulses !== undefined) tick();
   });
   readState();
   return () => {
     attached = false;
-    clearInterval(timer);
+    stopPulses?.();
     tokens?.remove();
     foreground.remove();
     unsubscribe();

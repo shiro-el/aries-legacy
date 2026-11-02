@@ -140,8 +140,9 @@ mod tests {
                 .await
                 .unwrap();
             let ssh = isolated.shared_ssh();
+            let generation = inner.state.lock().generation;
             *inner.latency_transport.lock().await = Some(LatencyTransport {
-                generation: inner.state.lock().generation,
+                generation,
                 ssh: ssh.clone(),
                 jumps: Vec::new(),
             });
