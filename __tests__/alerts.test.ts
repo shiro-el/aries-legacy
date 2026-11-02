@@ -51,6 +51,7 @@ jest.mock('../src/services/NativeTranscriptService', () => ({
 }));
 jest.mock('react-native', () => ({
   Platform: { OS: 'android' },
+  NativeModules: { HerdrBackground: { beginBackgroundWork: jest.fn(() => 1), endBackgroundWork: jest.fn() } },
   Vibration: { vibrate: jest.fn() },
 }));
 jest.mock('../src/services/backgroundMonitoring', () => ({
@@ -71,7 +72,7 @@ jest.mock('../src/i18n', () => ({
 }));
 
 import * as Notifications from 'expo-notifications';
-import { Platform, Vibration } from 'react-native';
+import { NativeModules, Platform, Vibration } from 'react-native';
 import {
   HerdrAgentStatus,
   LocalAlertAction,
@@ -198,6 +199,17 @@ test('registration proofs are silent and local notifications retain foreground p
     shouldShowBanner: true,
     priority: Notifications.AndroidNotificationPriority.DEFAULT,
   });
+});
+
+test('a local completion keeps a bounded work lock until its notification is posted', async () => {
+  const pending = deferred<string>();
+  jest.mocked(Notifications.scheduleNotificationAsync).mockReturnValueOnce(pending.promise);
+  const result = alertAgent({ ...agent, agent_status: 'done' }, false, target, 'work', 'regular');
+  expect(NativeModules.HerdrBackground.beginBackgroundWork).toHaveBeenCalledWith(10_000);
+  expect(NativeModules.HerdrBackground.endBackgroundWork).not.toHaveBeenCalled();
+  pending.resolve('completion');
+  await result;
+  expect(NativeModules.HerdrBackground.endBackgroundWork).toHaveBeenCalledWith(1);
 });
 
 test.each(['persistent', 'brief', 'regular'] as const)(

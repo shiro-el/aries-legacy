@@ -113,6 +113,11 @@ pub(super) async fn measure_host_latency_inner(
 }
 
 pub(super) async fn measure_application_latency_inner(inner: Arc<RuntimeInner>) {
+    // A task queued in foreground can start after the UI backgrounds. This
+    // diagnostic never owns recovery; leave that to the isolated health probe.
+    if !inner.monitoring.lock().app_active {
+        return;
+    }
     let ssh = current_ssh(&inner);
     let _ = measure_latency_on(
         inner,
@@ -126,6 +131,68 @@ pub(super) async fn measure_application_latency_inner(inner: Arc<RuntimeInner>) 
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn backgrounding_retires_the_isolated_probe_even_without_background_health() {
+        crate::runtime().unwrap().block_on(async {
+            let (inner, _) = super::super::tests::agent_view_test_core();
+            let isolated = crate::ssh::ReverseForwardFixture::new(true, Duration::ZERO)
+                .await
+                .unwrap();
+            let ssh = isolated.shared_ssh();
+            *inner.latency_transport.lock().await = Some(LatencyTransport {
+                generation: inner.state.lock().generation,
+                ssh: ssh.clone(),
+                jumps: Vec::new(),
+            });
+            super::super::monitoring::set_monitoring_state(&inner, false, false, false);
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while ssh.is_alive() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(inner.latency_transport.lock().await.is_none());
+            inner.state.lock().disconnect();
+            inner.monitoring_changed.notify_one();
+        });
+    }
+
+    #[test]
+    fn application_probe_omits_fast_success_but_keeps_failures() {
+        use super::super::{
+            HostRuntimeEvent, RuntimeDiagnosticOutcome, clear_host_runtime_event_sink,
+            set_host_runtime_event_sink,
+        };
+        let _sink_lock = super::super::tests::EVENT_SINK_TEST_LOCK.lock();
+        crate::runtime().unwrap().block_on(async {
+            let (inner, _) = super::super::tests::agent_view_test_core();
+            let application = crate::ssh::ReverseForwardFixture::new(true, Duration::ZERO)
+                .await
+                .unwrap();
+            let generation = inner.state.lock().generation;
+            inner.herdr.install(generation, application.shared_ssh());
+            let sink = Arc::new(super::super::tests::RecordingRuntimeSink::default());
+            set_host_runtime_event_sink(sink.clone());
+            // Even a missing application transport must stay quiet in background.
+            inner.herdr.clear(generation);
+            measure_application_latency_inner(inner.clone()).await;
+            assert!(sink.events.lock().is_empty());
+            inner.herdr.install(generation, application.shared_ssh());
+            inner.monitoring.lock().app_active = true;
+            measure_application_latency_inner(inner.clone()).await;
+            assert!(sink.events.lock().is_empty());
+            application.ssh.disconnect().await;
+            measure_application_latency_inner(inner).await;
+            assert!(sink.events.lock().iter().any(|event| matches!(event,
+                HostRuntimeEvent::Diagnostic { diagnostic, .. }
+                if diagnostic.operation == RuntimeDiagnosticOperation::ApplicationLatencyProbe
+                    && diagnostic.outcome == RuntimeDiagnosticOutcome::Failed
+            )));
+            clear_host_runtime_event_sink();
+        });
+    }
 
     #[test]
     fn host_latency_uses_the_probe_connection_even_when_application_transport_is_dead() {
@@ -154,6 +221,7 @@ mod tests {
             // A failed shared-transport diagnostic must not tear down the probe
             // or alter recovery/status. Only the isolated probe owns health.
             let before = inner.state.lock().status();
+            inner.monitoring.lock().app_active = true;
             measure_application_latency_inner(inner.clone()).await;
             assert_eq!(inner.state.lock().status(), before);
             assert!(probe.is_alive());

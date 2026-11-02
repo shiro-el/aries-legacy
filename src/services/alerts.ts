@@ -1,4 +1,5 @@
 import { pruneCallNotificationCategories, scheduleRemoteNotification } from './notificationCategories';
+import { withBackgroundExecution } from './backgroundExecution';
 import {
   HerdrAgentStatus,
   LocalAlertCoordinator,
@@ -451,9 +452,9 @@ async function performEffect({
       };
       // Reply buttons need a category that lives exactly as long as the call;
       // each host push also reclaims categories of calls dismissed meanwhile.
-      const notificationId = remote
-        ? await scheduleRemoteNotification(scheduled, callId ? remote.choices : undefined)
-        : await Notifications.scheduleNotificationAsync(scheduled);
+      const notificationId = await withBackgroundExecution(() => remote
+        ? scheduleRemoteNotification(scheduled, callId ? remote.choices : undefined)
+        : Notifications.scheduleNotificationAsync(scheduled), 10_000);
       setNotificationDeliveryAvailable(true);
       return new LocalAlertOutcome.Scheduled({ notificationId });
     }
@@ -462,11 +463,11 @@ async function performEffect({
       await pruneCallNotificationCategories();
       break;
     case LocalAlertAction_Tags.ArmPersistent:
-      await armPersistentAgentAlert(
+      await withBackgroundExecution(() => armPersistentAgentAlert(
         action.inner.notificationId,
         PERSISTENT_CHANNEL_ID,
         action.inner.timeoutMs,
-      );
+      ), action.inner.timeoutMs + 2_000);
       break;
     case LocalAlertAction_Tags.DismissPersistent:
       await dismissPersistentAgentAlert(action.inner.notificationId);

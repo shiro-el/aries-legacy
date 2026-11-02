@@ -122,9 +122,16 @@ export function useDevicePreferences(
     const flush = () => {
       reportBackgroundFailure(persistence.flush(), 'device-preferences-persist');
     };
-    const timer = setInterval(flush, DEVICE_PREFERENCES_FLUSH_INTERVAL_MS);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const update = (next: typeof AppState.currentState) => {
+      clearInterval(timer);
+      timer = undefined;
+      if (next === 'active') timer = setInterval(flush, DEVICE_PREFERENCES_FLUSH_INTERVAL_MS);
+      else flush();
+    };
+    update(AppState.currentState);
     const subscription = AppState.addEventListener('change', next => {
-      if (next !== 'active') flush();
+      update(next);
     });
     return () => {
       clearInterval(timer);

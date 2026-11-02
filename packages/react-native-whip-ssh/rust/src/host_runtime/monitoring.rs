@@ -5,15 +5,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{
-    HostConnectionState, HostRuntimeEvent, RuntimeInner, agent_view, begin_reconnect, emit,
-    log_lifecycle, measure_application_latency_inner, measure_host_latency_inner,
-    refresh_host_state_inner, runtimes,
+    HostConnectionState, HostRuntimeEvent, RuntimeInner, agent_view, begin_reconnect,
+    clear_latency_transport, current_ssh, emit, log_lifecycle, measure_application_latency_inner,
+    measure_host_latency_inner, refresh_host_state_inner, runtimes,
 };
 
 static BACKGROUND_MONITORING_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 const MONITOR_TICK: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(15);
+const BACKGROUND_HEALTH_INTERVAL: Duration = Duration::from_secs(60);
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(120);
 const VISIBLE_LATENCY_INTERVAL: Duration = Duration::from_secs(3);
 const RECOVERY_FAILURE_THRESHOLD: u32 = 3;
@@ -35,6 +36,18 @@ impl MonitoringState {
 
     fn visible_latency_enabled(&self) -> bool {
         self.app_active && self.hosts_visible && !self.access_locked
+    }
+
+    fn application_latency_enabled(&self) -> bool {
+        self.app_active
+    }
+
+    fn health_interval(&self) -> Duration {
+        if self.app_active {
+            HEALTH_INTERVAL
+        } else {
+            BACKGROUND_HEALTH_INTERVAL
+        }
     }
 }
 
@@ -104,14 +117,30 @@ pub(super) fn set_monitoring_state(
                 if inner.state.lock().explicit_disconnect {
                     return;
                 }
-                let active = inner.monitoring.lock().health_enabled();
+                let (active, tick, app_active) = {
+                    let monitoring = inner.monitoring.lock();
+                    (
+                        monitoring.health_enabled(),
+                        if monitoring.app_active {
+                            MONITOR_TICK
+                        } else {
+                            monitoring.health_interval()
+                        },
+                        monitoring.app_active,
+                    )
+                };
+                if !app_active {
+                    // UI latency isolation does not justify a second SSH chain
+                    // (and its keepalives) while the UI is hidden.
+                    clear_latency_transport(&inner).await;
+                }
                 drop(inner);
                 if !active {
                     changed.notified().await;
                     continue;
                 }
                 tokio::select! {
-                    () = tokio::time::sleep(MONITOR_TICK) => {}
+                    () = tokio::time::sleep(tick) => {}
                     () = changed.notified() => {}
                 }
                 let Some(inner) = weak.upgrade() else {
@@ -120,17 +149,19 @@ pub(super) fn set_monitoring_state(
                 if inner.state.lock().explicit_disconnect {
                     return;
                 }
-                let (active, visible) = {
+                let (active, visible, app_active, health_interval) = {
                     let monitoring = inner.monitoring.lock();
                     (
                         monitoring.health_enabled(),
                         monitoring.visible_latency_enabled(),
+                        monitoring.application_latency_enabled(),
+                        monitoring.health_interval(),
                     )
                 };
                 if !active {
                     continue;
                 }
-                let health_due = last_health.elapsed() >= HEALTH_INTERVAL;
+                let health_due = last_health.elapsed() >= health_interval;
                 let visible_latency_due =
                     visible && last_visible_latency.elapsed() >= VISIBLE_LATENCY_INTERVAL;
                 if visible_latency_due || health_due {
@@ -139,7 +170,11 @@ pub(super) fn set_monitoring_state(
                     }
                     if health_due {
                         last_health = Instant::now();
-                        tokio::spawn(measure_application_latency_inner(inner.clone()));
+                        // The shared-transport probe is a UI diagnostic, not
+                        // connection health. Background recovery uses probe().
+                        if app_active {
+                            tokio::spawn(measure_application_latency_inner(inner.clone()));
+                        }
                     }
                     probe(inner.clone()).await;
                 }
@@ -176,6 +211,17 @@ async fn probe(inner: Arc<RuntimeInner>) {
         }
         state.generation
     };
+    if !inner.monitoring.lock().app_active {
+        // SSH keepalives already detect transport loss. A background watchdog
+        // checks that signal without sending another probe over another socket.
+        let alive = current_ssh(&inner).is_ok_and(|ssh| ssh.is_alive());
+        if !alive {
+            begin_reconnect(inner, "background SSH transport closed".into(), true);
+        } else {
+            inner.monitoring.lock().latency_failures = 0;
+        }
+        return;
+    }
     let result = measure_host_latency_inner(inner.clone()).await;
     {
         let state = inner.state.lock();
@@ -185,11 +231,19 @@ async fn probe(inner: Arc<RuntimeInner>) {
     }
     match result {
         Ok(measurement) => {
-            inner.monitoring.lock().latency_failures = 0;
-            emit(HostRuntimeEvent::LatencyMeasured {
-                runtime_id: inner.id.clone(),
-                measurement,
-            });
+            let app_active = {
+                let mut monitoring = inner.monitoring.lock();
+                monitoring.latency_failures = 0;
+                monitoring.app_active
+            };
+            // Keep native health/recovery alive without waking React to render
+            // an invisible RTT. Recheck after the await for in-flight probes.
+            if app_active {
+                emit(HostRuntimeEvent::LatencyMeasured {
+                    runtime_id: inner.id.clone(),
+                    measurement,
+                });
+            }
         }
         Err(error) => {
             let failures = {
@@ -212,6 +266,32 @@ async fn probe(inner: Arc<RuntimeInner>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_watchdog_uses_live_application_transport_without_a_probe_connection() {
+        use super::super::{clear_host_runtime_event_sink, set_host_runtime_event_sink};
+        let _sink_lock = super::super::tests::EVENT_SINK_TEST_LOCK.lock();
+        crate::runtime().unwrap().block_on(async {
+            let inner = super::super::tests::connected_runtime_inner("background-watchdog");
+            let application = crate::ssh::ReverseForwardFixture::new(true, Duration::ZERO)
+                .await
+                .unwrap();
+            let generation = inner.state.lock().generation;
+            inner.herdr.install(generation, application.shared_ssh());
+            inner.monitoring.lock().latency_failures = 2;
+            let sink = Arc::new(super::super::tests::RecordingRuntimeSink::default());
+            set_host_runtime_event_sink(sink.clone());
+            probe(inner.clone()).await;
+            assert_eq!(
+                inner.state.lock().connection,
+                HostConnectionState::Connected
+            );
+            assert_eq!(inner.monitoring.lock().latency_failures, 0);
+            assert!(inner.latency_transport.lock().await.is_none());
+            assert!(sink.events.lock().is_empty());
+            clear_host_runtime_event_sink();
+        });
+    }
 
     #[test]
     fn monitoring_defaults_to_background_without_polling() {
@@ -241,6 +321,15 @@ mod tests {
                         assert_eq!(
                             state.visible_latency_enabled(),
                             app_active && hosts_visible && !access_locked
+                        );
+                        assert_eq!(state.application_latency_enabled(), app_active);
+                        assert_eq!(
+                            state.health_interval(),
+                            if app_active {
+                                HEALTH_INTERVAL
+                            } else {
+                                BACKGROUND_HEALTH_INTERVAL
+                            }
                         );
                     }
                 }

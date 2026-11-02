@@ -1,6 +1,6 @@
 import React from 'react';
 import renderer, { act, type ReactTestRenderer } from 'react-test-renderer';
-import { Linking, Text, TextInput } from 'react-native';
+import { AppState, Linking, Text, TextInput } from 'react-native';
 
 import { TranscriptionError } from '../src/services/groqTranscription';
 import { VoiceInput, type VoiceRecorder } from '../src/services/voiceInput';
@@ -74,6 +74,7 @@ const dictate = async () => {
 };
 
 beforeEach(() => {
+  AppState.currentState = 'active';
   recorder = new FakeRecorder();
   key = 'gsk_key';
   transcribe = jest.fn(() => Promise.resolve('음성으로 쓴 글'));
@@ -87,7 +88,31 @@ beforeEach(() => {
   onSend = jest.fn(() => Promise.resolve());
   voice = { recentMessages: () => ['최근 메시지 WhipSsh'], onNeedKey: jest.fn() };
 });
-afterEach(() => { act(() => root.unmount()); });
+afterEach(() => { act(() => root.unmount()); jest.restoreAllMocks(); });
+
+it('closes the microphone and stops waveform polling when the app backgrounds', async () => {
+  jest.useFakeTimers();
+  const handlers = new Set<(state: string) => void>();
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
+    handlers.add(handler);
+    return { remove: () => { handlers.delete(handler); } };
+  });
+  const level = jest.spyOn(recorder, 'level');
+  await render();
+  await press('Record voice');
+  await act(async () => jest.advanceTimersByTime(240));
+  expect(level).toHaveBeenCalled();
+  await act(async () => { for (const handler of handlers) handler('background'); });
+  expect(mockVoiceInput.getSnapshot().phase).toBe('idle');
+  level.mockClear();
+  await act(async () => jest.advanceTimersByTime(1000));
+  expect(level).not.toHaveBeenCalled();
+  await act(async () => { for (const handler of handlers) handler('active'); });
+  await press('Record voice');
+  await act(async () => jest.advanceTimersByTime(240));
+  expect(level).toHaveBeenCalled();
+  jest.useRealTimers();
+});
 
 it('has no microphone where the screen gives it no voice input', async () => {
   await render({ voice: null });

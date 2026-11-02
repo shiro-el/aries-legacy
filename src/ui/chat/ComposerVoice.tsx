@@ -8,17 +8,19 @@ import type { StartResult, VoiceInput, VoiceInputSnapshot } from '../../services
 import { createVoiceInput } from '../../services/voiceRecorder';
 import type { DictatedPassage } from './useDictatedPassage';
 import { space, type, type Palette } from '../theme/tokens';
+import { useAppActive } from '../../hooks/useAppActive';
 
 /**
  * One voice input per composer. Leaving the screen closes the microphone but
  * keeps a failed recording, so Retry works after fixing the key in Hosts.
  */
 export function useVoiceInput(visible: boolean): { input: VoiceInput; snapshot: VoiceInputSnapshot } {
+  const appActive = useAppActive();
   const [input] = useState(createVoiceInput);
   const snapshot = useSyncExternalStore(input.subscribe, input.getSnapshot);
   useEffect(() => {
-    if (!visible) input.pause();
-  }, [visible, input]);
+    if (!visible || !appActive) input.pause();
+  }, [visible, appActive, input]);
   useEffect(() => () => input.dispose(), [input]);
   return { input, snapshot };
 }
@@ -143,10 +145,12 @@ export function RecordingBar({ input, startedAt, palette, onSend }: {
 
 /** The only part that changes while recording, so the buttons and icons stay put. */
 function Wave({ input, startedAt, s }: { input: VoiceInput; startedAt: number; s: Styles }) {
+  const appActive = useAppActive();
   const [now, setNow] = useState(() => Date.now());
   // Starts empty and grows from the right edge, newest level last.
   const [levels, setLevels] = useState<readonly number[]>([]);
   useEffect(() => {
+    if (!appActive) return;
     const timer = setInterval(() => {
       setNow(Date.now());
       const db = input.level();
@@ -154,7 +158,7 @@ function Wave({ input, startedAt, s }: { input: VoiceInput; startedAt: number; s
       setLevels(current => [...current.slice(-(WAVE_BARS - 1)), level]);
     }, LEVEL_POLL_MS);
     return () => clearInterval(timer);
-  }, [input]);
+  }, [appActive, input]);
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   return (

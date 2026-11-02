@@ -1,5 +1,5 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { Switch, Text, TextInput } from 'react-native';
+import { AppState, Switch, Text, TextInput } from 'react-native';
 import { SpeechBackendSetting } from '../src/ui/hosts/SpeechBackendSetting';
 import { SpeechVoicePicker } from '../src/ui/hosts/SpeechVoicePicker';
 import { getSpeechPlayback, speechBackendCommand, systemSpeechVoices, type SpeechBackendStatus } from '../src/services/speechPlayback';
@@ -39,6 +39,7 @@ const mount = async () => {
 };
 
 beforeEach(() => {
+  AppState.currentState = 'active';
   jest.useFakeTimers();
   jest.clearAllMocks();
   status = {
@@ -59,7 +60,28 @@ beforeEach(() => {
 });
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
+  jest.restoreAllMocks();
   jest.useRealTimers();
+});
+
+test('pauses download status polling in background and refreshes on resume', async () => {
+  let change!: (state: string) => void;
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
+    change = handler;
+    return { remove: jest.fn() };
+  });
+  status = { ...status, downloading: true };
+  await mount();
+  await act(async () => jest.advanceTimersByTime(500));
+  expect(command.mock.calls.length).toBeGreaterThan(1);
+  await act(async () => change('background'));
+  command.mockClear();
+  await act(async () => jest.advanceTimersByTime(5000));
+  expect(command).not.toHaveBeenCalled();
+  status = { ...status, downloading: false, installed: true };
+  await act(async () => change('active'));
+  expect(command).toHaveBeenCalledWith('status');
+  expect(text()).toContain(en['speech.installed'].split('{{')[0]);
 });
 
 test('opens without downloading and changes the existing device announcement preference', async () => {

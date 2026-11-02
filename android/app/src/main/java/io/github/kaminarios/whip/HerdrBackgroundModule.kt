@@ -14,6 +14,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -33,6 +34,8 @@ class HerdrBackgroundModule(
   private val sensorManager = context.getSystemService(SensorManager::class.java)
   private val notificationManager = context.getSystemService(NotificationManager::class.java)
   private val mainHandler = Handler(Looper.getMainLooper())
+  private val workLocks = mutableMapOf<Int, PowerManager.WakeLock>()
+  private var nextWorkId = 0
   private var activeAlertIdentifier: String? = null
   private var activeAlertChannelId: String? = null
   private var activeAlertCompletion: Promise? = null
@@ -53,6 +56,30 @@ class HerdrBackgroundModule(
   }
 
   override fun getName(): String = "HerdrBackground"
+
+  /** Acquire synchronously before JS yields to asynchronous request processing. */
+  @Synchronized
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun beginBackgroundWork(timeoutMs: Double): Double {
+    workLocks.entries.removeAll { !it.value.isHeld }
+    val id = ++nextWorkId
+    val lock = context.getSystemService(PowerManager::class.java).newWakeLock(
+      PowerManager.PARTIAL_WAKE_LOCK,
+      "${context.packageName}:herdr-request",
+    )
+    lock.setReferenceCounted(false)
+    lock.acquire(timeoutMs.toLong().coerceIn(1_000L, 120_000L))
+    workLocks[id] = lock
+    return id.toDouble()
+  }
+
+  @Synchronized
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun endBackgroundWork(id: Double): Boolean {
+    val lock = workLocks.remove(id.toInt()) ?: return false
+    if (lock.isHeld) lock.release()
+    return true
+  }
 
   init {
     SpeechPlayback.onChatStopped = { stoppedToken, error ->
@@ -244,6 +271,10 @@ class HerdrBackgroundModule(
   override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
   override fun invalidate() {
+    synchronized(this) {
+      workLocks.values.forEach { if (it.isHeld) it.release() }
+      workLocks.clear()
+    }
     mainHandler.post {
       SpeechPlayback.onChatStopped = null
       SpeechPlayback.stop()

@@ -11,12 +11,12 @@ import {
   DEVICE_PREFERENCES_KEY,
   type DevicePreferences,
 } from '../src/services/devicePreferences';
-import { DEVICE_PREFERENCES_FLUSH_INTERVAL_MS } from '../src/services/devicePreferencesPersistence';
+import { DevicePreferencesPersistence, DEVICE_PREFERENCES_FLUSH_INTERVAL_MS } from '../src/services/devicePreferencesPersistence';
 import type { StartupStorageSnapshot } from '../src/services/startupStorage';
 import type { LoadState } from '../src/hooks/useStartupStorage';
 
 jest.mock('react-native', () => ({
-  AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
+  AppState: { currentState: 'active', addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
   Appearance: { setColorScheme: jest.fn() },
 }));
 jest.mock('expo-constants', () => ({
@@ -157,6 +157,19 @@ test('flushes on background and unmount, and removes timers and subscriptions', 
   expect(clearInterval).toHaveBeenCalledWith(jest.mocked(setInterval).mock.results[0].value);
 });
 
+test('stops the periodic flush while backgrounded and resumes it in foreground', async () => {
+  const flush = jest.spyOn(DevicePreferencesPersistence.prototype, 'flush');
+  await mount();
+  await act(async () => transition('background'));
+  flush.mockClear();
+  await act(async () => jest.advanceTimersByTime(DEVICE_PREFERENCES_FLUSH_INTERVAL_MS * 2));
+  expect(flush).not.toHaveBeenCalled();
+  await act(async () => transition('active'));
+  controller.recordTerminalControlUse('left');
+  await act(async () => jest.advanceTimersByTime(DEVICE_PREFERENCES_FLUSH_INTERVAL_MS));
+  expect(savedPreferences().terminalControlUsage).toEqual({ up: 4, left: 1 });
+});
+
 test('saves settings promptly with buffered usage and serializes the latest pending settings', async () => {
   await mount();
   let finishWrite!: () => void;
@@ -196,6 +209,7 @@ test('keeps presses made during a slow write buffered until the next flush', asy
   await act(async () => finishWrite());
   expect(mockSetItem).toHaveBeenCalledTimes(1);
   expect(savedPreferences().terminalControlUsage).toEqual({ up: 4, tab: 1 });
+  await act(async () => transition('active'));
   await act(async () => {
     jest.advanceTimersByTime(DEVICE_PREFERENCES_FLUSH_INTERVAL_MS);
   });
@@ -214,6 +228,7 @@ test('retries a failed write with the latest settings and counters', async () =>
   await act(async () => controller.setPreference('appearance', 'dark'));
   await act(async () => failWrite(new Error('Storage unavailable')));
   expect(mockSetItem).toHaveBeenCalledTimes(1);
+  await act(async () => transition('active'));
   await act(async () => {
     jest.advanceTimersByTime(DEVICE_PREFERENCES_FLUSH_INTERVAL_MS);
   });
@@ -231,6 +246,7 @@ test('retries a failed usage flush even without further presses', async () => {
   mockSetItem.mockRejectedValueOnce(new Error('Storage unavailable'));
   controller.recordTerminalControlUse('left');
   await act(async () => transition('background'));
+  await act(async () => transition('active'));
   await act(async () => {
     jest.advanceTimersByTime(DEVICE_PREFERENCES_FLUSH_INTERVAL_MS);
   });

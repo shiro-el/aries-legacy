@@ -9,6 +9,7 @@ import { SpeechVoicePicker } from './SpeechVoicePicker';
 import type { DevicePreferencesController } from '../../hooks/useDevicePreferences';
 import { usePalette } from '../theme/tokens';
 import { SpeechAction, useSpeechStyles } from './SpeechControls';
+import { useAppActive } from '../../hooks/useAppActive';
 
 async function stopPreviewPlayback(owner: string) {
   await getSpeechPlayback().stopAnnouncement(owner);
@@ -20,6 +21,7 @@ export function SpeechBackendSetting({ ttsEnabled, onChange }: {
   ttsEnabled: boolean;
   onChange: DevicePreferencesController['setPreference'];
 }) {
+  const appActive = useAppActive();
   const palette = usePalette();
   const s = useSpeechStyles();
   const { t } = useTranslation();
@@ -119,7 +121,6 @@ export function SpeechBackendSetting({ ttsEnabled, onChange }: {
   }, [stopPreview]);
   useEffect(() => {
     mounted.current = true;
-    void run('status');
     void loadSystemVoices();
     const owner = previewOwner.current;
     return () => {
@@ -129,10 +130,13 @@ export function SpeechBackendSetting({ ttsEnabled, onChange }: {
     };
   }, [loadSystemVoices, run, savePreviewText]);
   useEffect(() => {
-    if ((!status?.downloading && !status?.voiceDownload) || busy) return;
+    if (appActive) void run('status');
+  }, [appActive, run]);
+  useEffect(() => {
+    if (!appActive || (!status?.downloading && !status?.voiceDownload) || busy) return;
     const timer = setInterval(() => { void run('status'); }, 500);
     return () => clearInterval(timer);
-  }, [status, busy, run]);
+  }, [appActive, status, busy, run]);
 
   const downloadSize = status ? formatRemoteFileSize(status.totalBytes) : '…';
   const progress = status ? Math.min(100, Math.floor(status.downloadedBytes * 100 / Math.max(1, status.totalBytes))) : 0;

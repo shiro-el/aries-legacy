@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { subscribeReverseControlEvents } from 'react-native-whip-ssh';
 
 import { bestEffortCleanup } from '../services/backgroundOperations';
+import { withBackgroundExecution } from '../services/backgroundExecution';
 import { supportsBrowserControl } from './native';
 import { browserRegistry, type BrowserRuntime } from './registry';
 
@@ -15,13 +16,13 @@ export function useReverseControlRequests(runtimes: readonly BrowserRuntime[]): 
     if (!supportsBrowserControl()) return;
     return subscribeReverseControlEvents((event, runtime) => {
       // Transport never logs page arguments or action results.
-      void browserRegistry.event(event, runtime).catch(() => {
+      void withBackgroundExecution(() => browserRegistry.event(event, runtime).catch(() => {
         runtime.reverseControlReply(
           event.session.sessionId,
           event.requestId,
           JSON.stringify({ ok: false, error: { code: 'browser_unavailable', message: 'Browser session unavailable' } }),
         );
-      });
+      }));
     });
   }, []);
 

@@ -21,13 +21,14 @@ type Options = {
   pane: PaneInfo | undefined;
   client: HerdrClient | undefined;
   onRefresh: () => Promise<void>;
+  active: boolean;
 };
 
 /**
  * Binds one agent pane to its live transcript, the rows Rust lays out for
  * it, and the question the agent is waiting on, if any.
  */
-export function useAgentChat({ hostSessionId, pane, client, onRefresh }: Options) {
+export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }: Options) {
   const terminalId = pane?.terminal_id ?? null;
   // Herdr learns the agent's session from its integration hook. Codex only
   // creates one when the first message is sent, so a fresh pane has none.
@@ -81,12 +82,14 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh }: Options
 
   const token = binding?.bindingToken;
   useEffect(() => {
-    if (!token) return;
+    // Rust and the service retain the transcript; resubscription replays its
+    // latest state without rendering every streamed delta behind the launcher.
+    if (!token || !active) return;
     return agentTranscriptService.subscribe(token, next => {
       if (next) setState(next);
       else setBinding(null);
     });
-  }, [token]);
+  }, [active, token]);
 
   const source = useMemo<ChatRowsSource | undefined>(
     () => (binding && client ? { type: 'live', runtime: client.native, key: binding.transcriptKey } : undefined),
@@ -114,7 +117,7 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh }: Options
     store.rows,
   );
 
-  const prompt = useInteractionPrompt(client, terminalId, token, pane);
+  const prompt = useInteractionPrompt(client, terminalId, token, pane, active);
 
   const toggle = useCallback((key: string) => {
     setExpanded(current => {
@@ -188,6 +191,7 @@ function useInteractionPrompt(
   terminalId: string | null,
   token: string | undefined,
   pane: PaneInfo | undefined,
+  active: boolean,
 ) {
   const [prompt, setPrompt] = useState<NativeAgentInteractionPrompt | null>(null);
   const [busy, setBusy] = useState(false);
@@ -203,6 +207,7 @@ function useInteractionPrompt(
   }, [client, terminalId, token]);
 
   useEffect(() => {
+    if (!active) return;
     setError(null);
     if (!blocked) {
       setPrompt(null);
@@ -215,7 +220,7 @@ function useInteractionPrompt(
     return () => {
       cancelled = true;
     };
-  }, [blocked, read, revision]);
+  }, [active, blocked, read, revision]);
 
   const respond = useCallback(async (action: string, answer = '') => {
     if (!client || !terminalId || !token || !prompt) return;
