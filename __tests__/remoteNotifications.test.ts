@@ -163,6 +163,16 @@ test('Keychain reads and writes remain opaque and use the existing device-only s
   );
 });
 
+test('an absent Keychain entry is an empty first read, not a storage failure or an enrollment trigger', async () => {
+  const keychain = jest.requireMock('react-native-keychain');
+  expect(await mockPlatform.readRegistrations()).toBeUndefined();
+  expect(keychain.getGenericPassword).toHaveBeenCalledWith({
+    service: 'dev.whip.notification-keys.v1',
+  });
+  expect(keychain.setGenericPassword).not.toHaveBeenCalled();
+  expect(mockManager.enable).not.toHaveBeenCalled();
+});
+
 test('application storage effects use Rust-provided keys and raw values', async () => {
   const { appStorage } = jest.requireMock('../src/services/appStorage');
   await mockPlatform.writeData('native-key', 'native-value');

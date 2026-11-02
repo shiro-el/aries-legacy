@@ -88,6 +88,64 @@ A malicious relay/provider can drop/delay notifications, observe timing/routing 
 
 ## Installation and pairing
 
+### Aries screens and the first Keychain read
+
+Upstream `ec213295` mounted `RemoteNotificationsSection` in `SettingsScreen`;
+`abe9a2b5` moved it into the saved host's `ConnectionScreen`. Setup was an
+explicit UI action, not automatic enrollment at app startup. By upstream
+`edd52b5e`, the per-host toggle installed/updated or enabled the plugin before
+calling `enableRemoteNotifications`. `dc876426` moved registration ordering and
+storage policy into Rust's `NotificationManager`; JavaScript still supplies
+Keychain, Expo push token, verification listener and HTTP effects. Aries mounts
+the same runtime hooks through `useAppRuntime` and `useSessionRuntimeManager`,
+and its own `HostNotificationsSheet` through `App.tsx`.
+
+In Aries, use **Hosts → Connect → Alerts → Push to this phone → Turn on push**
+for each saved Herdr host. Keep Aries in the foreground until the state reads
+**On, through …**. This action installs or updates a missing/outdated host
+plugin, or enables an installed but disabled plugin, before registering the
+phone. Installation errors stay in the sheet and prevent registration.
+**Hosts → This phone → Agent alerts** controls local monitoring alerts; it
+does not enroll the phone for remote push. Opening Alerts alone also does not
+enroll it. The relay comes from `WHIP_NOTIFY_RELAY_URL` at build time (default
+`https://notify.aries.shiroel.com`), with a per-host override in the sheet.
+
+`E/RNKeychainManager: No entry found for service: dev.whip.notification-keys.v1`
+can be a normal startup read before the first enrollment. The startup notification
+consumer reads registrations; Rust treats a missing value as an empty list.
+Keys are generated only during explicit push setup, after obtaining an Expo push
+token and discovering the enabled plugin over SSH. They are stored in that
+device-only Keychain service **before** relay verification and host registration.
+Build-time Firebase/relay settings supply configuration, not device enrollment.
+This log alone cannot establish that setup is unreachable or that provider
+delivery is broken. A successful setup followed by the same missing-entry read
+after a restart needs investigation; do not print the vault contents or tokens.
+
+To verify Android push with the app process gone:
+
+1. Install the updated build without clearing its data, allow notifications, and
+   finish the per-host setup above. Resolve any error or retained-registration
+   cleanup in Alerts first. Confirm the host plugin is enabled and push is on.
+2. Leave an agent running on that same host/session. Background Aries with Home
+   and swipe it away, or run `adb shell am kill io.github.shiroel.aries` while
+   it is in the background. Check `adb shell pidof io.github.shiroel.aries`:
+   there must be no PID before generating the event. Swiping away or `am kill`
+   may leave a foreground service alive; a remaining PID does not test delivery
+   to a dead process. If necessary, repeat with the foreground-service lifecycle
+   fix applied. **Do not use `am force-stop`**: it blocks FCM until the user
+   opens Aries again, invalidating this delivery test.
+3. Wait at least 15 seconds after the process exits so its ten-second local
+   delivery lease expires. On the host, make the main agent enter `blocked`
+   (Aries' default `main-approval` policy). `done` is silent under that policy;
+   use the documented `all-panes` policy if testing completion notifications.
+4. Confirm an Android system notification arrives without manually reopening
+   Aries. A v2 data push can start a headless process to decrypt and display it;
+   a new PID after delivery is expected. Tap the alert and verify that Aries
+   reconnects to the correct host and opens the correct agent pane. Repeat after
+   reopening Aries to check that the registration survives a process restart.
+
+The remaining installation instructions describe upstream Whip's screens.
+
 The saved host's **Herdr** card contains its command, session, socket override and **Server-side push notification** controls. The push section is available while Herdr is enabled.
 
 Host details shows installation progress from Rust: checking the host, checking platform/release availability, downloading and verifying the plugin, enabling it, and verifying the result. Completed steps and elapsed time stay visible in the expanded card. Setup failures return the switch to off and leave the error visible; installation or upgrade failures on an enabled registration also preserve the failing stage. Enabling an existing plugin skips the download steps. Progress polling stops when installation finishes, and updates from a previous host cannot appear on another host's detail screen.
