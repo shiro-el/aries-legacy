@@ -11,6 +11,7 @@ import {
   remoteNotificationEncryption,
   remoteNotificationStates,
   setRemoteNotificationEncryption,
+  setNotificationPluginEnabled,
   subscribeRemoteNotifications,
   uninstallNotificationPlugin,
   type NotificationPluginInstallProgress,
@@ -147,7 +148,7 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
 
           <Section title="Host plugin" s={s}>
             <Text style={s.body}>{pluginLine}</Text>
-            {busy === 'install' && progress ? (
+            {(busy === 'install' || busy === 'enable') && progress ? (
               <Text style={s.hint}>{STAGES[progress.stage]}</Text>
             ) : null}
             {connected && plugin.status === 'known' && (
@@ -226,15 +227,26 @@ export function HostNotificationsSheet({ host, connected, onClose }: Props) {
                 <Action
                   label="Turn on push"
                   busy={busy === 'enable'}
-                  disabled={busy !== null || !connected || !installed || !relay.trim()}
+                  disabled={busy !== null || !connected || plugin.status !== 'known' || !relay.trim()}
                   solid
                   s={s}
-                  onPress={() => run('enable', () => enableRemoteNotifications(hostId!, relay.trim(), encrypted))}
+                  onPress={() => run('enable', async () => {
+                    if (plugin.status !== 'known') return;
+                    if (!plugin.state.installed || plugin.state.update_available) {
+                      setProgress(null);
+                      await installNotificationPlugin(hostId!, setProgress);
+                      await readPlugin();
+                    } else if (!plugin.state.enabled) {
+                      await setNotificationPluginEnabled(hostId!, true);
+                      await readPlugin();
+                    }
+                    await enableRemoteNotifications(hostId!, relay.trim(), encrypted);
+                  })}
                 />
               )}
             </View>
-            {!pushOn && connected && plugin.status === 'known' && !installed && (
-              <Text style={s.hint}>Install the host plugin first.</Text>
+            {!pushOn && connected && !stale && (
+              <Text style={s.hint}>Keep Aries open during setup. Turning on push installs or enables the host plugin, then verifies delivery to this phone.</Text>
             )}
             {!connected && !pushOn && <Text style={s.hint}>Connect this host to turn push on.</Text>}
           </Section>

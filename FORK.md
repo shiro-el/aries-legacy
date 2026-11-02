@@ -604,3 +604,22 @@ fork keeps the herding theme with the ram that leads the flock.
   screen was opened against a live host; on the phone `device.info`,
   `device.shizuku_status` and `device.shizuku_exec` answered through a
   restarted Reverse Control session.
+
+### 24. Restore automatic host preparation when enabling push
+
+- **What:** In **Hosts → Alerts**, **Turn on push** now installs/updates the
+  host plugin or enables an installed but disabled plugin before registering
+  this phone. Setup shows installation progress and errors in the existing
+  sheet, and still requires a connected host with a successful plugin check.
+- **Why:** The rebuilt UI already exposed push setup, but lost upstream's
+  automatic host preparation. In particular, a disabled installed plugin had
+  no enable action, so discovery failed before notification keys were created.
+- **How:** Keep the explicit per-host opt-in and delegate preparation and
+  registration to the existing services/Rust manager. Document the expected
+  empty startup Keychain read and a killed-process Android delivery procedure
+  in `docs/remote-notifications.md`.
+- **Validation:** Regression tests reproduced the missing/disabled-plugin
+  failures before the fix. Six focused Jest suites passed (63 tests), as did
+  the full Jest suite (220 suites, 2,486 tests) after generating this worktree's
+  terminal/editor assets, plus changed-file ESLint and TypeScript. Rust was unchanged.
+  Phone/relay delivery remains unverified from this worktree.
