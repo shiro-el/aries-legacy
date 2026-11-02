@@ -166,6 +166,7 @@ export function ChatScreen({
               changesOpen={chat.expanded.has(JSON.stringify([item.turnId, 'changes']))}
               onToggleChanges={chat.toggle}
               onOpenFile={native ? openFile : undefined}
+              recordedAnswer={item.type === 'part' && item.part === chat.recordedQuestion?.target.part ? chat.recordedQuestion : undefined}
             />
           )}
         />
@@ -212,6 +213,7 @@ const VOICE_CONTEXT_MESSAGES = 10;
 const POLISH_CONTEXT_MESSAGES = 6;
 
 type Chat = ReturnType<typeof useAgentChat>;
+type RecordedAnswer = NonNullable<Chat['recordedQuestion']>;
 
 /** Chooses between the transcript and the state that keeps it from showing. */
 function ChatBody({ chat, name, s, palette, onOpenTerminal, children }: {
@@ -298,7 +300,7 @@ function Working({ name, s, palette, quiet }: { name: string; s: Styles; palette
   );
 }
 
-const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleTool, changesOpen, onToggleChanges, onOpenFile }: {
+const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleTool, changesOpen, onToggleChanges, onOpenFile, recordedAnswer }: {
   block: ChatBlock;
   palette: Palette;
   s: Styles;
@@ -307,6 +309,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
   changesOpen: boolean;
   onToggleChanges: (key: string) => void;
   onOpenFile?: (link: FileLink) => void;
+  recordedAnswer?: RecordedAnswer;
 }) {
   const gap = block.spacing === 'turn' ? s.gapTurn : block.spacing === 'part' ? s.gapPart : null;
   switch (block.type) {
@@ -346,7 +349,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
           return (
             <View style={gap}>
               <Text style={part.level === 'info' ? s.aside : s.errorText}>{part.text}</Text>
-              {part.questions && <RecordedQuestions questions={part.questions} s={s} />}
+              {part.questions && <RecordedQuestions questions={part.questions} s={s} answer={recordedAnswer} />}
             </View>
           );
         case 'tool':
@@ -354,7 +357,7 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
             <View style={[s.plan, gap]} testID="agent-question-notice">
               <Text style={s.planLabel}>Question requested</Text>
               {part.state.questions?.length
-                ? <RecordedQuestions questions={part.state.questions} s={s} />
+                ? <RecordedQuestions questions={part.state.questions} s={s} answer={recordedAnswer} />
                 : <Text style={s.aside}>{String(part.state.input.question_summary ?? 'The agent requested user input.')}</Text>}
               {part.state.output && <Text style={s.aside} selectable>{part.state.output}</Text>}
               {part.state.error && <Text style={s.errorText} selectable>{part.state.error}</Text>}
@@ -396,21 +399,45 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
   }
 });
 
-/** History stays readable after the live TUI question has been answered. */
-function RecordedQuestions({ questions, s }: { questions: readonly TranscriptQuestion[]; s: Styles }) {
-  return questions.map((question, index) => (
-    <View key={index} style={s.choices}>
-      {question.header && <Text style={s.planLabel}>{question.header}</Text>}
-      <Text style={s.choiceLabel} selectable>{question.question}</Text>
-      {question.multiple && <Text style={s.aside}>Choose one or more.</Text>}
-      {question.options.map((option, position) => (
-        <View key={position} style={s.choice}>
-          <Text style={s.aside}>{position + 1}.</Text>
-          <ChoiceLabel label={[option.label, option.description].filter(Boolean).join('\n')} s={s} />
-        </View>
-      ))}
-    </View>
-  ));
+/** Older questions stay readable; only the newest unanswered question can send. */
+function RecordedQuestions({ questions, s, answer }: {
+  questions: readonly TranscriptQuestion[];
+  s: Styles;
+  answer?: RecordedAnswer;
+}) {
+  return questions.map((question, index) => {
+    const action = answer?.target.questionIndex === index ? answer : undefined;
+    return (
+      <View key={index} style={s.choices}>
+        {question.header && <Text style={s.planLabel}>{question.header}</Text>}
+        <Text style={s.choiceLabel} selectable>{question.question}</Text>
+        {question.multiple && <Text style={s.aside}>Choose one or more.</Text>}
+        {question.options.map((option, position) => {
+          const content = <>
+            <Text style={s.aside}>{position + 1}.</Text>
+            <ChoiceLabel label={[option.label, option.description].filter(Boolean).join('\n')} s={s} />
+          </>;
+          return action ? (
+            <Pressable
+              key={position}
+              onPress={() => { void action.answer(option.label); }}
+              disabled={action.disabled}
+              accessibilityRole="button"
+              accessibilityLabel={`Send answer: ${option.label}`}
+              accessibilityHint={`Sends this option as a chat message answering: ${question.question}`}
+              accessibilityState={{ disabled: action.disabled, busy: action.busy, selected: action.sent && action.label === option.label }}
+              style={({ pressed }) => [s.choice, position > 0 && s.choiceSeam, pressed && s.choicePressed, action.disabled && s.dim]}
+            >
+              {content}
+            </Pressable>
+          ) : <View key={position} style={s.choice}>{content}</View>;
+        })}
+        {action?.busy && <Text style={s.aside} accessibilityLiveRegion="polite">Sending answer…</Text>}
+        {action?.sent && <Text style={s.aside} accessibilityLiveRegion="polite">Answer sent.</Text>}
+        {action?.error && <Text style={s.errorText} accessibilityLiveRegion="polite">{action.error}</Text>}
+      </View>
+    );
+  });
 }
 
 function changesSummary(turn: TranscriptTurn): string {

@@ -8,7 +8,7 @@ import type { ChatRowsSource } from 'react-native-whip-ssh/src/chatRows';
 import { emptyTranscript, type AgentChatState } from '../../agentChat';
 import { useAgentChatOpen } from '../../hooks/useAgentChatOpen';
 import { useNativeChatRows } from '../../hooks/useNativeChatRows';
-import { isQuestionTool } from '../../lib/agentChatBlocks';
+import { isQuestionTool, latestUnansweredRecordedQuestion } from '../../lib/agentChatBlocks';
 import { freeTextChoice } from '../../lib/menuAnswer';
 import { resolveChatRow } from '../../lib/nativeChatRows';
 import type { HerdrClient } from '../../services/HerdrClient';
@@ -127,6 +127,8 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }:
   ) ?? false);
   const prompt = useInteractionPrompt(client, terminalId, token, pane, active, asyncQuestion, state.revision);
 
+  const recordedTarget = useMemo(() => latestUnansweredRecordedQuestion(state.transcript), [state.transcript]);
+
   const toggle = useCallback((key: string) => {
     setExpanded(current => {
       const next = new Set(current);
@@ -146,6 +148,50 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }:
     await client.native.submitPastes(pane.pane_id, parts);
   }, [answerMenu, client, pane]);
 
+  // Recorded answers use exactly the composer's message path. A fresh screen
+  // read at the tap gives a queued TUI question priority over this fallback.
+  const recordedKey = recordedTarget && token
+    ? JSON.stringify([token, pane?.pane_id, recordedTarget.turnId, recordedTarget.messageId, recordedTarget.part.id, recordedTarget.questionIndex])
+    : null;
+  const canAnswerRecorded = !!recordedKey && active && !!client && !!pane
+    && state.status === 'live' && !prompt.prompt;
+  const recordedCurrent = useRef({ key: recordedKey, enabled: canAnswerRecorded });
+  recordedCurrent.current = { key: recordedKey, enabled: canAnswerRecorded };
+  const recordedSending = useRef(false);
+  const [recordedStatus, setRecordedStatus] = useState<{
+    key: string | null; busy: boolean; sent: boolean; label?: string; error?: string;
+  }>({ key: null, busy: false, sent: false });
+  const status = recordedStatus.key === recordedKey ? recordedStatus : undefined;
+  const refreshPrompt = prompt.refresh;
+  const answerRecorded = useCallback(async (label: string) => {
+    const stillCurrent = () => recordedCurrent.current.key === recordedKey && recordedCurrent.current.enabled;
+    if (!recordedKey || !stillCurrent() || recordedSending.current || status?.sent
+      || !recordedTarget?.question.options.some(option => option.label === label)) return;
+    recordedSending.current = true;
+    setRecordedStatus({ key: recordedKey, busy: true, sent: false, label });
+    try {
+      const live = await refreshPrompt(true);
+      if (live || !stillCurrent()) return;
+      await send(label);
+      setRecordedStatus({ key: recordedKey, busy: false, sent: true, label });
+    } catch (reason) {
+      setRecordedStatus({ key: recordedKey, busy: false, sent: false,
+        error: `Not sent: ${reason instanceof Error ? reason.message : String(reason)}` });
+    } finally {
+      recordedSending.current = false;
+      setRecordedStatus(current => current.key === recordedKey && current.busy ? { ...current, busy: false } : current);
+    }
+  }, [recordedKey, recordedTarget, refreshPrompt, send, status?.sent]);
+  const recordedQuestion = recordedTarget && !prompt.prompt ? {
+    target: recordedTarget,
+    disabled: !canAnswerRecorded || recordedStatus.busy || !!status?.sent,
+    busy: status?.busy ?? false,
+    sent: status?.sent ?? false,
+    label: status?.label,
+    error: status?.error,
+    answer: answerRecorded,
+  } : null;
+
   return {
     binding,
     /** The pane runs an agent that has not started a conversation yet. */
@@ -160,6 +206,7 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }:
     toggle,
     send,
     prompt,
+    recordedQuestion,
     opening: opener.pendingTerminalId !== null,
     installing: opener.installing,
     notice: opener.notice,
@@ -215,11 +262,17 @@ function useInteractionPrompt(
   const readEpoch = useRef(0);
   const invalidateRead = useCallback(() => { readEpoch.current++; }, []);
 
-  const read = useCallback(async () => {
-    if (!client || !terminalId || !token) return null;
+  const read = useCallback(async (requireCurrent = false) => {
+    if (!client || !terminalId || !token) {
+      if (requireCurrent) throw new Error('This pane is not connected.');
+      return null;
+    }
     const epoch = ++readEpoch.current;
     const next = await client.native.agentInteractionPrompt(terminalId, token);
-    if (currentOwner.current !== owner || !active || readEpoch.current !== epoch) return null;
+    if (currentOwner.current !== owner || !active || readEpoch.current !== epoch) {
+      if (requireCurrent) throw new Error('The chat changed. Try the answer again.');
+      return null;
+    }
     setPrompt(next ?? null);
     return next ?? null;
   }, [active, client, owner, terminalId, token]);
@@ -324,7 +377,7 @@ function useInteractionPrompt(
     }
   }, [active, client, owner, prompt, read, terminalId, token]);
 
-  return { prompt, busy, error, respond, answerInText };
+  return { prompt, busy, error, respond, answerInText, refresh: read };
 }
 
 /** Cursor movement must never submit a different question that replaced this menu. */
