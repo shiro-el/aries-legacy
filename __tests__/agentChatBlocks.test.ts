@@ -5,6 +5,9 @@ test('question and running-tool UI helpers recognize provider names and states',
   const part = { tool: 'functions.request_user_input', state: { status: 'running' } } as TranscriptToolPart;
   expect(isQuestionTool(part)).toBe(true);
   expect(isQuestionTool({ ...part, tool: 'Claude · AskUserQuestion' })).toBe(true);
+  for (const tool of ['request_user_input_async', 'functions.request_user_input_async', 'functions · request_user_input_async']) {
+    expect(isQuestionTool({ ...part, tool })).toBe(true);
+  }
   expect(isQuestionTool({ ...part, tool: 'shell' })).toBe(false);
   expect(isRunningTool(part)).toBe(true);
   expect(isRunningTool({ ...part, state: { ...part.state, status: 'pending' } })).toBe(true);

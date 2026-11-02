@@ -19,7 +19,6 @@ const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_ANSWER_BYTES: usize = 16 * 1024;
 const MAX_MENU_CHOICES: u32 = 20;
 const QUEUED_QUESTIONS_TITLE: &str = "Queued follow-up inputs";
-const OPEN_QUEUED_QUESTION_KEY: &str = "shift+enter";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum AgentInteractionKind {
@@ -57,29 +56,71 @@ fn cancelled(message: &str) -> HerdrControlError {
     HerdrControlError::RequestCancelled(message.to_owned())
 }
 
-fn queued_question_summary(text: &str) -> Option<String> {
-    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
-    while let Some(line) = lines.next() {
-        if line.trim_start_matches('•').trim() != QUEUED_QUESTIONS_TITLE {
-            continue;
-        }
-        let count_line = lines.next()?.strip_prefix('?')?.trim();
-        let (count, label) = count_line.split_once(' ')?;
-        let count = count.parse::<u32>().ok().filter(|count| *count > 0)?;
-        if !matches!(label, "question" | "questions")
-            || !matches!(
-                lines.next()?,
-                "shift+↵ to answer" | "shift+enter to answer" | "shift+return to answer"
-            )
-        {
-            return None;
-        }
-        return Some(format!(
+fn question_section(text: &str) -> Option<&str> {
+    let (prefix, section) = text.rsplit_once(QUEUED_QUESTIONS_TITLE)?;
+    let heading = prefix.rsplit('\n').next().unwrap_or_default().trim();
+    (heading.is_empty() || heading == "•").then_some(section)
+}
+
+/// Read the shortcut advertised by the running CLI, including older Codex builds.
+fn queued_question(text: &str) -> Option<(String, &'static str)> {
+    let section = question_section(text)?;
+    let mut lines = section
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let count_line = lines.next()?.strip_prefix('?')?.trim();
+    let mut words = count_line.split_whitespace();
+    let count = words
+        .next()?
+        .parse::<u32>()
+        .ok()
+        .filter(|count| *count > 0)?;
+    if !matches!(words.next()?, "question" | "questions") {
+        return None;
+    }
+    let hint = format!(
+        "{} {}",
+        words.collect::<Vec<_>>().join(" "),
+        lines.next().unwrap_or_default()
+    );
+    let key = if ["shift+← to answer", "shift+left to answer", "⇧← to answer"]
+        .iter()
+        .any(|shortcut| hint.contains(shortcut))
+    {
+        "shift+left"
+    } else if [
+        "shift+↵ to answer",
+        "shift+enter to answer",
+        "shift+return to answer",
+    ]
+    .iter()
+    .any(|shortcut| hint.contains(shortcut))
+    {
+        "shift+enter"
+    } else {
+        return None;
+    };
+    Some((
+        format!(
             "{count} {} waiting",
             if count == 1 { "question" } else { "questions" }
-        ));
-    }
-    None
+        ),
+        key,
+    ))
+}
+
+/// Expanded async questions have their own editor, even while the agent works.
+fn async_question_editor(text: &str) -> bool {
+    question_section(text).is_some_and(|section| {
+        section.contains("submit")
+            && ["⌃] skip", "ctrl+] skip"]
+                .iter()
+                .any(|hint| section.contains(hint))
+            && ["main prompt", "prev question"]
+                .iter()
+                .any(|hint| section.contains(hint))
+    })
 }
 
 fn menu_choice(line: &str) -> Option<AgentInteractionChoice> {
@@ -211,8 +252,13 @@ fn project_prompt(
     hash.update(text.as_bytes());
     let choices = menu_choices(&text);
     let (kind, summary) = if !choices.is_empty() {
-        (AgentInteractionKind::Menu, menu_summary(&text))
-    } else if let Some(summary) = queued_question_summary(&text) {
+        let summary = if async_question_editor(&text) {
+            menu_summary(question_section(&text).unwrap_or(&text))
+        } else {
+            menu_summary(&text)
+        };
+        (AgentInteractionKind::Menu, summary)
+    } else if let Some(summary) = queued_question(&text).map(|(summary, _)| summary) {
         (AgentInteractionKind::QueuedQuestion, summary)
     } else {
         (
@@ -227,6 +273,20 @@ fn project_prompt(
         choices,
         text,
     })
+}
+
+/// A non-blocked Codex pane needs positive screen evidence, never just history.
+fn project_live_prompt(
+    text: String,
+    binding_token: &str,
+    generation: (u64, u64),
+    revision: f64,
+    blocked: bool,
+) -> Option<AgentInteractionPrompt> {
+    if !blocked && queued_question(&text).is_none() && !async_question_editor(&text) {
+        return None;
+    }
+    project_prompt(text, binding_token, generation, revision)
 }
 
 /// An answer is typed, not pasted: a bracketed paste opens with Escape, which
@@ -250,7 +310,8 @@ fn response_requests(
 /// Local binding plus fresh server identity are both required: a terminal id
 /// may outlive the agent, its session, and a transport reconnect.
 fn pane_matches_binding(pane: &HerdrPaneInfo, binding: &BoundAgentChat) -> bool {
-    pane.agent_status == HerdrAgentStatus::Blocked
+    (pane.agent_status == HerdrAgentStatus::Blocked
+        || binding.agent == crate::agent_transcript::AgentTranscriptKind::Codex)
         && pane.terminal_id == binding.terminal_id.as_str()
         && pane.pane_id == binding.pane_id.as_str()
         && authoritative_agent_chat_identity(pane).is_some_and(|identity| {
@@ -294,7 +355,7 @@ async fn read_prompt(
     terminal_id: &str,
     binding_token: &str,
 ) -> Result<Option<LivePrompt>, HerdrControlError> {
-    // Refresh status before reading; a cached blocked hint is insufficient.
+    // A fresh identity is required; Codex async questions can outlive blocked status.
     let Ok((pane_id, generation)) = interaction_target(&inner, terminal_id, binding_token) else {
         return Ok(None);
     };
@@ -331,14 +392,18 @@ async fn read_prompt(
                 && read.source == crate::herdr_api::HerdrPaneReadSource::Visible
                 && read.format == crate::herdr_api::HerdrPaneReadFormat::Text =>
         {
+            // Unblocked panes only expose a positively identified live Codex question.
+            // Transcript tool calls alone never authorize terminal input.
+            let blocked = snapshot.panes.iter().any(|pane| {
+                pane.pane_id == pane_id && pane.agent_status == HerdrAgentStatus::Blocked
+            });
             Ok(
-                project_prompt(read.text, binding_token, generation, read.revision).map(|prompt| {
-                    LivePrompt {
+                project_live_prompt(read.text, binding_token, generation, read.revision, blocked)
+                    .map(|prompt| LivePrompt {
                         prompt,
                         pane_id,
                         generation,
-                    }
-                }),
+                    }),
             )
         }
         _ => Err(cancelled("The live agent prompt could not be read.")),
@@ -357,7 +422,9 @@ fn response_keys(
     }
     if prompt.kind == AgentInteractionKind::QueuedQuestion {
         return if action == "open" && answer.is_empty() {
-            Ok(vec![OPEN_QUEUED_QUESTION_KEY.to_owned()])
+            queued_question(&prompt.text)
+                .map(|(_, key)| vec![key.to_owned()])
+                .ok_or_else(|| cancelled("The queued question shortcut has changed."))
         } else {
             Err(HerdrControlError::InvalidField(
                 "Open the queued question before answering.".to_owned(),
@@ -381,6 +448,9 @@ fn response_keys(
             key.to_owned();
             index.abs_diff(selected.index) as usize
         ]);
+    }
+    if action == "esc" && answer.is_empty() && async_question_editor(&prompt.text) {
+        return Ok(vec!["ctrl+]".to_owned()]);
     }
     match action {
         "up" | "down" | "left" | "right" | "tab" | "space" | "enter" | "esc"
@@ -515,10 +585,7 @@ mod tests {
         assert_eq!(prompt.kind, AgentInteractionKind::QueuedQuestion);
         assert_eq!(prompt.summary, "1 question waiting");
         assert!(prompt.choices.is_empty());
-        assert_eq!(
-            response_keys(&prompt, "open", "").unwrap(),
-            [OPEN_QUEUED_QUESTION_KEY]
-        );
+        assert_eq!(response_keys(&prompt, "open", "").unwrap(), ["shift+enter"]);
         for action in ["enter", "esc", "up", "answer", "choice:0"] {
             assert!(response_keys(&prompt, action, "").is_err());
         }
@@ -542,6 +609,50 @@ mod tests {
             let prompt = prompt(&text);
             assert_eq!(prompt.kind, AgentInteractionKind::Terminal);
             assert!(response_keys(&prompt, "open", "").is_err());
+        }
+    }
+
+    #[test]
+    fn current_codex_async_queue_uses_its_advertised_shortcut() {
+        for hint in ["shift+←", "shift+left", "⇧←"] {
+            for separator in ["\n    ", " · "] {
+                let text = format!(
+                    "I'll wait for your answer.\n• Queued follow-up inputs\n  ? 1 question{separator}{hint} to answer\n› Ask Codex to do anything"
+                );
+                let prompt = prompt(&text);
+                assert_eq!(prompt.kind, AgentInteractionKind::QueuedQuestion);
+                assert_eq!(prompt.summary, "1 question waiting");
+                assert_eq!(response_keys(&prompt, "open", "").unwrap(), ["shift+left"]);
+            }
+        }
+    }
+
+    #[test]
+    fn current_codex_async_editor_selects_and_submits_without_pasting() {
+        let text = "• Queued follow-up inputs\n\nWhich option do you prefer?\n\n› 1. A\n  2. B\n  3. Other\n\nenter submit   ⌃] skip   ⇧→ main prompt";
+        let prompt = prompt(text);
+        assert_eq!(prompt.kind, AgentInteractionKind::Menu);
+        assert!(prompt.summary.contains("Which option do you prefer?"));
+        assert_eq!(response_keys(&prompt, "choice:1", "").unwrap(), ["down"]);
+        assert_eq!(response_keys(&prompt, "enter", "").unwrap(), ["enter"]);
+        assert_eq!(response_keys(&prompt, "esc", "").unwrap(), ["ctrl+]"]);
+    }
+
+    #[test]
+    fn unblocked_codex_requires_a_live_question_not_historical_tools_or_prose() {
+        for text in [
+            "I'll wait for your answer.",
+            "request_user_input_async [{\"title\":\"Which?\",\"options\":[\"A\",\"B\"]}]",
+            "Which option?\n› 1. A\n  2. B",
+            "Previous Queued follow-up inputs\n? 1 question\nshift+← to answer",
+        ] {
+            assert!(project_live_prompt(text.into(), "binding", (1, 0), 4.0, false).is_none());
+        }
+        for text in [
+            "• Queued follow-up inputs\n? 1 question · shift+← to answer",
+            "• Queued follow-up inputs\nWhich option?\n› 1. A\n  2. B\nenter submit   ⌃] skip   ⇧→ main prompt",
+        ] {
+            assert!(project_live_prompt(text.into(), "binding", (1, 0), 4.0, false).is_some());
         }
     }
 

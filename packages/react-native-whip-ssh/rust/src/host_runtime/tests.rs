@@ -1972,7 +1972,7 @@ fn terminal_scroll_read_is_scoped_and_never_disables_host_readiness() {
 }
 
 #[test]
-fn inline_interaction_requires_a_fresh_blocked_pane_and_the_current_binding() {
+fn inline_interaction_accepts_async_codex_status_but_requires_fresh_identity() {
     let _guard = EVENT_SINK_TEST_LOCK.lock();
     let inner = connected_runtime_inner("inline-interaction-identity");
     let runtime = HostRuntime {
@@ -1993,9 +1993,18 @@ fn inline_interaction_requires_a_fresh_blocked_pane_and_the_current_binding() {
         interaction::interaction_target(&inner, "terminal-pane-1", "obsolete-binding").is_err()
     );
 
-    snapshot.panes[0].agent_status = HerdrAgentStatus::Working;
-    install_agent_chat_snapshot(&inner, snapshot.clone());
-    assert!(target().is_err());
+    for status in [
+        HerdrAgentStatus::Working,
+        HerdrAgentStatus::Done,
+        HerdrAgentStatus::Idle,
+    ] {
+        snapshot.panes[0].agent_status = status;
+        install_agent_chat_snapshot(&inner, snapshot.clone());
+        assert!(
+            target().is_ok(),
+            "Codex async questions can outlive blocked status"
+        );
+    }
     snapshot.panes[0].agent_status = HerdrAgentStatus::Blocked;
     install_agent_chat_snapshot(&inner, snapshot.clone());
     assert!(target().is_ok());

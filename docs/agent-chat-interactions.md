@@ -71,18 +71,53 @@ summary formatting follows `chatwidget/streaming.rs` and elapsed status follows
 separately from the scrolled transcript in `chatwidget/rendering.rs`. These were
 inspected in the refreshed checkout at `89461ea6833832b0551ce24ee32205824d5c108d`.
 
-# Agent input notices
+# Agent questions
 
-Chat displays read-only notices from transcript records. It does not read the
-CLI/TUI screen, infer notices from Herdr's blocked status, or send responses.
+Aries displays structured question text and options from transcript tool calls
+and event notices. The rebuilt chat uses the native `questions` projection for
+Claude Code (`AskUserQuestion`), Codex (`request_user_input` and
+`request_user_input_async`), and OpenCode (`question`), including namespaced
+names. Recorded questions and answers remain readable after a prompt is gone;
+history alone does not establish that the agent still needs input.
 
-Question tool calls from Claude Code (`AskUserQuestion`), Codex
-(`request_user_input` and `request_user_input_async`), and OpenCode (`question`)
-show **Question requested** with the recorded question text and options when
-available. Rust retains structured question data; React Native displays that
-projection. Tap an option to copy its exact label to the clipboard, with haptic
-and brief checkmark feedback. Copying does not send an answer or approve a
-request. Recorded answers and errors remain visible with the question.
+Live questions use a fresh, identity-checked TUI read. A blocked pane enables
+this reader. The latest turn's async question also triggers discovery, since
+Codex can complete the tool call and Herdr can report done while its question
+remains queued. Unblocked Codex panes expose controls only when the live screen
+has a recognized question queue or expanded async question editor. A verified
+prompt keeps the chat header showing that the agent needs the user; Herdr's
+underlying lifecycle status is unchanged.
+
+Tap **Open question** to enter Codex's queued prompt, then tap an option to move
+the TUI selection and submit with Enter. Aries uses the shortcut shown by the
+running CLI: Shift+Left for current Codex, Shift+Enter for older versions.
+Cursor movement is checked against the same question and selected option before
+submission. **Type your own answer below** routes the composer through Codex's
+Other row (or Claude's Type something row), sending plain typed text and Enter.
+Skip uses Ctrl+] in the current async editor. It is unavailable while the
+question is collapsed. Prompt reads stop while chat is hidden or the app is
+inactive. Discovery retries are bounded when no live question is found.
+
+The current Codex behavior was checked in the local `codex-powerline` checkout
+at `360319d8dee62d87e2d59fc0c21805d79519cfed`, in:
+
+- `codex-rs/tui/src/keymap.rs` (Shift+Left, Ctrl+], Shift+Right defaults)
+- `codex-rs/tui/src/bottom_pane/questions.rs` (collapsed count and shortcut hint)
+- `codex-rs/tui/src/bottom_pane/async_questions/input.rs` (selection and submission)
+- `codex-rs/tui/src/chatwidget/tests/questions_tests.rs` (choice delivery tests)
+
+Upstream history: `7ecb944c` added live terminal controls; `7157d1a9`
+implemented the older queued prompt. `0a20be30` replaced those controls with
+copyable transcript options, and `31f734aa` preserved structured async choices.
+The Aries UI rebuild omitted that question renderer and gated its own live
+card on blocked status. At parent `e9e3c7ce`, the evidence is:
+`src/ui/chat/ChatScreen.tsx:343` routed every tool to `Tool`,
+`src/ui/chat/useAgentChat.ts:212` cleared the prompt unless blocked, and
+`packages/react-native-whip-ssh/rust/src/host_runtime/interaction.rs:253`
+required blocked again in the native answer path. Its line 22 hardcoded
+Shift+Enter. Tool name and async argument normalization already worked in
+`src/lib/agentChatBlocks.ts:9` and
+`crates/agent-transcript-core/src/agent_transcript/projection.rs:386`.
 
 Paginated Codex history records asynchronous question calls as `AgentMessage`
 items with `delivery: "async"` and a structured `questions` array. Whip projects
@@ -97,18 +132,16 @@ and paginated history apply this during live updates and raw cache replay.
 Quoted examples and malformed envelopes remain visible as ordinary user text.
 
 Codex approval and question events become historical notices with the available
-question, reason, command, requested permissions, or affected file names. They
-do not claim the request is still pending. Notices remain visible in saved or
-stale history and asynchronous questions can appear while the agent works.
-
-An agent's transcript must contain the request or question tool call. Approval
-prompts omitted from the transcript cannot be shown through this path. A blocked
-pane alone does not create a notice. Respond through the agent's terminal.
+question, reason, command, requested permissions, or affected file names.
+Approvals omitted from the transcript still require a live terminal prompt.
+Unsupported or unrecognized TUI layouts can be answered through Open terminal.
 
 Validation:
 
 ```sh
-nix develop -c cargo test --manifest-path packages/react-native-whip-ssh/rust/Cargo.toml --lib
-nix develop -c node_modules/.bin/jest --runInBand --runTestsByPath __tests__/agentChatViewport.test.tsx __tests__/sessionChatOpen.test.tsx
-nix develop -c node_modules/.bin/tsc --noEmit
+node_modules/.bin/jest --runInBand
+node_modules/.bin/tsc --noEmit
+cargo test --manifest-path packages/react-native-whip-ssh/rust/Cargo.toml -- --test-threads=1
+cargo clippy --manifest-path packages/react-native-whip-ssh/rust/Cargo.toml -- -D warnings
+cargo fmt --manifest-path packages/react-native-whip-ssh/rust/Cargo.toml --check
 ```
