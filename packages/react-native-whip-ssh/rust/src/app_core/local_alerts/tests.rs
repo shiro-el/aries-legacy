@@ -699,3 +699,35 @@ fn remote_call_keeps_its_reply_routing_and_ends_when_its_pane_moves_on() {
     assert!(platform.notifications.is_empty());
     assert!(platform.persistent.is_none());
 }
+
+#[test]
+fn authenticated_push_can_deliver_after_ssh_detaches_but_local_callbacks_stay_fenced() {
+    let owner = LocalAlertCoordinator::new();
+    let runtime = LocalAlertRuntime {
+        runtime_id: "runtime".into(),
+        incarnation: 1,
+    };
+    owner.set_runtime("h".into(), Some(runtime.clone()));
+    owner.set_runtime("h".into(), None);
+    let mut stale = request("h", "p", "t", false);
+    stale.runtime = Some(runtime.clone());
+    assert!(owner.alert(stale).is_empty());
+    assert!(owner.alert(request("h", "p", "t", false)).is_empty());
+
+    let push = LocalAlertRequest {
+        remote: Some(LocalAlertRemote {
+            device_id: Some("verified-device".into()),
+            call_id: None,
+            choices: Vec::new(),
+        }),
+        ..request("h", "p", "", false)
+    };
+    let mut platform = Platform::default();
+    platform.drain(&owner, owner.alert(push.clone()));
+    assert_eq!(platform.notifications.len(), 1);
+    assert!(platform.persistent.is_some());
+
+    // Reattachment still fences a remote request captured without this runtime.
+    owner.set_runtime("h".into(), Some(runtime));
+    assert!(owner.alert(push).is_empty());
+}

@@ -36,6 +36,17 @@ class HerdrBackgroundModule(
   private val mainHandler = Handler(Looper.getMainLooper())
   private val workLocks = mutableMapOf<Int, PowerManager.WakeLock>()
   private var nextWorkId = 0
+  private var notificationLeasePulseIntervalMs = 0L
+  private val notificationLeasePulseRunnable = object : Runnable {
+    override fun run() {
+      if (notificationLeasePulseIntervalMs == 0L || !context.hasActiveReactInstance()) return
+      // Request JS execution, never renew a lease from native. No wake lock:
+      // during suspend the host lease expires so push can take over.
+      context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("WhipNotificationLeasePulse", null)
+      mainHandler.postDelayed(this, notificationLeasePulseIntervalMs)
+    }
+  }
   private var activeAlertIdentifier: String? = null
   private var activeAlertChannelId: String? = null
   private var activeAlertCompletion: Promise? = null
@@ -56,6 +67,19 @@ class HerdrBackgroundModule(
   }
 
   override fun getName(): String = "HerdrBackground"
+
+  @ReactMethod
+  fun setNotificationLeasePulseInterval(intervalMs: Double) {
+    mainHandler.post {
+      mainHandler.removeCallbacks(notificationLeasePulseRunnable)
+      notificationLeasePulseIntervalMs = if (intervalMs > 0) {
+        intervalMs.toLong().coerceAtLeast(1_000L)
+      } else 0L
+      if (notificationLeasePulseIntervalMs > 0) {
+        mainHandler.postDelayed(notificationLeasePulseRunnable, notificationLeasePulseIntervalMs)
+      }
+    }
+  }
 
   /** Acquire synchronously before JS yields to asynchronous request processing. */
   @Synchronized
@@ -276,6 +300,8 @@ class HerdrBackgroundModule(
       workLocks.clear()
     }
     mainHandler.post {
+      notificationLeasePulseIntervalMs = 0L
+      mainHandler.removeCallbacks(notificationLeasePulseRunnable)
       SpeechPlayback.onChatStopped = null
       SpeechPlayback.stop()
       stopPersistentAlert()

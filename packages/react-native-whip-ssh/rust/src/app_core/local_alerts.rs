@@ -209,6 +209,18 @@ impl CoordinatorState {
     }
 
     fn runtime_current(&self, request: &LocalAlertRequest) -> bool {
+        // Authenticated push delivery must survive an SSH detach in this same
+        // process. Local callbacks still require their current runtime; a push
+        // captured before a replacement runtime is attached stays fenced too.
+        if request.remote.is_some()
+            && request.runtime.is_none()
+            && self
+                .runtimes
+                .get(&request.host_id)
+                .is_some_and(Option::is_none)
+        {
+            return true;
+        }
         self.source_current(&request.host_id, request.runtime.as_ref())
     }
 
