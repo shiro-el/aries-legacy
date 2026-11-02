@@ -8,6 +8,7 @@ import type { ChatRowsSource } from 'react-native-whip-ssh/src/chatRows';
 import { emptyTranscript, type AgentChatState } from '../../agentChat';
 import { useAgentChatOpen } from '../../hooks/useAgentChatOpen';
 import { useNativeChatRows } from '../../hooks/useNativeChatRows';
+import { isQuestionTool } from '../../lib/agentChatBlocks';
 import { freeTextChoice } from '../../lib/menuAnswer';
 import { resolveChatRow } from '../../lib/nativeChatRows';
 import type { HerdrClient } from '../../services/HerdrClient';
@@ -117,7 +118,14 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }:
     store.rows,
   );
 
-  const prompt = useInteractionPrompt(client, terminalId, token, pane, active);
+  // The async call completes before its TUI question is answered. History is a
+  // discovery hint; only the native live-screen reader establishes a pending prompt.
+  const asyncQuestion = state.status === 'live' && (lastTurn?.assistants.some(message =>
+    message.parts.some(part => part.type === 'tool' && isQuestionTool(part)
+      && part.tool.toLowerCase().endsWith('request_user_input_async'))
+    || message.parts.some(part => part.type === 'notice' && part.questions?.length),
+  ) ?? false);
+  const prompt = useInteractionPrompt(client, terminalId, token, pane, active, asyncQuestion, state.revision);
 
   const toggle = useCallback((key: string) => {
     setExpanded(current => {
@@ -147,7 +155,7 @@ export function useAgentChat({ hostSessionId, pane, client, onRefresh, active }:
     /** Rows have caught up with the restored transcript and stopped moving. */
     settled,
     rowsError: store.error,
-    working,
+    working: working && !prompt.prompt,
     expanded,
     toggle,
     send,
@@ -185,81 +193,143 @@ function useSettled(token: string | undefined, warm: boolean, caughtUp: boolean,
   return settled;
 }
 
-/** Reads the live question while the pane is blocked, and answers it. */
+/** Reads live questions, including async Codex questions after the pane goes done. */
 function useInteractionPrompt(
   client: HerdrClient | undefined,
   terminalId: string | null,
   token: string | undefined,
   pane: PaneInfo | undefined,
   active: boolean,
+  asyncQuestion: boolean,
+  transcriptRevision: number | undefined,
 ) {
   const [prompt, setPrompt] = useState<NativeAgentInteractionPrompt | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const blocked = pane?.agent_status === 'blocked';
   const revision = pane?.revision;
+  const owner = useMemo(() => ({ client, terminalId, token, active }), [client, terminalId, token, active]);
+  const currentOwner = useRef(owner);
+  currentOwner.current = owner;
+  const sending = useRef(false);
+  const readEpoch = useRef(0);
+  const invalidateRead = useCallback(() => { readEpoch.current++; }, []);
 
   const read = useCallback(async () => {
     if (!client || !terminalId || !token) return null;
+    const epoch = ++readEpoch.current;
     const next = await client.native.agentInteractionPrompt(terminalId, token);
+    if (currentOwner.current !== owner || !active || readEpoch.current !== epoch) return null;
     setPrompt(next ?? null);
     return next ?? null;
-  }, [client, terminalId, token]);
+  }, [active, client, owner, terminalId, token]);
 
   useEffect(() => {
-    if (!active) return;
+    setPrompt(null);
     setError(null);
-    if (!blocked) {
+    setBusy(false);
+  }, [owner]);
+
+  useEffect(() => {
+    if (!active || (!blocked && !asyncQuestion) || !client || !terminalId || !token) {
       setPrompt(null);
       return;
     }
     let cancelled = false;
-    read().catch((reason: unknown) => {
-      if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const poll = async () => {
+      try {
+        if (sending.current) {
+          timer = setTimeout(() => { void poll(); }, 1200);
+          return;
+        }
+        const next = await read();
+        if (cancelled) return;
+        // Allow the TUI to catch up with the transcript. Once absent, stop
+        // polling idle history; pane/transcript changes trigger discovery again.
+        if (next || ++attempts < 3) timer = setTimeout(() => { void poll(); }, 1200);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    };
+    void poll();
     return () => {
       cancelled = true;
+      if (!sending.current) invalidateRead();
+      if (timer) clearTimeout(timer);
     };
-  }, [active, blocked, read, revision]);
+  }, [active, asyncQuestion, blocked, client, terminalId, token, read, revision, transcriptRevision, invalidateRead]);
 
   const respond = useCallback(async (action: string, answer = '') => {
-    if (!client || !terminalId || !token || !prompt) return;
+    if (!active || !client || !terminalId || !token || !prompt || sending.current) return;
+    sending.current = true;
     setBusy(true);
     setError(null);
     try {
       if (action.startsWith('choice:')) {
         // Moving the cursor changes the prompt; confirm against the new one.
         await client.native.respondAgentInteraction(terminalId, token, prompt.token, action);
-        const moved = await read();
-        if (moved) await client.native.respondAgentInteraction(terminalId, token, moved.token, 'enter');
+        const index = Number(action.slice('choice:'.length));
+        let moved = await read();
+        for (let attempt = 0; attempt < 3 && sameMenu(prompt, moved)
+          && !moved?.choices.find(choice => choice.index === index)?.selected; attempt++) {
+          await new Promise<void>(resolve => setTimeout(resolve, 80));
+          moved = await read();
+        }
+        if (!sameMenu(prompt, moved) || !moved?.choices.find(choice => choice.index === index)?.selected) {
+          throw new Error('The question changed. Review the current choices.');
+        }
+        await client.native.respondAgentInteraction(terminalId, token, moved.token, 'enter');
       } else {
         await client.native.respondAgentInteraction(terminalId, token, prompt.token, action, answer);
       }
       await read();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (currentOwner.current === owner) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      sending.current = false;
+      if (currentOwner.current === owner) setBusy(false);
     }
-  }, [client, prompt, read, terminalId, token]);
+  }, [active, client, owner, prompt, read, terminalId, token]);
 
   /** False when no menu is waiting, so the message goes to the agent as usual. */
   const answerInText = useCallback(async (parts: readonly string[]): Promise<boolean> => {
-    if (!client || !terminalId || !token || prompt?.kind !== 'menu') return false;
+    if (!active || !client || !terminalId || !token || prompt?.kind !== 'menu') return false;
     const field = freeTextChoice(prompt);
-    if (!field) throw new Error('choose one of the options above.');
-    let current = prompt;
-    if (!field.selected) {
-      await client.native.respondAgentInteraction(terminalId, token, current.token, `choice:${field.index}`);
-      // The row becomes a text field once selected; answer against that screen.
-      current = (await read()) ?? current;
+    if (!field) throw new Error('Choose one of the options above.');
+    if (sending.current) throw new Error('A response is already being sent.');
+    sending.current = true;
+    setBusy(true);
+    try {
+      let current = prompt;
+      if (!field.selected) {
+        await client.native.respondAgentInteraction(terminalId, token, current.token, `choice:${field.index}`);
+        // The row becomes a text field once selected; answer against that screen.
+        const moved = await read();
+        if (moved?.kind !== 'menu' || moved.summary !== prompt.summary
+          || !moved.choices.find(choice => choice.index === field.index)?.selected) {
+          throw new Error('The question changed. Review the current choices.');
+        }
+        current = moved;
+      }
+      // Typed as one line: a pasted answer would cancel a synchronous question.
+      const answer = parts.filter(Boolean).join(' ');
+      await client.native.respondAgentInteraction(terminalId, token, current.token, 'answer', answer);
+      await read();
+      return true;
+    } finally {
+      sending.current = false;
+      if (currentOwner.current === owner) setBusy(false);
     }
-    // Typed as one line: a pasted answer would cancel the question.
-    const answer = parts.filter(Boolean).join(' ');
-    await client.native.respondAgentInteraction(terminalId, token, current.token, 'answer', answer);
-    await read();
-    return true;
-  }, [client, prompt, read, terminalId, token]);
+  }, [active, client, owner, prompt, read, terminalId, token]);
 
   return { prompt, busy, error, respond, answerInText };
+}
+
+/** Cursor movement must never submit a different question that replaced this menu. */
+function sameMenu(before: NativeAgentInteractionPrompt, after: NativeAgentInteractionPrompt | null): boolean {
+  return after?.kind === 'menu' && before.summary === after.summary
+    && before.choices.length === after.choices.length
+    && before.choices.every((choice, index) => choice.label === after.choices[index].label);
 }

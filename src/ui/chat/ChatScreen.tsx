@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   FlatList,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import { Pencil } from 'lucide-react-native';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import type { NativeAgentInteractionPrompt } from 'react-native-whip-ssh';
 
-import type { TranscriptToolPart, TranscriptTurn } from '../../agentChat';
+import type { TranscriptQuestion, TranscriptToolPart, TranscriptTurn } from '../../agentChat';
 import { chatAgentDisplayName, chatAgentForPane } from '../../lib/agentChatSession';
 import type { ChatBlock } from '../../lib/nativeChatRows';
 import type { HerdrClient } from '../../services/HerdrClient';
@@ -28,6 +29,7 @@ import type { FileLink } from './fileLinks';
 import { Markdown } from './Markdown';
 import { polishTranscript } from '../../services/transcriptPolish';
 import { useAgentChat } from './useAgentChat';
+import { isQuestionTool } from '../../lib/agentChatBlocks';
 import { freeTextChoice } from '../../lib/menuAnswer';
 import { recentMessages } from './voiceText';
 import { useAppActive } from '../../hooks/useAppActive';
@@ -135,7 +137,7 @@ export function ChatScreen({
         </Pressable>
         <View style={s.titleWrap}>
           <View style={s.titleRow}>
-            {pane && <StatusGlyph status={pane.agent_status} palette={palette} />}
+            {pane && <StatusGlyph status={chat.prompt.prompt ? 'blocked' : pane.agent_status} palette={palette} />}
             <Text style={s.title} numberOfLines={1}>{name}</Text>
           </View>
           <Text style={s.where} numberOfLines={1}>{where ? `${hostName}  ${where}` : hostName}</Text>
@@ -177,7 +179,10 @@ export function ChatScreen({
           error={chat.prompt.error}
           s={s}
           palette={palette}
-          onRespond={(action, answer) => { void chat.prompt.respond(action, answer); }}
+          onRespond={(action, answer) => {
+            if (action === 'open') Keyboard.dismiss();
+            void chat.prompt.respond(action, answer);
+          }}
           onTypeAnswer={() => setFocusRequest(request => request + 1)}
         />
       )}
@@ -338,8 +343,23 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
             </View>
           );
         case 'notice':
-          return <Text style={[part.level === 'info' ? s.aside : s.errorText, gap]}>{part.text}</Text>;
+          return (
+            <View style={gap}>
+              <Text style={part.level === 'info' ? s.aside : s.errorText}>{part.text}</Text>
+              {part.questions && <RecordedQuestions questions={part.questions} s={s} />}
+            </View>
+          );
         case 'tool':
+          if (isQuestionTool(part)) return (
+            <View style={[s.plan, gap]} testID="agent-question-notice">
+              <Text style={s.planLabel}>Question requested</Text>
+              {part.state.questions?.length
+                ? <RecordedQuestions questions={part.state.questions} s={s} />
+                : <Text style={s.aside}>{String(part.state.input.question_summary ?? 'The agent requested user input.')}</Text>}
+              {part.state.output && <Text style={s.aside} selectable>{part.state.output}</Text>}
+              {part.state.error && <Text style={s.errorText} selectable>{part.state.error}</Text>}
+            </View>
+          );
           return <Tool part={part} open={toolOpen} onToggle={() => onToggleTool(block.id)} s={s} palette={palette} style={gap} />;
         case 'image':
           return <Text style={[s.aside, gap]}>Image</Text>;
@@ -375,6 +395,23 @@ const Row = memo(function ChatRowView({ block, palette, s, toolOpen, onToggleToo
     }
   }
 });
+
+/** History stays readable after the live TUI question has been answered. */
+function RecordedQuestions({ questions, s }: { questions: readonly TranscriptQuestion[]; s: Styles }) {
+  return questions.map((question, index) => (
+    <View key={index} style={s.choices}>
+      {question.header && <Text style={s.planLabel}>{question.header}</Text>}
+      <Text style={s.choiceLabel} selectable>{question.question}</Text>
+      {question.multiple && <Text style={s.aside}>Choose one or more.</Text>}
+      {question.options.map((option, position) => (
+        <View key={position} style={s.choice}>
+          <Text style={s.aside}>{position + 1}.</Text>
+          <ChoiceLabel label={[option.label, option.description].filter(Boolean).join('\n')} s={s} />
+        </View>
+      ))}
+    </View>
+  ));
+}
 
 function changesSummary(turn: TranscriptTurn): string {
   const additions = turn.diffs.reduce((sum, diff) => sum + diff.additions, 0);
@@ -546,9 +583,11 @@ function PromptCard({ prompt, name, busy, error, s, palette, onRespond, onTypeAn
       )}
       <View style={s.cardFoot}>
         {error ? <Text style={s.cardError}>{error}</Text> : <View />}
-        <Pressable onPress={() => onRespond('esc')} disabled={busy} accessibilityRole="button" accessibilityLabel="Dismiss" style={s.skip}>
-          <Text style={s.skipLabel}>Skip</Text>
-        </Pressable>
+        {prompt.kind !== 'queued-question' && (
+          <Pressable onPress={() => onRespond('esc')} disabled={busy} accessibilityRole="button" accessibilityLabel="Skip question" style={s.skip}>
+            <Text style={s.skipLabel}>Skip</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
