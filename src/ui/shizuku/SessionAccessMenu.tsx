@@ -5,7 +5,6 @@ import { HerdrAgentKind, ReverseControlState, type AgentControlView } from 'reac
 
 import { reverseControlStateLabel } from '../../services/agentPreferences';
 import { radius, space, type, usePalette, type Palette } from '../theme/tokens';
-import { ShizukuAccessToggle } from './ShizukuAccessToggle';
 
 export type SessionAccessActions = {
   control: AgentControlView | undefined;
@@ -54,8 +53,6 @@ export function SessionAccessMenu({ control, connected, onChange, onRestart, pal
                 trackColor={{ false: p.seam, true: p.muted }} thumbColor={p.text}
                 onValueChange={enabled => { void apply(() => onChange(enabled, false)); }} />
             </View>
-            <ShizukuAccessToggle checked={control.shizukuAccess} disabled={disabled || !control.reverseControl}
-              onCheckedChange={enabled => { void apply(() => onChange(true, enabled)); }} />
             {error ? <Text accessibilityLiveRegion="polite" style={[type.caption, { color: p.removed }]}>{error}</Text> : null}
             {control.reverseControlState === ReverseControlState.RestartRequired ? (
               <>

@@ -1952,35 +1952,19 @@ fn privileged_commands_use_the_existing_session_boundary_and_cancel_on_close()
 }
 
 #[test]
-fn shizuku_access_defaults_off_and_revocation_is_scoped_to_one_session()
--> Result<(), Box<dyn Error>> {
+fn shizuku_tools_need_no_per_session_grant() -> Result<(), Box<dyn Error>> {
     crate::runtime()?.block_on(async {
         let owner = Arc::new(ReverseControl::default());
         insert(&owner, "a", "pane-a");
-        insert(&owner, "b", "pane-b");
         let exec = json!({"params":{"name":"device.shizuku_exec","arguments":{"argv":["/system/bin/id"]}}});
         let status = json!({"params":{"name":"device.shizuku_status","arguments":{}}});
         assert!(owner.list().iter().all(|session| !session.shizuku_access));
-        for request in [&exec, &status] {
-            let error = owner.start_action("a", json!(1), request).err().ok_or("Shizuku allowed by default")?;
-            assert_eq!(error["structuredContent"]["error"]["code"], "permission_denied");
-        }
-        assert!(owner.steps.lock().is_empty());
-        owner.set_terminal_shizuku_access("terminal-pane-a", true);
-        assert!(owner.start_action("b", json!(2), &exec).is_err());
-        owner.set_terminal_shizuku_access("terminal-pane-b", true);
-        let a = owner.start_action("a", json!(3), &exec).map_err(|_| "a refused")?;
-        let b = owner.start_action("b", json!(4), &exec).map_err(|_| "b refused")?;
-        let battery = owner.start_action("a", json!(5), &json!({"params":{"name":"device.battery","arguments":{}}})).map_err(|_| "battery refused")?;
-        owner.set_terminal_shizuku_access("terminal-pane-a", false);
-        assert_eq!(a.await?["structuredContent"]["error"]["code"], "cancelled");
-        assert!(owner.pending.lock().values().any(|pending| pending.session == "b"));
-        assert!(owner.pending.lock().values().any(|pending| pending.session == "a" && !pending.shizuku));
-        assert!(owner.start_action("a", json!(6), &status).is_err());
-        assert_eq!(owner.list().len(), 2);
+        let exec = owner.start_action("a", json!(1), &exec).map_err(|_| "exec refused")?;
+        let status = owner.start_action("a", json!(2), &status).map_err(|_| "status refused")?;
+        assert_eq!(owner.pending.lock().values().filter(|pending| pending.shizuku).count(), 2);
         owner.shutdown();
-        let _ = b.await?;
-        let _ = battery.await?;
+        let _ = exec.await?;
+        let _ = status.await?;
         Ok(())
     })
 }

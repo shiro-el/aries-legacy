@@ -269,7 +269,7 @@ The same authenticated MCP server also exposes phone tools to opted-in launches:
 
 | `device.motion` | `{}` | One Expo DeviceMotion snapshot: orientation, attitude/rotation, rotation rate, acceleration, acceleration including gravity and timestamps. |
 | `device.shizuku_status` | `{}` | Android Shizuku service status, live authorization, backend, uid (2000 shell or 0 root), and server version. No permission prompts. iOS reports unavailable. |
-| `device.shizuku_exec` | `{ "argv": ["/system/bin/dumpsys", "battery"], "timeout_ms": 5000, "max_output_bytes": 8192 }` | Runs literal argv on the Android phone in an authorized Shizuku UserService. Returns uid, exit_code, stdout, stderr, truncated, timed_out. Commands may change device state. Requires pairing in More. |
+| `device.shizuku_exec` | `{ "argv": ["/system/bin/dumpsys", "battery"], "timeout_ms": 5000, "max_output_bytes": 8192 }` | Runs literal argv on the Android phone in an authorized Shizuku UserService. Returns uid, exit_code, stdout, stderr, truncated, timed_out. Commands may change device state. Requires authorizing Aries in Hosts → This phone. |
 
 Device calls return structured `{kind: "device.<tool>", value: ...}` content and
 use the existing authorization, request quotas, 20-second deadline and MCP

@@ -13,13 +13,9 @@ Whip does not save a permission grant locally. Reverse-control MCP exposes
 The service runs commands as Shizuku's shell/root identity; Whip's own process
 and remote SSH sessions retain their existing identities.
 
-Each Android agent session has a separate **Allow Shizuku access** switch beside
-**Reverse Control** in the agent actions menu, opened from **···** in the chat
-or terminal header. It defaults to off whenever Reverse Control is enabled. Pairing
-Whip alone does not enable it. The choice follows that conversation across app
-restarts and agent restarts; new and copied agents start with Shizuku access off.
-Turning it off immediately blocks both Shizuku tools and cancels that session's
-running privileged commands without affecting other sessions or browser tools.
+Aries has no per-session Shizuku switch. Once Aries is authorized in Shizuku,
+every agent with Reverse Control enabled can call both Shizuku tools. Turn
+Reverse Control off for an agent, or revoke Aries in Shizuku, to take access away.
 
 The integration requires an Android native rebuild; a Metro-only update cannot
 add the API or provider. Shizuku server versions before 11 are unsupported.
@@ -40,8 +36,7 @@ To check on a device:
 
 ## Privileged reverse-control tools
 
-Only launches opted into Whip reverse control with **Allow Shizuku access** on
-can call these tools. Pairing is
+Every launch opted into reverse control can call these tools. Pairing is
 performed by the user in Reverse Control settings; MCP calls never open a Shizuku
 permission prompt. The live service checks permission before command execution.
 On Android 17, Shizuku 13.6 can show an empty app list despite granting access; see

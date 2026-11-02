@@ -101,17 +101,12 @@ test.each([
     );
 });
 
-test.each(['device.shizuku_status', 'device.shizuku_exec'])(
-  '%s still requires the session grant in the background',
-  async action => {
-    expect(await call(action, false)).toMatchObject({
-      ok: false,
-      error: { code: 'permission_denied' },
-    });
-    expect(privileged.diagnostics).not.toHaveBeenCalled();
-    expect(privileged.execute).not.toHaveBeenCalled();
-  },
-);
+test.each([
+  ['device.shizuku_status', diagnostics],
+  ['device.shizuku_exec', output],
+])('%s needs no per-session grant', async (action, value) => {
+  expect(await call(action, false)).toEqual({ ok: true, value });
+});
 
 test.each([
   'device.clipboard_read',
