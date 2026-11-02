@@ -1,4 +1,3 @@
-import { Platform } from 'react-native';
 import {
   bestEffortCleanup,
   reportBackgroundFailure,
@@ -606,16 +605,6 @@ export class BrowserRegistry {
             session.sessionId === id && session.paneId === event.session.paneId,
         );
       if (!authorized) throw new Error('Browser session is not authorized');
-      if (
-        event.action.startsWith('device.shizuku_') &&
-        Platform?.OS !== 'ios' &&
-        authorized.shizukuAccess !== true
-      ) {
-        throw Object.assign(
-          new Error('Enable Shizuku access for this agent session first'),
-          { code: 'permission_denied' },
-        );
-      }
       const args = JSON.parse(event.argumentsJson) as Record<string, unknown>;
       const result = await deviceAction(
             event.action,

@@ -845,14 +845,9 @@ impl ReverseControl {
                     BrowserError::new(ErrorCode::SessionClosed, "Browser session closed").mcp(),
                 );
             };
+            // Any authorized Reverse Control session may use Shizuku; the flag
+            // only lets a revoked session cancel its in-flight privileged calls.
             let shizuku = device::is_shizuku_tool(name);
-            if shizuku && !cfg!(target_os = "ios") && !owned.info.shizuku_access {
-                return Err(BrowserError::new(
-                    ErrorCode::PermissionDenied,
-                    "Enable Shizuku access for this agent's Reverse Control session first",
-                )
-                .mcp());
-            }
             let caller_host = owned.info.runtime_id.clone();
             let caller_identity = owned.info.clone();
             let caller_scope = (

@@ -315,8 +315,6 @@ export const fr = {
   'nav.terminal': 'Terminal',
   'nav.more': 'Plus',
   'shizuku.title': 'Shizuku',
-  'shizuku.access': 'Autoriser l’accès à Shizuku',
-  'shizuku.accessCopy': 'Autorise cette session à utiliser les outils Android privilégiés. Désactivé par défaut. La désactivation arrête ses commandes en cours.',
   'shizuku.github': 'Shizuku sur GitHub',
   'shizuku.copy': 'Autorisez Aries à utiliser les API Android privilégiées via Shizuku.',
   'shizuku.pair': 'Associer à Shizuku',

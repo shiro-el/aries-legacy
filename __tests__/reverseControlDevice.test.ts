@@ -1100,7 +1100,7 @@ test('closing a reverse-control session cancels its privileged command and relea
   ).toMatchObject({ ok: false, error: { code: 'cancelled' } });
 });
 
-test('Shizuku requests are denied when access is off for the calling session', async () => {
+test('Shizuku requests run for any authorized Reverse Control session', async () => {
   const registry = new BrowserRegistry();
   const runtime = {
     runtimeId: 'host',
@@ -1111,10 +1111,10 @@ test('Shizuku requests are denied when access is off for the calling session', a
   };
   for (const action of ['device.shizuku_status', 'device.shizuku_exec']) {
     await registry.event({ session, kind: 'action', requestId: action, action, argumentsJson: '{}' }, runtime);
-    expect(JSON.parse(runtime.reverseControlReply.mock.calls.at(-1)![2])).toMatchObject({ ok: false, error: { code: 'permission_denied' } });
+    expect(JSON.parse(runtime.reverseControlReply.mock.calls.at(-1)![2])).toMatchObject({ ok: true });
   }
-  expect(privileged.execute).not.toHaveBeenCalled();
-  expect(privileged.diagnostics).not.toHaveBeenCalled();
+  expect(privileged.execute).toHaveBeenCalled();
+  expect(privileged.diagnostics).toHaveBeenCalled();
 });
 
 test('device calls use launch authorization and work without browser tabs', async () => {

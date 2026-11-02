@@ -80,35 +80,17 @@ it('refreshes when returning from the manager', async () => {
   events.mockRestore();
 });
 
-it('uses runtime-owned grants, revokes access and clears grants when reverse control is disabled', async () => {
-  const change = jest.fn().mockResolvedValue(undefined);
-  const props = { control, connected: true, onChange: change, onRestart: jest.fn() };
-  await act(async () => { root = renderer.create(<SessionAccessMenu {...props} />); });
-  await press('herd.agentActions');
-  const toggle = () => root.root.findAllByType(Switch).find(node => node.props.accessibilityLabel === 'shizuku.access')!;
-  expect(toggle().props.value).toBe(false);
-  await act(async () => toggle().props.onValueChange(true));
-  expect(change).toHaveBeenLastCalledWith(true, true);
-  // A successful callback alone cannot invent a grant: wait for the runtime projection.
-  expect(toggle().props.value).toBe(false);
-  await act(async () => root.update(<SessionAccessMenu {...props} control={{ ...control, shizukuAccess: true }} />));
-  expect(toggle().props.value).toBe(true);
-  await act(async () => toggle().props.onValueChange(false));
-  expect(change).toHaveBeenLastCalledWith(true, false);
-  await act(async () => root.root.findAllByType(Switch)[0].props.onValueChange(false));
-  expect(change).toHaveBeenLastCalledWith(false, false);
-});
-
-it('disables session access until reverse control is on and reports mutation failures', async () => {
+it('offers only the Reverse Control switch and reports mutation failures', async () => {
   const change = jest.fn().mockRejectedValue(new Error('disconnected'));
   const props = { control: { ...control, reverseControl: false }, connected: true, onChange: change, onRestart: jest.fn() };
   await act(async () => { root = renderer.create(<SessionAccessMenu {...props} />); });
   await press('herd.agentActions');
-  expect(root.root.findAllByType(Switch)[1].props.disabled).toBe(true);
+  expect(root.root.findAllByType(Switch)).toHaveLength(1);
   await act(async () => root.root.findAllByType(Switch)[0].props.onValueChange(true));
+  expect(change).toHaveBeenLastCalledWith(true, false);
   expect(texts()).toContain('Error: disconnected');
   await act(async () => root.update(<SessionAccessMenu {...props} connected={false} />));
-  expect(root.root.findAllByType(Switch).every(node => node.props.disabled)).toBe(true);
+  expect(root.root.findAllByType(Switch)[0].props.disabled).toBe(true);
 });
 
 it('exposes restart when the runtime requires it', async () => {
