@@ -1,4 +1,5 @@
 import { act, create } from 'react-test-renderer';
+import { NativeModules, Platform } from 'react-native';
 
 const mockSubscribe = jest.fn();
 jest.mock('react-native-whip-ssh', () => ({
@@ -55,4 +56,26 @@ it('stops listening when unmounted', async () => {
   await act(async () => { renderer = create(<Probe runtimes={[]} />); });
   act(() => renderer.unmount());
   expect(unsubscribe).toHaveBeenCalled();
+});
+
+it('protects a received background request only until its asynchronous reply completes', async () => {
+  const previous = NativeModules.HerdrBackground;
+  const previousPlatform = Platform.OS;
+  Platform.OS = 'android';
+  NativeModules.HerdrBackground = { beginBackgroundWork: jest.fn(() => 7), endBackgroundWork: jest.fn() };
+  let finish!: () => void;
+  mockRegistry.event.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  let renderer!: ReturnType<typeof create>;
+  try {
+    await act(async () => { renderer = create(<Probe runtimes={[runtime]} />); });
+    mockSubscribe.mock.calls[0][0](event, runtime);
+    expect(NativeModules.HerdrBackground.beginBackgroundWork).toHaveBeenCalledWith(120_000);
+    expect(NativeModules.HerdrBackground.endBackgroundWork).not.toHaveBeenCalled();
+    await act(async () => finish());
+    expect(NativeModules.HerdrBackground.endBackgroundWork).toHaveBeenCalledWith(7);
+  } finally {
+    act(() => renderer.unmount());
+    NativeModules.HerdrBackground = previous;
+    Platform.OS = previousPlatform;
+  }
 });

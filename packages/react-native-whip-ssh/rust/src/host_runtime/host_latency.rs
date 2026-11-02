@@ -133,6 +133,33 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn backgrounding_retires_the_isolated_probe_even_without_background_health() {
+        crate::runtime().unwrap().block_on(async {
+            let (inner, _) = super::super::tests::agent_view_test_core();
+            let isolated = crate::ssh::ReverseForwardFixture::new(true, Duration::ZERO)
+                .await
+                .unwrap();
+            let ssh = isolated.shared_ssh();
+            *inner.latency_transport.lock().await = Some(LatencyTransport {
+                generation: inner.state.lock().generation,
+                ssh: ssh.clone(),
+                jumps: Vec::new(),
+            });
+            super::super::monitoring::set_monitoring_state(&inner, false, false, false);
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while ssh.is_alive() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(inner.latency_transport.lock().await.is_none());
+            inner.state.lock().disconnect();
+            inner.monitoring_changed.notify_one();
+        });
+    }
+
+    #[test]
     fn application_probe_omits_fast_success_but_keeps_failures() {
         use super::super::{
             HostRuntimeEvent, RuntimeDiagnosticOutcome, clear_host_runtime_event_sink,
