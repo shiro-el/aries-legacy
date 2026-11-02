@@ -80,6 +80,16 @@ Claude Code (`AskUserQuestion`), Codex (`request_user_input` and
 names. Recorded questions and answers remain readable after a prompt is gone;
 history alone does not establish that the agent still needs input.
 
+When there is no live prompt, the latest recorded question in the latest turn
+also offers answer buttons. Tapping an option sends its exact label as a normal
+chat message through the composer's `send` / `submitPastes` path. A fresh live
+prompt check happens before sending; a queued question takes over with its
+PromptCard instead. A subsequent user message makes the recorded question
+read-only, including a reply within the same turn. Earlier questions and older
+turns remain read-only. Buttons expose pressed, disabled, sending, and sent
+states and spoken labels. A failed send displays its error and allows a retry;
+a successful send stays disabled while the transcript catches up.
+
 Live questions use a fresh, identity-checked TUI read. A blocked pane enables
 this reader. The latest turn's async question also triggers discovery, since
 Codex can complete the tool call and Herdr can report done while its question
@@ -105,6 +115,19 @@ at `360319d8dee62d87e2d59fc0c21805d79519cfed`, in:
 - `codex-rs/tui/src/bottom_pane/questions.rs` (collapsed count and shortcut hint)
 - `codex-rs/tui/src/bottom_pane/async_questions/input.rs` (selection and submission)
 - `codex-rs/tui/src/chatwidget/tests/questions_tests.rs` (choice delivery tests)
+
+Codex's announcement with “Press a number to choose · esc to dismiss · type to
+continue” is an inline banner, not a blocking input dialog. The same local
+Codex checkout defines this footer in `bottom_pane/actionable_banner.rs` and
+routes bracketed pastes straight to the composer in `bottom_pane/mod.rs`
+(`handle_paste`). Banner action keys do not intercept input when the composer
+contains text. `tui.rs` enables bracketed paste. Aries' `pane_submission_requests`
+in `host_runtime/agents.rs` submits message text with Enter via `PaneSendInput`;
+Herdr's `app/api_helpers.rs` wraps the text in bracketed paste when enabled.
+This was checked in the local Herdr checkout at
+`2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`, including
+`api_pane_send_input_brackets_text_and_enter_atomically` in `app/api/panes.rs`.
+No announcement dismissal or numbered action is sent by the recorded answer.
 
 Upstream history: `7ecb944c` added live terminal controls; `7157d1a9`
 implemented the older queued prompt. `0a20be30` replaced those controls with

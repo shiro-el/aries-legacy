@@ -49,6 +49,7 @@ function Harness({ active = true, currentPane = pane }: { active?: boolean; curr
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  paste.mockReset();
   read.mockResolvedValue(queued);
   respond.mockResolvedValue();
   jest.mocked(agentTranscriptService.reconcile).mockReturnValue({ type: 'bound', binding: { bindingToken: 'binding' }, state } as ReturnType<typeof agentTranscriptService.reconcile>);
@@ -103,6 +104,7 @@ test('the rebuilt chat displays recorded title and choices, opens the live sheet
   expect(text()).toContain('B');
   const button = (label: string) => root.root.findAll(node => typeof node.props.onPress === 'function').find(node => node.findAllByType(Text).some(child => [child.props.children].flat(Infinity).join('') === label))!;
   const dismiss = jest.spyOn(Keyboard, 'dismiss');
+  expect(recordedButtons()).toHaveLength(0);
   expect(text()).toContain('Open question');
   read.mockResolvedValue(menu);
   await act(async () => { button('Open question').props.onPress(); });
@@ -137,4 +139,133 @@ test('the composer answers Codex Other with typed text, never a bracketed paste'
   expect(respond).toHaveBeenCalledWith('terminal', 'binding', 'menu', 'choice:2');
   expect(respond).toHaveBeenCalledWith('terminal', 'binding', 'other', 'answer', 'My own answer');
   expect(paste).not.toHaveBeenCalled();
+});
+
+async function recordedScreen(value: AgentChatState = state) {
+  read.mockResolvedValue(undefined);
+  let update!: (value: AgentChatState) => void;
+  jest.mocked(agentTranscriptService.reconcile).mockReturnValue({ type: 'bound', binding: { bindingToken: 'binding' }, state: value } as ReturnType<typeof agentTranscriptService.reconcile>);
+  jest.mocked(agentTranscriptService.subscribe).mockImplementation((_token, listener) => {
+    update = listener;
+    listener(value);
+    return () => {};
+  });
+  await act(async () => { root = create(<ChatScreen hostSessionId="host" hostName="Host" pane={pane} client={client}
+    onRefresh={async () => {}} onBack={() => {}} onOpenTerminal={() => {}} onOpenProject={() => {}} onOpenFile={() => {}}
+    active onNeedVoiceKey={() => {}} />); });
+  await act(async () => { await jest.advanceTimersByTimeAsync(300); });
+  return update;
+}
+const recordedButtons = () => root.root.findAll(node => node.props.accessibilityRole === 'button'
+  && String(node.props.accessibilityLabel).startsWith('Send answer:'));
+const recordedButton = (label: string) => recordedButtons().find(node => node.props.accessibilityLabel === `Send answer: ${label}`)!;
+const screenText = () => root.root.findAllByType(Text).map(node => node.props.children).flat(Infinity).join(' ');
+
+test('recorded options send a normal composer message once, with busy and sent states', async () => {
+  let finish!: () => void;
+  paste.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  await recordedScreen();
+  const option = recordedButton('B');
+  expect(option).toBeDefined();
+  expect(option.props.accessibilityHint).toContain('Which option do you prefer?');
+  expect(option.props.disabled).toBe(false);
+  const pressed = option.props.style({ pressed: true });
+  const released = option.props.style({ pressed: false });
+  expect(pressed).not.toEqual(released);
+  await act(async () => { option.props.onPress(); option.props.onPress(); });
+  expect(paste).toHaveBeenCalledTimes(1);
+  expect(paste).toHaveBeenCalledWith('pane', ['B']);
+  expect(respond).not.toHaveBeenCalled();
+  expect(recordedButton('A').props.disabled).toBe(true);
+  expect(recordedButton('B').props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+  expect(screenText()).toContain('Sending answer');
+  await act(async () => { finish(); });
+  expect(recordedButton('B').props.accessibilityState).toMatchObject({ selected: true, disabled: true, busy: false });
+  expect(screenText()).toContain('Answer sent');
+});
+
+test('a later user message makes recorded choices read-only, even within the same turn', async () => {
+  const update = await recordedScreen();
+  expect(recordedButton('A')).toBeDefined();
+  const user = { id: 'reply', role: 'user' as const, parts: [{ type: 'text' as const, id: 'text', text: 'B' }], diffs: [] };
+  await act(async () => { update({ ...state, revision: 2, transcript: { ...state.transcript,
+    messages: [message, user], turns: [{ ...state.transcript.turns[0], messages: [message, user] }],
+  } }); });
+  expect(recordedButtons()).toHaveLength(0);
+  expect(screenText()).toContain('Which option do you prefer?');
+});
+
+test('older turns and earlier questions stay read-only', async () => {
+  const latest = { ...question, id: 'latest', callId: 'latest', state: { ...question.state, questions: [
+    { question: 'Earlier?', multiple: false, options: [{ label: 'Earlier option' }] },
+    { question: 'Latest?', multiple: false, options: [{ label: 'Latest option' }] },
+  ] } };
+  const current = { ...message, id: 'current', parts: [latest] };
+  await recordedScreen({ ...state, transcript: { ...state.transcript, messages: [message, current], turns: [
+    state.transcript.turns[0], { id: 'new-turn', status: 'idle', assistants: [current], diffs: [] },
+  ] } });
+  expect(recordedButton('Latest option')).toBeDefined();
+  expect(recordedButton('Earlier option')).toBeUndefined();
+  expect(recordedButton('A')).toBeUndefined();
+});
+
+test('a failed recorded answer shows an error and permits a retry', async () => {
+  paste.mockRejectedValueOnce(new Error('Connection closed'));
+  await recordedScreen();
+  expect(recordedButton('A')).toBeDefined();
+  await act(async () => { recordedButton('A').props.onPress(); });
+  expect(screenText()).toContain('Not sent: Connection closed');
+  expect(recordedButton('A').props.disabled).toBe(false);
+});
+
+test('a live question discovered at the tap takes over instead of sending a message', async () => {
+  await recordedScreen();
+  expect(recordedButton('A')).toBeDefined();
+  read.mockResolvedValue(queued);
+  await act(async () => { recordedButton('A').props.onPress(); });
+  expect(paste).not.toHaveBeenCalled();
+  expect(recordedButtons()).toHaveLength(0);
+  expect(screenText()).toContain('Open question');
+});
+
+test('structured event notices offer the same recorded answer fallback', async () => {
+  const notice = { ...message, parts: [{ type: 'notice' as const, id: 'notice', level: 'info' as const,
+    text: 'Question requested', questions: question.state.questions }] };
+  await recordedScreen({ ...state, transcript: { ...state.transcript, messages: [notice],
+    turns: [{ ...state.transcript.turns[0], assistants: [notice] }],
+  } });
+  expect(recordedButton('A')).toBeDefined();
+  await act(async () => { recordedButton('A').props.onPress(); });
+  expect(paste).toHaveBeenCalledWith('pane', ['A']);
+});
+
+
+test('an older question is read-only when the latest turn has no question', async () => {
+  const current = { ...message, id: 'current', parts: [{ type: 'text' as const, id: 'text', text: 'All done.' }] };
+  await recordedScreen({ ...state, transcript: { ...state.transcript, messages: [message, current], turns: [
+    state.transcript.turns[0], { id: 'new-turn', status: 'idle', assistants: [current], diffs: [] },
+  ] } });
+  expect(recordedButtons()).toHaveLength(0);
+  expect(screenText()).toContain('Which option do you prefer?');
+});
+
+test('stale transcripts disable their latest recorded options', async () => {
+  await recordedScreen({ ...state, status: 'stale' });
+  expect(recordedButton('A')).toBeDefined();
+  expect(recordedButton('A').props.accessibilityState).toMatchObject({ disabled: true, busy: false });
+});
+
+test('a later user message arriving during the live prompt check cancels the recorded send', async () => {
+  const update = await recordedScreen();
+  let finish!: (value: undefined) => void;
+  read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  expect(recordedButton('A')).toBeDefined();
+  await act(async () => { recordedButton('A').props.onPress(); });
+  const user = { id: 'reply', role: 'user' as const, parts: [{ type: 'text' as const, id: 'text', text: 'B' }], diffs: [] };
+  await act(async () => { update({ ...state, revision: 2, transcript: { ...state.transcript,
+    messages: [message, user], turns: [{ ...state.transcript.turns[0], messages: [message, user] }],
+  } }); });
+  await act(async () => { finish(undefined); });
+  expect(paste).not.toHaveBeenCalled();
+  expect(recordedButtons()).toHaveLength(0);
 });
