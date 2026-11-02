@@ -231,9 +231,7 @@ pub(super) async fn measure_latency_on(
     match result {
         Ok(ssh_rtt_ms) => {
             let total_ms = elapsed_ms(started_at);
-            if operation == RuntimeDiagnosticOperation::ApplicationLatencyProbe
-                || total_ms >= SLOW_RUNTIME_DIAGNOSTIC_MS
-            {
+            if total_ms >= SLOW_RUNTIME_DIAGNOSTIC_MS {
                 emit_diagnostic(&inner, operation, started_at, Some(ssh_rtt_ms), None, None);
             }
             Ok(HostLatencyMeasurement {

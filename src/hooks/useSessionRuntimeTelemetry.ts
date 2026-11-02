@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import type {
   RuntimeDiagnostic,
   RuntimeHostLatencyMeasurement,
@@ -133,6 +134,8 @@ export function useSessionRuntimeTelemetry({
       runtimeOverheadMs: round(native.runtimeOverheadMs),
     };
     runtime.latencyDiagnosticFailureRecorded = false;
+    // A native callback queued before backgrounding can arrive after AppState.
+    if (AppState.currentState !== 'active') return;
     const trace = beginAppPerformanceTrace('Whip host latency state apply');
     startTransition(() => {
       const changed = recordLatency(sessionId, measurement.latencyMs);

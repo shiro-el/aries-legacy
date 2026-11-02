@@ -38,12 +38,57 @@ After:  process -> strong registry -> RuntimeInner
   `app_active && hosts_visible && !access_locked`. Service-disabled background
   runtimes sleep their health worker; transport keepalive/detection and persistent
   reconnect retain their existing behavior.
+- The application-transport latency diagnostic runs only in foreground. Fast
+  successful probes do not emit diagnostics; slow probes and failures remain
+  observable. Background isolated health checks do not emit RTT presentation
+  events, and the background worker sleeps for 15 seconds between checks rather
+  than waking every second. Foreground changes interrupt that sleep.
 - A terminal-history/UI restoration failure detaches the UI rather than closing
   a healthy connection. Initial authentication/connection failures still use the
   existing error cleanup and host-key trust flow.
 - Process death loses all sockets and registry entries. Restoration in a new
   process creates new transports; Android foreground execution is not a guarantee
   against process termination or network loss.
+
+## Background power policy
+
+The service still starts for every live host, independently of alerts. Reverse
+Control requests cross the native/JS bridge (`useReverseControlRequests`), and
+completion alerts use a live JS notification consumer. Both must remain usable
+behind the launcher. Foreground services raise process priority, but do not keep
+the CPU awake when the screen turns off. See Android's
+[foreground service and wake lock guidance](https://android-developers.googleblog.com/2026/03/battery-technical-quality-enforcement.html).
+
+The `herdr-monitoring` partial wake lock therefore remains tied to live sessions.
+It is not required merely to retain an idle SSH socket. It protects timely
+processing of incoming SSH requests/events and JS delivery while the device
+would otherwise suspend. The current protocol has no push-triggered wake path
+for incoming Reverse Control requests; releasing the lock while waiting would
+change that availability contract. An operation-scoped lock cannot wake a
+suspended receiver before it sees the operation. Doze can still restrict network
+access and ignore wake locks; this service does not promise delivery through
+all device power states. See the
+[Android Doze documentation](https://developer.android.com/training/monitoring-device-state/doze-standby).
+
+UI work follows AppState separately: preference usage flushing (30 seconds),
+recording waveform metering (120 ms), speech download status (500 ms), and chat
+transcript presentation stop in background. Recording also closes the microphone.
+Chat listeners replay the latest cached transcript on resume. Notification lease
+pulses (`src/services/notificationConsumer.ts:59`) remain every 3 seconds when
+registered and enabled. Rust defines that cadence in
+`app_core/notifications.rs`; the host lease expires after 10 seconds
+(`whip-notify/src/host.rs`). This is JS execution evidence for local delivery and
+push fallback, not a UI refresh. Native health/reconnect/event processing also
+remains active so UI savings do not suppress completion notifications or device
+tools. SSH keepalives remain every 15 seconds, agent-order reconciliation backs
+off to 30 seconds in background, and host reconciliation remains every 120 seconds.
+
+These are confirmed code paths, not an attribution of all measured background
+CPU. The current root also stops call-log polling on AppState changes and updates
+React Query's focus manager. The decorative frame hook and browser download
+polling hook have no production callers in this UI. The static Herd glyph has no
+animation loop. A phone profile is needed to separate the remaining runtime work
+from debug/Metro overhead and quantify the savings.
 
 ## Changed areas
 

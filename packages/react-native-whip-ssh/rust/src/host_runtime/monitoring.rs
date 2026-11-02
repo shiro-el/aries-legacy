@@ -36,6 +36,10 @@ impl MonitoringState {
     fn visible_latency_enabled(&self) -> bool {
         self.app_active && self.hosts_visible && !self.access_locked
     }
+
+    fn application_latency_enabled(&self) -> bool {
+        self.app_active
+    }
 }
 
 // Called by the Android service, independently of a React instance. This changes
@@ -104,14 +108,24 @@ pub(super) fn set_monitoring_state(
                 if inner.state.lock().explicit_disconnect {
                     return;
                 }
-                let active = inner.monitoring.lock().health_enabled();
+                let (active, tick) = {
+                    let monitoring = inner.monitoring.lock();
+                    (
+                        monitoring.health_enabled(),
+                        if monitoring.app_active {
+                            MONITOR_TICK
+                        } else {
+                            HEALTH_INTERVAL
+                        },
+                    )
+                };
                 drop(inner);
                 if !active {
                     changed.notified().await;
                     continue;
                 }
                 tokio::select! {
-                    () = tokio::time::sleep(MONITOR_TICK) => {}
+                    () = tokio::time::sleep(tick) => {}
                     () = changed.notified() => {}
                 }
                 let Some(inner) = weak.upgrade() else {
@@ -120,11 +134,12 @@ pub(super) fn set_monitoring_state(
                 if inner.state.lock().explicit_disconnect {
                     return;
                 }
-                let (active, visible) = {
+                let (active, visible, app_active) = {
                     let monitoring = inner.monitoring.lock();
                     (
                         monitoring.health_enabled(),
                         monitoring.visible_latency_enabled(),
+                        monitoring.application_latency_enabled(),
                     )
                 };
                 if !active {
@@ -139,7 +154,11 @@ pub(super) fn set_monitoring_state(
                     }
                     if health_due {
                         last_health = Instant::now();
-                        tokio::spawn(measure_application_latency_inner(inner.clone()));
+                        // The shared-transport probe is a UI diagnostic, not
+                        // connection health. Background recovery uses probe().
+                        if app_active {
+                            tokio::spawn(measure_application_latency_inner(inner.clone()));
+                        }
                     }
                     probe(inner.clone()).await;
                 }
@@ -185,11 +204,19 @@ async fn probe(inner: Arc<RuntimeInner>) {
     }
     match result {
         Ok(measurement) => {
-            inner.monitoring.lock().latency_failures = 0;
-            emit(HostRuntimeEvent::LatencyMeasured {
-                runtime_id: inner.id.clone(),
-                measurement,
-            });
+            let app_active = {
+                let mut monitoring = inner.monitoring.lock();
+                monitoring.latency_failures = 0;
+                monitoring.app_active
+            };
+            // Keep native health/recovery alive without waking React to render
+            // an invisible RTT. Recheck after the await for in-flight probes.
+            if app_active {
+                emit(HostRuntimeEvent::LatencyMeasured {
+                    runtime_id: inner.id.clone(),
+                    measurement,
+                });
+            }
         }
         Err(error) => {
             let failures = {
@@ -242,6 +269,7 @@ mod tests {
                             state.visible_latency_enabled(),
                             app_active && hosts_visible && !access_locked
                         );
+                        assert_eq!(state.application_latency_enabled(), app_active);
                     }
                 }
             }

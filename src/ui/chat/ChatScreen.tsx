@@ -30,6 +30,7 @@ import { polishTranscript } from '../../services/transcriptPolish';
 import { useAgentChat } from './useAgentChat';
 import { freeTextChoice } from '../../lib/menuAnswer';
 import { recentMessages } from './voiceText';
+import { useAppActive } from '../../hooks/useAppActive';
 
 type Props = {
   sessionAccess?: SessionAccessActions;
@@ -56,9 +57,10 @@ export function ChatScreen({
   hostSessionId, hostName, pane, client, onRefresh, onBack, onOpenTerminal, onOpenProject, onOpenFile, active, focusComposer,
   onNeedVoiceKey, sessionAccess,
 }: Props) {
+  const appActive = useAppActive();
   const palette = usePalette();
   const s = useMemo(() => makeStyles(palette), [palette]);
-  const chat = useAgentChat({ hostSessionId, pane, client, onRefresh });
+  const chat = useAgentChat({ hostSessionId, pane, client, onRefresh, active: active && appActive });
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(() => new Set());
   const [focusRequest, setFocusRequest] = useState(0);
   const agent = chatAgentForPane(pane);
